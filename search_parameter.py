@@ -100,3 +100,10 @@ def main():
 
             print("-" * 40)
             print()
+
+    except Exception as e:
+        print(f"Ошибка при поиске: {str(e)}")
+
+
+if __name__ == "__main__":
+    main()
