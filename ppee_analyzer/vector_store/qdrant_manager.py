@@ -7,8 +7,8 @@ from typing import List, Dict, Any, Optional, Union
 import os
 
 from langchain_core.documents import Document
-from langchain.embeddings import HuggingFaceEmbeddings
-from langchain_community.vectorstores import Qdrant
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_qdrant import Qdrant
 
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
@@ -21,14 +21,14 @@ class QdrantManager:
     """Класс для работы с векторной базой данных Qdrant"""
 
     def __init__(
-            self,
-            collection_name: str = "ppee_applications",
-            host: str = "localhost",
-            port: int = 6333,
-            model_name: str = "BAAI/bge-m3-large",
-            vector_size: int = 1024,
-            device: str = "cuda",  # использовать "cpu" если нет GPU
-            create_collection: bool = True
+        self,
+        collection_name: str = "ppee_applications",
+        host: str = "localhost",
+        port: int = 6333,
+        model_name: str = "BAAI/bge-m3",
+        vector_size: int = 1024,
+        device: str = "cuda",  # использовать "cpu" если нет GPU
+        create_collection: bool = True
     ):
         """
         Инициализирует менеджер Qdrant.
@@ -119,16 +119,16 @@ class QdrantManager:
             end_idx = min(i + batch_size, total_documents)
             batch = documents[i:end_idx]
             self.vector_store.add_documents(batch)
-            logger.info(f"Проиндексирована партия {i + 1}-{end_idx} из {total_documents}")
+            logger.info(f"Проиндексирована партия {i+1}-{end_idx} из {total_documents}")
 
         logger.info(f"Индексация завершена. Добавлено {total_documents} документов")
         return total_documents
 
     def search(
-            self,
-            query: str,
-            filter_dict: Optional[Dict[str, Any]] = None,
-            k: int = 3
+        self,
+        query: str,
+        filter_dict: Optional[Dict[str, Any]] = None,
+        k: int = 3
     ) -> List[Document]:
         """
         Выполняет семантический поиск в векторном хранилище.

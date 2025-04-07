@@ -68,16 +68,26 @@ def main():
         for i, doc in enumerate(docs):
             print(f"Результат {i + 1}:")
             print(f"Раздел: {doc.metadata.get('section', 'Неизвестный раздел')}")
-            print(f"Тип содержимого: {doc.metadata.get('content_type', 'Неизвестно')}")
+
+            # Получаем тип содержимого
+            content_type = doc.metadata.get('content_type', 'Неизвестно')
+            print(f"Тип содержимого: {content_type}")
 
             # Форматированный вывод текста
             text = doc.page_content
-            if len(text) > 500:
-                text = text[:497] + "..."
 
-            print(f"Текст:")
-            print("-" * 40)
-            print(text)
+            # Для таблиц выводим полный текст, для остального - можем обрезать
+            should_truncate = content_type != "table" and len(text) > 1000
+
+            if should_truncate:
+                print(f"Текст (сокращенно):")
+                print("-" * 40)
+                print(text[:997] + "...")
+            else:
+                print(f"Текст:")
+                print("-" * 40)
+                print(text)
+
             print("-" * 40)
             print()
 
