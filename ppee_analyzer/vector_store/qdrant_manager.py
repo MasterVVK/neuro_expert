@@ -7,11 +7,14 @@ from typing import List, Dict, Any, Optional, Union
 import os
 
 from langchain_core.documents import Document
+from langchain_core.embeddings import Embeddings
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_qdrant import Qdrant
 
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
+
+from .ollama_embeddings import OllamaEmbeddings
 
 # Настройка логирования
 logger = logging.getLogger(__name__)
@@ -25,9 +28,11 @@ class QdrantManager:
         collection_name: str = "ppee_applications",
         host: str = "localhost",
         port: int = 6333,
+        embeddings_type: str = "huggingface",  # Новый параметр для выбора типа эмбеддингов
         model_name: str = "BAAI/bge-m3",
         vector_size: int = 1024,
         device: str = "cuda",  # использовать "cpu" если нет GPU
+        ollama_url: str = "http://localhost:11434",  # URL для Ollama
         create_collection: bool = True
     ):
         """
@@ -37,9 +42,11 @@ class QdrantManager:
             collection_name: Имя коллекции в Qdrant
             host: Хост Qdrant
             port: Порт Qdrant
+            embeddings_type: Тип эмбеддингов ("huggingface" или "ollama")
             model_name: Название модели для эмбеддингов
             vector_size: Размерность векторов
             device: Устройство для вычислений (cuda/cpu)
+            ollama_url: URL для Ollama API
             create_collection: Создавать коллекцию, если она не существует
         """
         self.collection_name = collection_name
@@ -48,20 +55,31 @@ class QdrantManager:
         self.model_name = model_name
         self.vector_size = vector_size
         self.device = device
+        self.embeddings_type = embeddings_type
+        self.ollama_url = ollama_url
 
         # Инициализация клиента Qdrant
         self.client = QdrantClient(host=host, port=port)
 
+        # Инициализация модели эмбеддингов
+        if embeddings_type.lower() == "ollama":
+            logger.info(f"Используем эмбеддинги Ollama с моделью {model_name}")
+            self.embeddings = OllamaEmbeddings(
+                model_name=model_name,
+                base_url=ollama_url,
+                normalize_embeddings=True
+            )
+        else:  # По умолчанию используем HuggingFace
+            logger.info(f"Используем эмбеддинги HuggingFace с моделью {model_name}")
+            self.embeddings = HuggingFaceEmbeddings(
+                model_name=model_name,
+                model_kwargs={'device': device},
+                encode_kwargs={'normalize_embeddings': True}
+            )
+
         # Проверяем существование коллекции и создаем при необходимости
         if create_collection:
             self._ensure_collection_exists()
-
-        # Инициализация модели эмбеддингов
-        self.embeddings = HuggingFaceEmbeddings(
-            model_name=model_name,
-            model_kwargs={'device': device},
-            encode_kwargs={'normalize_embeddings': True}
-        )
 
         # Инициализация векторного хранилища
         self.vector_store = Qdrant(

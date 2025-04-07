@@ -27,8 +27,14 @@ APPLICATION_ID = "app1"  # Идентификатор заявки
 QDRANT_HOST = "localhost"  # Хост Qdrant
 QDRANT_PORT = 6333  # Порт Qdrant
 COLLECTION_NAME = "ppee_applications"  # Имя коллекции
-MODEL_NAME = "BAAI/bge-m3"  # Модель для эмбеддингов
-DEVICE = "cuda"  # Устройство (cpu/cuda)
+
+# Параметры эмбеддингов
+EMBEDDINGS_TYPE = "ollama"  # Тип эмбеддингов: "huggingface" или "ollama"
+MODEL_NAME = "bge-m3"  # Модель для Ollama (версия для локального Ollama)
+# MODEL_NAME = "BAAI/bge-m3"  # Альтернативная модель для HuggingFace
+DEVICE = "cuda"  # Устройство (cpu/cuda) для HuggingFace
+OLLAMA_URL = "http://localhost:11434"  # URL для Ollama API
+
 LIMIT = 3  # Количество результатов
 
 
@@ -38,6 +44,8 @@ def main():
     print(f"\n{'=' * 80}")
     print(f"Поиск: '{SEARCH_QUERY}'")
     print(f"Заявка: {APPLICATION_ID}")
+    print(f"Тип эмбеддингов: {EMBEDDINGS_TYPE}")
+    print(f"Модель: {MODEL_NAME}")
     print(f"{'=' * 80}\n")
 
     try:
@@ -46,8 +54,10 @@ def main():
             collection_name=COLLECTION_NAME,
             host=QDRANT_HOST,
             port=QDRANT_PORT,
+            embeddings_type=EMBEDDINGS_TYPE,
             model_name=MODEL_NAME,
             device=DEVICE,
+            ollama_url=OLLAMA_URL,
             create_collection=False  # Не создаем коллекцию, если она не существует
         )
 
@@ -90,10 +100,3 @@ def main():
 
             print("-" * 40)
             print()
-
-    except Exception as e:
-        print(f"Ошибка при выполнении поиска: {str(e)}")
-
-
-if __name__ == "__main__":
-    main()

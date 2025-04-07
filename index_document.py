@@ -27,14 +27,21 @@ APPLICATION_ID = "app1"  # Идентификатор заявки
 QDRANT_HOST = "localhost"  # Хост Qdrant
 QDRANT_PORT = 6333  # Порт Qdrant
 COLLECTION_NAME = "ppee_applications"  # Имя коллекции
-MODEL_NAME = "BAAI/bge-m3"  # Модель для эмбеддингов
-DEVICE = "cuda"  # Устройство (cpu/cuda)
+
+# Параметры эмбеддингов
+EMBEDDINGS_TYPE = "ollama"  # Тип эмбеддингов: "huggingface" или "ollama"
+MODEL_NAME = "bge-m3"  # Модель для Ollama (версия для локального Ollama)
+# MODEL_NAME = "BAAI/bge-m3"  # Альтернативная модель для HuggingFace
+DEVICE = "cuda"  # Устройство (cpu/cuda) для HuggingFace
+OLLAMA_URL = "http://localhost:11434"  # URL для Ollama API
 
 
 def main():
     """Основная функция для загрузки документа в Qdrant"""
 
     print(f"Загрузка документа {FILE_PATH} в Qdrant...")
+    print(f"Используемый тип эмбеддингов: {EMBEDDINGS_TYPE}")
+    print(f"Модель: {MODEL_NAME}")
 
     try:
         # 1. Инициализируем разделитель документов
@@ -59,8 +66,10 @@ def main():
             collection_name=COLLECTION_NAME,
             host=QDRANT_HOST,
             port=QDRANT_PORT,
+            embeddings_type=EMBEDDINGS_TYPE,
             model_name=MODEL_NAME,
-            device=DEVICE
+            device=DEVICE,
+            ollama_url=OLLAMA_URL
         )
 
         # 4. Добавляем фрагменты в векторную базу данных
@@ -70,6 +79,8 @@ def main():
         print(f"  - Проиндексировано фрагментов: {indexed_count}")
         print(f"  - Коллекция: {COLLECTION_NAME}")
         print(f"  - Идентификатор заявки: {APPLICATION_ID}")
+        print(f"  - Тип эмбеддингов: {EMBEDDINGS_TYPE}")
+        print(f"  - Модель: {MODEL_NAME}")
 
     except Exception as e:
         print(f"Ошибка при загрузке документа: {str(e)}")
