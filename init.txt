@@ -1,3 +1,0 @@
-pip install pymilvus numpy dspy requests
-pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu121
-pip install docling
