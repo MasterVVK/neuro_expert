@@ -9,7 +9,7 @@ import os
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain_qdrant import Qdrant
+from langchain_qdrant import QdrantVectorStore  # Импортируем из langchain_qdrant
 
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
@@ -82,10 +82,10 @@ class QdrantManager:
             self._ensure_collection_exists()
 
         # Инициализация векторного хранилища
-        self.vector_store = Qdrant(
+        self.vector_store = QdrantVectorStore(
             client=self.client,
             collection_name=self.collection_name,
-            embeddings=self.embeddings
+            embedding=self.embeddings  # Изменяем embeddings на embedding
         )
 
     def _ensure_collection_exists(self):
