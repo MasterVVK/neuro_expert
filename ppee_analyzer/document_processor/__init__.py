@@ -3,5 +3,6 @@
 """
 
 from .splitter import PPEEDocumentSplitter
+from .pdf_converter import PDFToMarkdownConverter
 
-__all__ = ['PPEEDocumentSplitter']
+__all__ = ['PPEEDocumentSplitter', 'PDFToMarkdownConverter']
