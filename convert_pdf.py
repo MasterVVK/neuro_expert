@@ -1,5 +1,6 @@
 """
 Скрипт для конвертации PDF файлов в Markdown для использования в системе анализа ППЭЭ.
+Использует pdfplumber + pandas + tabulate для извлечения таблиц.
 """
 
 import os
@@ -19,8 +20,35 @@ logger = logging.getLogger(__name__)
 try:
     from ppee_analyzer.document_processor import PDFToMarkdownConverter
 except ImportError:
-    logger.error("Не удалось импортировать PPEEDocumentSplitter. Убедитесь, что модуль ppee_analyzer доступен.")
+    logger.error("Не удалось импортировать PDFToMarkdownConverter. Убедитесь, что модуль ppee_analyzer доступен.")
     sys.exit(1)
+
+
+def check_dependencies():
+    """Проверяет наличие необходимых зависимостей"""
+    missing_deps = []
+
+    try:
+        import pdfplumber
+    except ImportError:
+        missing_deps.append("pdfplumber")
+
+    try:
+        import pandas
+    except ImportError:
+        missing_deps.append("pandas")
+
+    try:
+        import tabulate
+    except ImportError:
+        missing_deps.append("tabulate")
+
+    if missing_deps:
+        logger.warning(f"Отсутствуют некоторые зависимости: {', '.join(missing_deps)}")
+        logger.warning("Установите их командой: pip install " + " ".join(missing_deps))
+        return False
+
+    return True
 
 
 def main():
@@ -70,15 +98,27 @@ def main():
         action="store_true",
         help="Рекурсивно обрабатывать поддиректории (для режима директории)"
     )
+    parser.add_argument(
+        "--no-tables",
+        action="store_true",
+        help="Отключить извлечение таблиц (может ускорить процесс)"
+    )
 
     args = parser.parse_args()
+
+    # Проверка наличия необходимых зависимостей
+    if not args.no_tables:
+        deps_ok = check_dependencies()
+        if not deps_ok:
+            logger.warning("Продолжение работы без извлечения таблиц")
+            args.no_tables = True
 
     # Инициализация конвертера
     try:
         converter = PDFToMarkdownConverter(
             use_ocr=args.ocr,
             ocr_language=args.ocr_lang,
-            preserve_tables=True,
+            preserve_tables=not args.no_tables,
             pandoc_path=args.pandoc_path,
             tesseract_path=args.tesseract_path
         )

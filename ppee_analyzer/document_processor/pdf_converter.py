@@ -1,6 +1,7 @@
 """
 Модуль для конвертации PDF документов в формат Markdown
 с сохранением структуры документа, таблиц и списков.
+Использует комбинацию pdfplumber + pandas + tabulate для извлечения таблиц.
 """
 
 import os
@@ -14,15 +15,31 @@ import shutil
 # Попытка импорта различных PDF библиотек с обработкой ошибок
 try:
     import fitz  # PyMuPDF
-
     PYMUPDF_AVAILABLE = True
 except ImportError:
     PYMUPDF_AVAILABLE = False
 
 try:
+    import pdfplumber
+    PDFPLUMBER_AVAILABLE = True
+except ImportError:
+    PDFPLUMBER_AVAILABLE = False
+
+try:
+    import pandas as pd
+    PANDAS_AVAILABLE = True
+except ImportError:
+    PANDAS_AVAILABLE = False
+
+try:
+    from tabulate import tabulate
+    TABULATE_AVAILABLE = True
+except ImportError:
+    TABULATE_AVAILABLE = False
+
+try:
     from pdf2image import convert_from_path
     import pytesseract
-
     OCR_AVAILABLE = True
 except ImportError:
     OCR_AVAILABLE = False
@@ -32,7 +49,7 @@ logger = logging.getLogger(__name__)
 
 
 class PDFToMarkdownConverter:
-    """Класс для конвертации PDF в Markdown с сохранением структуры"""
+    """Класс для конвертации PDF в Markdown с сохранением структуры и таблиц"""
 
     def __init__(
             self,
@@ -74,6 +91,18 @@ class PDFToMarkdownConverter:
             logger.warning("PyMuPDF (fitz) не установлен. Некоторые функции могут быть недоступны. "
                            "Установите его командой: pip install pymupdf")
 
+        if not PDFPLUMBER_AVAILABLE:
+            logger.warning("PDFPlumber не установлен. Извлечение таблиц будет ограничено. "
+                           "Установите его командой: pip install pdfplumber")
+
+        if not PANDAS_AVAILABLE:
+            logger.warning("Pandas не установлен. Некоторые функции могут быть недоступны. "
+                           "Установите его командой: pip install pandas")
+
+        if not TABULATE_AVAILABLE:
+            logger.warning("Tabulate не установлен. Форматирование таблиц будет ограничено. "
+                           "Установите его командой: pip install tabulate")
+
         if self.use_ocr and not OCR_AVAILABLE:
             logger.warning("Для использования OCR требуются библиотеки pdf2image и pytesseract. "
                            "Установите их командами: pip install pdf2image pytesseract")
@@ -109,18 +138,6 @@ class PDFToMarkdownConverter:
 
                 # Добавляем номер страницы
                 page_text += f"\n\nСтраница {page_num + 1}\n"
-
-                # Отключаем обработку таблиц, так как она вызывает ошибки
-                if False and self.preserve_tables:  # отключаем условие с помощью "False and"
-                    tables = page.find_tables()
-                    if tables and hasattr(tables, 'tables'):
-                        for table_idx, table in enumerate(tables.tables):
-                            try:
-                                markdown_table = self._convert_table_to_markdown(table)
-                                page_text += f"\n\n{markdown_table}\n\n"
-                            except Exception as e:
-                                logger.error(f"Ошибка при преобразовании таблицы в Markdown: {str(e)}")
-                                page_text += "\n\n*[Необработанная таблица]*\n\n"
 
                 full_text.append(page_text)
 
@@ -168,73 +185,6 @@ class PDFToMarkdownConverter:
         except Exception as e:
             logger.error(f"Ошибка при извлечении текста с помощью OCR: {str(e)}")
             return ""
-
-    def _convert_table_to_markdown(self, table) -> str:
-        """
-        Преобразует таблицу в формат Markdown.
-
-        Args:
-            table: Объект таблицы из PyMuPDF
-
-        Returns:
-            str: Таблица в формате Markdown
-        """
-        try:
-            # Проверяем наличие необходимых атрибутов
-            if not (hasattr(table, 'rows') and hasattr(table, 'cols') and hasattr(table, 'cells')):
-                logger.warning("Таблица не содержит необходимых атрибутов")
-                return "*Не удалось преобразовать таблицу*"
-
-            rows_count = table.rows
-            cols_count = table.cols
-
-            # Создаем таблицу в формате Markdown
-            md_table = []
-
-            # Заголовок (первая строка)
-            header = []
-            for col in range(cols_count):
-                try:
-                    # Индекс ячейки = строка * количество_столбцов + столбец
-                    cell_idx = 0 * cols_count + col
-                    if cell_idx < len(table.cells):
-                        cell = table.cells[cell_idx]
-                        text = cell.text.strip() if hasattr(cell, 'text') else ""
-                    else:
-                        text = " "
-                    header.append(text or " ")
-                except Exception as e:
-                    logger.error(f"Ошибка при получении заголовка столбца {col}: {str(e)}")
-                    header.append(" ")
-
-            md_table.append("| " + " | ".join(header) + " |")
-
-            # Разделитель
-            md_table.append("| " + " | ".join(["---" for _ in range(cols_count)]) + " |")
-
-            # Строки данных (со второй строки)
-            for row in range(1, rows_count):
-                row_data = []
-                for col in range(cols_count):
-                    try:
-                        cell_idx = row * cols_count + col
-                        if cell_idx < len(table.cells):
-                            cell = table.cells[cell_idx]
-                            text = cell.text.strip() if hasattr(cell, 'text') else ""
-                        else:
-                            text = " "
-                        row_data.append(text or " ")
-                    except Exception as e:
-                        logger.error(f"Ошибка при получении данных ячейки [{row}][{col}]: {str(e)}")
-                        row_data.append(" ")
-
-                md_table.append("| " + " | ".join(row_data) + " |")
-
-            return "\n".join(md_table)
-
-        except Exception as e:
-            logger.error(f"Ошибка при преобразовании таблицы в Markdown: {str(e)}")
-            return "*Ошибка преобразования таблицы*"
 
     def _process_extracted_text(self, text: str) -> str:
         """
@@ -284,13 +234,256 @@ class PDFToMarkdownConverter:
         text = re.sub(r'(?m)^[\s•]*[-–—•][\s]+(.*)', r'* \1', text)
         text = re.sub(r'(?m)^[\s]*(\d+)\.[\s]+(.*)', r'\1. \2', text)
 
-        # Обработка таблиц (предполагаем, что таблицы уже в формате Markdown)
-
         return text
+
+    def _extract_tables_with_pdfplumber(self, pdf_path: str) -> dict:
+        """
+        Извлекает таблицы из PDF с помощью pdfplumber.
+
+        Args:
+            pdf_path: Путь к PDF-файлу
+
+        Returns:
+            dict: Словарь с таблицами в формате Markdown
+        """
+        if not PDFPLUMBER_AVAILABLE or not PANDAS_AVAILABLE:
+            logger.error("PDFPlumber или Pandas не установлены. Невозможно извлечь таблицы.")
+            return {}
+
+        tables_dict = {}
+        table_count = 0
+
+        try:
+            logger.info("Извлечение таблиц с помощью PDFPlumber")
+
+            # Открываем PDF с помощью pdfplumber
+            with pdfplumber.open(pdf_path) as pdf:
+                # Проходим по каждой странице
+                for page_num, page in enumerate(pdf.pages):
+                    # Извлекаем таблицы на текущей странице
+                    tables = page.extract_tables()
+
+                    for table_idx, table_data in enumerate(tables):
+                        if not table_data or len(table_data) <= 1:
+                            continue  # Пропускаем пустые или слишком маленькие таблицы
+
+                        # Создаем DataFrame из полученных данных
+                        df = pd.DataFrame(table_data)
+
+                        # Если в первой строке есть заголовки, используем их
+                        if df.shape[0] > 0:
+                            headers = df.iloc[0].tolist()
+                            df = df.iloc[1:].reset_index(drop=True)
+                            df.columns = headers
+
+                        # Очищаем данные
+                        df = self._clean_dataframe(df)
+
+                        # Проверяем, что таблица не пустая после очистки
+                        if df.empty or df.shape[0] == 0 or df.shape[1] == 0:
+                            continue
+
+                        # Преобразуем в Markdown с использованием tabulate
+                        if TABULATE_AVAILABLE:
+                            table_md = tabulate(df, headers='keys', tablefmt='pipe', showindex=False)
+                        else:
+                            # Собственная реализация для случая, когда tabulate не установлен
+                            headers = df.columns.tolist()
+                            rows = [headers]
+                            rows.append(['---'] * len(headers))
+                            for _, row in df.iterrows():
+                                rows.append(row.tolist())
+
+                            table_md = '\n'.join(['| ' + ' | '.join(map(str, row)) + ' |' for row in rows])
+
+                        # Добавляем таблицу в словарь
+                        table_count += 1
+                        table_key = f"table_p{page_num+1}_{table_idx+1}"
+                        tables_dict[table_key] = table_md
+
+                        logger.info(f"Извлечена таблица {table_count} со страницы {page_num+1}")
+
+            logger.info(f"Всего извлечено таблиц: {table_count}")
+            return tables_dict
+
+        except Exception as e:
+            logger.error(f"Ошибка при извлечении таблиц с помощью PDFPlumber: {str(e)}")
+            return {}
+
+    def _clean_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Очищает и обрабатывает DataFrame с данными таблицы.
+
+        Args:
+            df: DataFrame таблицы
+
+        Returns:
+            pd.DataFrame: Очищенный DataFrame
+        """
+        if df.empty:
+            return df
+
+        # Заменяем None на пустые строки
+        df = df.fillna('')
+
+        # Преобразуем все значения в строки
+        for col in df.columns:
+            df[col] = df[col].astype(str)
+
+        # Удаляем пробелы в начале и конце значений
+        for col in df.columns:
+            df[col] = df[col].apply(lambda x: x.strip() if isinstance(x, str) else x)
+
+        # Удаляем строки, где все ячейки пусты
+        df = df.loc[~(df == '').all(axis=1)]
+
+        # Удаляем колонки, где все ячейки пусты
+        df = df.loc[:, ~(df == '').all()]
+
+        # Обрабатываем заголовки - заменяем None и пустые строки на Column N
+        new_headers = []
+        for i, col in enumerate(df.columns):
+            if col == '' or str(col).lower() == 'none':
+                new_headers.append(f"Column {i + 1}")
+            else:
+                new_headers.append(col)
+
+        df.columns = new_headers
+
+        return df
+
+    def _insert_tables_into_content(self, content: str, tables: dict) -> str:
+        """
+        Вставляет таблицы в текстовый контент на основе эвристик.
+
+        Args:
+            content: Текстовый контент
+            tables: Словарь таблиц в формате Markdown
+
+        Returns:
+            str: Обновленный контент с таблицами
+        """
+        if not tables:
+            return content
+
+        # Разбиваем контент на строки
+        lines = content.split('\n')
+        result = []
+        tables_inserted = set()
+
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            result.append(line)
+
+            # Ищем потенциальные маркеры таблиц
+            table_markers = [
+                r'[Тт]аблица\s*№?\s*\d+',  # Таблица №1
+                r'[Тт]абл\.\s*№?\s*\d+',    # Табл. №1
+                r'[Tt]able\s*\d+',          # Table 1
+                r'список\s*[а-яА-Я\s]+:',   # список чего-либо:
+                r'перечень\s*[а-яА-Я\s]+:'  # перечень чего-либо:
+            ]
+
+            is_table_marker = any(re.search(pattern, line, re.IGNORECASE) for pattern in table_markers)
+
+            # Если нашли маркер таблицы, ищем лучшую таблицу для вставки
+            if is_table_marker and i + 1 < len(lines):
+                # Смотрим на следующую строку
+                next_line = lines[i + 1]
+
+                # Если следующая строка пустая или не начинается с | - подходящее место для таблицы
+                if not next_line.strip() or not next_line.strip().startswith('|'):
+                    available_tables = [t_id for t_id in tables if t_id not in tables_inserted]
+
+                    if available_tables:
+                        table_id = available_tables[0]
+                        result.append("")  # Пустая строка перед таблицей
+                        result.append(tables[table_id])
+                        result.append("")  # Пустая строка после таблицы
+                        tables_inserted.add(table_id)
+
+            # Также ищем последовательные строки с числами или форматированием, указывающим на таблицу
+            if i + 2 < len(lines):
+                current = line.strip()
+                next1 = lines[i + 1].strip()
+                next2 = lines[i + 2].strip()
+
+                # Признаки табличных данных
+                has_numbers = re.search(r'\d+\s+\d+', current) and re.search(r'\d+\s+\d+', next1)
+                has_spacing = re.search(r'\S+\s{2,}\S+', current) and re.search(r'\S+\s{2,}\S+', next1)
+
+                if (has_numbers or has_spacing) and not any(line.strip().startswith('|') for line in [current, next1, next2]):
+                    available_tables = [t_id for t_id in tables if t_id not in tables_inserted]
+
+                    if available_tables:
+                        table_id = available_tables[0]
+                        result.append("")  # Пустая строка перед таблицей
+                        result.append(tables[table_id])
+                        result.append("")  # Пустая строка после таблицы
+                        tables_inserted.add(table_id)
+                        # Пропускаем следующие строки, которые были бы неструктурированной таблицей
+                        i += 2
+
+            i += 1
+
+        # Добавляем оставшиеся таблицы в конец документа
+        remaining_tables = [table_content for table_id, table_content in tables.items()
+                           if table_id not in tables_inserted]
+
+        if remaining_tables:
+            result.append("\n## Извлеченные таблицы\n")
+            for table_content in remaining_tables:
+                result.append(table_content)
+                result.append("\n")
+
+        return '\n'.join(result)
+
+    def _post_process_markdown(self, file_path: str) -> None:
+        """
+        Дополнительная обработка Markdown-файла для улучшения форматирования.
+
+        Args:
+            file_path: Путь к Markdown-файлу
+        """
+        try:
+            with open(file_path, 'r', encoding='utf-8') as file:
+                content = file.read()
+
+            # 1. Удаление лишних пустых строк
+            content = re.sub(r'\n{3,}', '\n\n', content)
+
+            # 2. Форматирование заголовков
+            lines = content.split('\n')
+            for i in range(len(lines)):
+                # Если строка похожа на заголовок, но не форматирована
+                if re.match(r'^[0-9]+\.\s+[А-ЯA-Z]', lines[i]) and not lines[i].startswith('#'):
+                    lines[i] = f"# {lines[i]}"
+                elif re.match(r'^[0-9]+\.[0-9]+\.\s+[А-ЯA-Z]', lines[i]) and not lines[i].startswith('#'):
+                    lines[i] = f"## {lines[i]}"
+
+            content = '\n'.join(lines)
+
+            # 3. Исправление таблиц
+            # Заменяем любые последовательные пробелы в таблицах одним пробелом
+            table_rows = re.findall(r'^\|.*\|$', content, re.MULTILINE)
+            for row in table_rows:
+                fixed_row = re.sub(r'\|\s+', '| ', row)
+                fixed_row = re.sub(r'\s+\|', ' |', fixed_row)
+                content = content.replace(row, fixed_row)
+
+            # Записываем обработанный контент обратно
+            with open(file_path, 'w', encoding='utf-8') as file:
+                file.write(content)
+
+            logger.info(f"Постобработка файла {file_path} выполнена успешно")
+
+        except Exception as e:
+            logger.error(f"Ошибка при постобработке файла {file_path}: {str(e)}")
 
     def convert_pdf_to_markdown(self, pdf_path: str, output_path: Optional[str] = None) -> str:
         """
-        Конвертирует PDF в Markdown.
+        Конвертирует PDF в Markdown с извлечением таблиц.
 
         Args:
             pdf_path: Путь к PDF-файлу
@@ -305,19 +498,34 @@ class PDFToMarkdownConverter:
             logger.error(f"Файл не найден: {pdf_path}")
             return ""
 
-        # Стратегия 1: Использование PyMuPDF (теперь как первая стратегия)
+        # Извлечение текста с помощью PyMuPDF
         if PYMUPDF_AVAILABLE:
             logger.info("Используем PyMuPDF для извлечения текста")
             text = self._extract_text_with_pymupdf(pdf_path)
+
             if text:
                 logger.info("Извлечение текста с помощью PyMuPDF успешно")
+
+                # Извлечение таблиц с помощью pdfplumber, если требуется
+                tables = {}
+                if self.preserve_tables and PDFPLUMBER_AVAILABLE:
+                    tables = self._extract_tables_with_pdfplumber(pdf_path)
+
+                # Обработка текста
                 markdown_content = self._process_extracted_text(text)
+
+                # Вставка таблиц в контент
+                if tables:
+                    markdown_content = self._insert_tables_into_content(markdown_content, tables)
 
                 # Если указан путь для сохранения
                 if output_path:
                     with open(output_path, 'w', encoding='utf-8') as f:
                         f.write(markdown_content)
                     logger.info(f"Результат сохранен в файл: {output_path}")
+
+                    # Постобработка для улучшения форматирования
+                    self._post_process_markdown(output_path)
 
                 return markdown_content
 
