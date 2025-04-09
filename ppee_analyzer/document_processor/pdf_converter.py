@@ -79,20 +79,8 @@ class PDFToMarkdownConverter:
                            "Установите их командами: pip install pdf2image pytesseract")
             self.use_ocr = False
 
-        # Проверка доступности pandoc
-        pandoc_available = False
-        try:
-            pandoc_cmd = self.pandoc_path if self.pandoc_path else "pandoc"
-            subprocess.run([pandoc_cmd, "--version"],
-                           stdout=subprocess.PIPE,
-                           stderr=subprocess.PIPE,
-                           check=True)
-            pandoc_available = True
-        except (subprocess.SubprocessError, FileNotFoundError):
-            logger.warning("Pandoc не найден. Преобразование таблиц может быть ограничено. "
-                           "Установите Pandoc: https://pandoc.org/installing.html")
-
-        self.pandoc_available = pandoc_available
+        # Убираем проверку на Pandoc, так как он не может конвертировать из PDF
+        self.pandoc_available = False
 
     def _extract_text_with_pymupdf(self, pdf_path: str) -> str:
         """
@@ -122,16 +110,17 @@ class PDFToMarkdownConverter:
                 # Добавляем номер страницы
                 page_text += f"\n\nСтраница {page_num + 1}\n"
 
-                # Обрабатываем таблицы, если требуется их сохранение
-                if self.preserve_tables:
-                    # Извлекаем таблицы (упрощённый подход)
+                # Отключаем обработку таблиц, так как она вызывает ошибки
+                if False and self.preserve_tables:  # отключаем условие с помощью "False and"
                     tables = page.find_tables()
                     if tables and hasattr(tables, 'tables'):
                         for table_idx, table in enumerate(tables.tables):
-                            # Преобразуем таблицу в markdown-формат
-                            markdown_table = self._convert_table_to_markdown(table)
-                            # Отдельный маркер для таблиц, чтобы позже можно было идентифицировать
-                            page_text += f"\n\n{markdown_table}\n\n"
+                            try:
+                                markdown_table = self._convert_table_to_markdown(table)
+                                page_text += f"\n\n{markdown_table}\n\n"
+                            except Exception as e:
+                                logger.error(f"Ошибка при преобразовании таблицы в Markdown: {str(e)}")
+                                page_text += "\n\n*[Необработанная таблица]*\n\n"
 
                 full_text.append(page_text)
 
@@ -191,111 +180,61 @@ class PDFToMarkdownConverter:
             str: Таблица в формате Markdown
         """
         try:
-            # Получаем размеры таблицы
-            if hasattr(table, 'rows') and hasattr(table, 'cols'):
-                rows_count = table.rows
-                cols_count = table.cols
-            else:
-                # Альтернативный способ получения размеров
-                rows_count = len(table)
-                cols_count = len(table[0]) if rows_count > 0 else 0
+            # Проверяем наличие необходимых атрибутов
+            if not (hasattr(table, 'rows') and hasattr(table, 'cols') and hasattr(table, 'cells')):
+                logger.warning("Таблица не содержит необходимых атрибутов")
+                return "*Не удалось преобразовать таблицу*"
+
+            rows_count = table.rows
+            cols_count = table.cols
 
             # Создаем таблицу в формате Markdown
             md_table = []
 
             # Заголовок (первая строка)
-            if rows_count > 0:
-                header = []
+            header = []
+            for col in range(cols_count):
+                try:
+                    # Индекс ячейки = строка * количество_столбцов + столбец
+                    cell_idx = 0 * cols_count + col
+                    if cell_idx < len(table.cells):
+                        cell = table.cells[cell_idx]
+                        text = cell.text.strip() if hasattr(cell, 'text') else ""
+                    else:
+                        text = " "
+                    header.append(text or " ")
+                except Exception as e:
+                    logger.error(f"Ошибка при получении заголовка столбца {col}: {str(e)}")
+                    header.append(" ")
+
+            md_table.append("| " + " | ".join(header) + " |")
+
+            # Разделитель
+            md_table.append("| " + " | ".join(["---" for _ in range(cols_count)]) + " |")
+
+            # Строки данных (со второй строки)
+            for row in range(1, rows_count):
+                row_data = []
                 for col in range(cols_count):
                     try:
-                        if hasattr(table, 'cells'):
-                            cell = table.cells[0 * cols_count + col]
+                        cell_idx = row * cols_count + col
+                        if cell_idx < len(table.cells):
+                            cell = table.cells[cell_idx]
                             text = cell.text.strip() if hasattr(cell, 'text') else ""
                         else:
-                            text = table[0][col].strip() if isinstance(table[0][col], str) else str(table[0][col]).strip()
-                        header.append(text or " ")
-                    except (IndexError, AttributeError):
-                        header.append(" ")
+                            text = " "
+                        row_data.append(text or " ")
+                    except Exception as e:
+                        logger.error(f"Ошибка при получении данных ячейки [{row}][{col}]: {str(e)}")
+                        row_data.append(" ")
 
-                md_table.append("| " + " | ".join(header) + " |")
-
-                # Разделитель
-                md_table.append("| " + " | ".join(["---" for _ in range(cols_count)]) + " |")
-
-                # Строки данных (со второй строки)
-                for row in range(1, rows_count):
-                    row_data = []
-                    for col in range(cols_count):
-                        try:
-                            if hasattr(table, 'cells'):
-                                cell = table.cells[row * cols_count + col]
-                                text = cell.text.strip() if hasattr(cell, 'text') else ""
-                            else:
-                                text = table[row][col].strip() if isinstance(table[row][col], str) else str(table[row][col]).strip()
-                            row_data.append(text or " ")
-                        except (IndexError, AttributeError):
-                            row_data.append(" ")
-
-                    md_table.append("| " + " | ".join(row_data) + " |")
+                md_table.append("| " + " | ".join(row_data) + " |")
 
             return "\n".join(md_table)
 
         except Exception as e:
             logger.error(f"Ошибка при преобразовании таблицы в Markdown: {str(e)}")
             return "*Ошибка преобразования таблицы*"
-
-    def _convert_with_pandoc(self, pdf_path: str) -> str:
-        """
-        Конвертирует PDF в Markdown с помощью Pandoc.
-
-        Args:
-            pdf_path: Путь к PDF-файлу
-
-        Returns:
-            str: Содержимое в формате Markdown
-        """
-        if not self.pandoc_available:
-            logger.error("Pandoc не установлен. Невозможно выполнить конвертацию.")
-            return ""
-
-        try:
-            # Временный файл для вывода
-            with tempfile.NamedTemporaryFile(suffix='.md', delete=False) as tmp_file:
-                tmp_md_path = tmp_file.name
-
-            # Команда для Pandoc
-            pandoc_cmd = self.pandoc_path if self.pandoc_path else "pandoc"
-            cmd = [
-                pandoc_cmd,
-                pdf_path,
-                "-o", tmp_md_path,
-                "--extract-media=.",  # Извлекаем медиа
-                "--standalone"  # Standalone документ
-            ]
-
-            # Запускаем Pandoc
-            process = subprocess.run(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                check=True
-            )
-
-            # Читаем результат
-            with open(tmp_md_path, 'r', encoding='utf-8') as f:
-                markdown_content = f.read()
-
-            # Удаляем временный файл
-            os.unlink(tmp_md_path)
-
-            return markdown_content
-
-        except subprocess.SubprocessError as e:
-            logger.error(f"Ошибка при запуске Pandoc: {str(e)}")
-            return ""
-        except Exception as e:
-            logger.error(f"Ошибка при конвертации PDF в Markdown: {str(e)}")
-            return ""
 
     def _process_extracted_text(self, text: str) -> str:
         """
@@ -366,23 +305,7 @@ class PDFToMarkdownConverter:
             logger.error(f"Файл не найден: {pdf_path}")
             return ""
 
-        # Стратегия 1: Попытка с использованием Pandoc (наилучшее качество)
-        if self.pandoc_available:
-            logger.info("Используем Pandoc для конвертации")
-            markdown_content = self._convert_with_pandoc(pdf_path)
-            if markdown_content:
-                logger.info("Конвертация с помощью Pandoc успешна")
-                markdown_content = self._process_extracted_text(markdown_content)
-
-                # Если указан путь для сохранения
-                if output_path:
-                    with open(output_path, 'w', encoding='utf-8') as f:
-                        f.write(markdown_content)
-                    logger.info(f"Результат сохранен в файл: {output_path}")
-
-                return markdown_content
-
-        # Стратегия 2: Использование PyMuPDF
+        # Стратегия 1: Использование PyMuPDF (теперь как первая стратегия)
         if PYMUPDF_AVAILABLE:
             logger.info("Используем PyMuPDF для извлечения текста")
             text = self._extract_text_with_pymupdf(pdf_path)
@@ -398,7 +321,7 @@ class PDFToMarkdownConverter:
 
                 return markdown_content
 
-        # Стратегия 3: Использование OCR
+        # Стратегия 2: Использование OCR
         if self.use_ocr and OCR_AVAILABLE:
             logger.info("Используем OCR для извлечения текста")
             text = self._extract_text_with_ocr(pdf_path)
