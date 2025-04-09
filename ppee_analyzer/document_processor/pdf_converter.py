@@ -126,7 +126,7 @@ class PDFToMarkdownConverter:
                 if self.preserve_tables:
                     # Извлекаем таблицы (упрощённый подход)
                     tables = page.find_tables()
-                    if tables and tables.tables:
+                    if tables and hasattr(tables, 'tables'):
                         for table_idx, table in enumerate(tables.tables):
                             # Преобразуем таблицу в markdown-формат
                             markdown_table = self._convert_table_to_markdown(table)
@@ -191,37 +191,52 @@ class PDFToMarkdownConverter:
             str: Таблица в формате Markdown
         """
         try:
-            rows = []
-            header = []
-
-            # Получаем данные таблицы
-            for y in range(table.rows):
-                row = []
-                for x in range(table.cols):
-                    # PyMuPDF использует индексы ячеек, начиная с 0
-                    cell = table.cells[y * table.cols + x]
-                    # Если доступно содержимое ячейки, добавляем его
-                    text = cell.text.strip() if hasattr(cell, 'text') else ""
-                    row.append(text)
-
-                # Первая строка считается заголовком
-                if y == 0:
-                    header = row
-                else:
-                    rows.append(row)
+            # Получаем размеры таблицы
+            if hasattr(table, 'rows') and hasattr(table, 'cols'):
+                rows_count = table.rows
+                cols_count = table.cols
+            else:
+                # Альтернативный способ получения размеров
+                rows_count = len(table)
+                cols_count = len(table[0]) if rows_count > 0 else 0
 
             # Создаем таблицу в формате Markdown
             md_table = []
 
-            # Заголовок
-            md_table.append("| " + " | ".join(header) + " |")
+            # Заголовок (первая строка)
+            if rows_count > 0:
+                header = []
+                for col in range(cols_count):
+                    try:
+                        if hasattr(table, 'cells'):
+                            cell = table.cells[0 * cols_count + col]
+                            text = cell.text.strip() if hasattr(cell, 'text') else ""
+                        else:
+                            text = table[0][col].strip() if isinstance(table[0][col], str) else str(table[0][col]).strip()
+                        header.append(text or " ")
+                    except (IndexError, AttributeError):
+                        header.append(" ")
 
-            # Разделитель
-            md_table.append("| " + " | ".join(["---" for _ in header]) + " |")
+                md_table.append("| " + " | ".join(header) + " |")
 
-            # Строки данных
-            for row in rows:
-                md_table.append("| " + " | ".join(row) + " |")
+                # Разделитель
+                md_table.append("| " + " | ".join(["---" for _ in range(cols_count)]) + " |")
+
+                # Строки данных (со второй строки)
+                for row in range(1, rows_count):
+                    row_data = []
+                    for col in range(cols_count):
+                        try:
+                            if hasattr(table, 'cells'):
+                                cell = table.cells[row * cols_count + col]
+                                text = cell.text.strip() if hasattr(cell, 'text') else ""
+                            else:
+                                text = table[row][col].strip() if isinstance(table[row][col], str) else str(table[row][col]).strip()
+                            row_data.append(text or " ")
+                        except (IndexError, AttributeError):
+                            row_data.append(" ")
+
+                    md_table.append("| " + " | ".join(row_data) + " |")
 
             return "\n".join(md_table)
 
