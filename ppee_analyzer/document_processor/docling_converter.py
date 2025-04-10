@@ -34,7 +34,7 @@ class DoclingPDFConverter:
 
         self.preserve_tables = preserve_tables
         self.converter = DocumentConverter()
-        logger.info(f"Инициализирован конвертер docling версии {docling.__version__}")
+        logger.info(f"Инициализирован конвертер docling")
 
     def convert_pdf_to_markdown(self, pdf_path: str, output_path: Optional[str] = None) -> str:
         """
