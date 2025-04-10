@@ -1,8 +1,7 @@
 """
-Модуль для обработки и разделения документов ППЭЭ
+Модуль для конвертации PDF документов в формат Markdown
 """
 
-from .splitter import PPEEDocumentSplitter
 from .pdf_converter import PDFToMarkdownConverter
 
-__all__ = ['PPEEDocumentSplitter', 'PDFToMarkdownConverter']
+__all__ = ['PDFToMarkdownConverter']
