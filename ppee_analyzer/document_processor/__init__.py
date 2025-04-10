@@ -3,5 +3,6 @@
 """
 
 from .pdf_converter import PDFToMarkdownConverter
+from .docling_converter import DoclingPDFConverter
 
-__all__ = ['PDFToMarkdownConverter']
+__all__ = ['PDFToMarkdownConverter', 'DoclingPDFConverter']

@@ -6,6 +6,7 @@ import os
 import sys
 import argparse
 import logging
+from typing import List, Optional
 
 # Настройка логирования
 logging.basicConfig(
@@ -23,9 +24,9 @@ except ImportError:
 
 # Импортируем наш конвертер
 try:
-    from docling_pdf_converter import DoclingPDFConverter
+    from ppee_analyzer.document_processor import DoclingPDFConverter
 except ImportError:
-    logger.error("Не удалось импортировать DoclingPDFConverter. Убедитесь, что файл docling_pdf_converter.py доступен.")
+    logger.error("Не удалось импортировать DoclingPDFConverter. Убедитесь, что модуль ppee_analyzer доступен.")
     sys.exit(1)
 
 
