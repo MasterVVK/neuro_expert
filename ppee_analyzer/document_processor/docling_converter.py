@@ -13,7 +13,6 @@ logger = logging.getLogger(__name__)
 try:
     import docling
     from docling.document_converter import DocumentConverter
-
     DOCLING_AVAILABLE = True
 except ImportError:
     DOCLING_AVAILABLE = False
