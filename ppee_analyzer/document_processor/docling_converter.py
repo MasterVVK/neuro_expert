@@ -4,7 +4,7 @@
 
 import os
 import logging
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 # Настройка логирования
 logger = logging.getLogger(__name__)
@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 # Проверяем наличие docling
 try:
     import docling
-    from docling.document_converter import DocumentConverter
+    from docling.document_converter import DocumentConverter, FormatOption, InputFormat, PdfFormatOption
     DOCLING_AVAILABLE = True
 except ImportError:
     DOCLING_AVAILABLE = False
@@ -33,9 +33,28 @@ class DoclingPDFConverter:
             raise ImportError("Библиотека docling не установлена")
 
         self.preserve_tables = preserve_tables
-        self.converter = DocumentConverter()
-        logger.info(f"Инициализирован конвертер docling")
-#        logger.info(f"Настройки DocumentConverter: {self.converter.config}")
+
+        # Настраиваем опции для PDF формата
+        try:
+            # Создаем опции для PDF
+            pdf_format_option = PdfFormatOption(
+                extract_images=True,  # Включаем извлечение изображений
+                ocr_enabled=False     # Отключаем OCR для ускорения
+            )
+
+            # Создаем словарь с опциями форматов
+            format_options = {
+                InputFormat.PDF: pdf_format_option
+            }
+
+            # Инициализируем конвертер с опциями
+            self.converter = DocumentConverter(format_options=format_options)
+            logger.info("Инициализирован конвертер docling с опциями для извлечения изображений")
+        except Exception as e:
+            # Если что-то пошло не так, используем конвертер по умолчанию
+            logger.warning(f"Не удалось настроить опции для docling: {e}")
+            self.converter = DocumentConverter()
+            logger.info("Инициализирован конвертер docling с настройками по умолчанию")
 
     def convert_pdf_to_markdown(self, pdf_path: str, output_path: Optional[str] = None) -> str:
         """
