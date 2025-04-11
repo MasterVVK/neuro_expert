@@ -64,13 +64,19 @@ def main():
         action="store_true",
         help="Рекурсивно обрабатывать поддиректории (для режима директории)"
     )
+    parser.add_argument(
+        "--describe-images",
+        action="store_true",
+        help="Включить описание изображений с помощью Ollama"
+    )
 
     args = parser.parse_args()
 
     # Инициализация конвертера
     try:
         converter = DoclingPDFConverter(
-            preserve_tables=not args.no_tables
+            preserve_tables=not args.no_tables,
+            enable_image_description=args.describe_images
         )
     except Exception as e:
         logger.error(f"Ошибка при инициализации конвертера: {str(e)}")
