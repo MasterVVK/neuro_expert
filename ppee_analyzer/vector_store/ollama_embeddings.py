@@ -181,4 +181,3 @@ class OllamaEmbeddings(Embeddings):
         # Используем тот же метод _get_embedding с модифицированным запросом
         return self._get_embedding(text)
 
-
