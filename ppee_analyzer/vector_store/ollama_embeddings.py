@@ -173,6 +173,10 @@ class OllamaEmbeddings(Embeddings):
         Returns:
             List[float]: Вектор эмбеддинга
         """
-        # Для запросов могут использоваться отдельные настройки
-        # В данном случае используем тот же метод
+        # Добавляем префикс "query:" для моделей BGE
+        if "bge" in self.model_name.lower():
+            logger.debug(f"Добавление префикса 'query:' для модели BGE: {self.model_name}")
+            text = f"query: {text}"
+
+        # Используем тот же метод _get_embedding с модифицированным запросом
         return self._get_embedding(text)

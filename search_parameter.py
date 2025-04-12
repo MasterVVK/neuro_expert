@@ -35,7 +35,7 @@ MODEL_NAME = "bge-m3"  # Модель для Ollama (версия для лок�
 DEVICE = "cuda"  # Устройство (cpu/cuda) для HuggingFace
 OLLAMA_URL = "http://localhost:11434"  # URL для Ollama API
 
-LIMIT = 3  # Количество результатов
+LIMIT = 10  # Количество результатов
 
 
 def main():

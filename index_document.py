@@ -22,7 +22,7 @@ from ppee_analyzer.document_processor import PPEEDocumentSplitter
 from ppee_analyzer.vector_store import QdrantManager
 
 # Параметры, которые можно изменить
-FILE_PATH = "data/Очищенная ППЭЭ (с масками) итог.md"  # Путь к файлу документа
+FILE_PATH = "data/ППЭЭ итог ЖУЛЕБИНО_21.06.2024 (2).md"  # Путь к файлу документа
 APPLICATION_ID = "app1"  # Идентификатор заявки
 QDRANT_HOST = "localhost"  # Хост Qdrant
 QDRANT_PORT = 6333  # Порт Qdrant
