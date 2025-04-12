@@ -3,5 +3,7 @@
 """
 
 from .docling_converter import DoclingPDFConverter
+from .splitter import PPEEDocumentSplitter
+from .pdf_converter import PDFToMarkdownConverter
 
-__all__ = ['DoclingPDFConverter']
+__all__ = ['PPEEDocumentSplitter', 'PDFToMarkdownConverter', 'DoclingPDFConverter']
