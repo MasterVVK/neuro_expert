@@ -6,6 +6,9 @@
 import os
 import logging
 from dotenv import load_dotenv
+import pandas as pd
+from qdrant_client import QdrantClient
+from qdrant_client.models import Filter, FieldCondition, MatchValue
 
 # Настройка логирования
 logging.basicConfig(
@@ -35,7 +38,7 @@ MODEL_NAME = "bge-m3"  # Модель для Ollama (версия для лок�
 DEVICE = "cuda"  # Устройство (cpu/cuda) для HuggingFace
 OLLAMA_URL = "http://localhost:11434"  # URL для Ollama API
 
-LIMIT = 2  # Количество результатов
+LIMIT = 5  # Количество результатов
 
 
 def main():
@@ -49,7 +52,10 @@ def main():
     print(f"{'=' * 80}\n")
 
     try:
-        # 1. Инициализируем менеджер Qdrant
+        # 1. Инициализируем клиент Qdrant напрямую
+        client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
+
+        # 2. Инициализируем менеджер Qdrant для использования эмбеддингов
         qdrant_manager = QdrantManager(
             collection_name=COLLECTION_NAME,
             host=QDRANT_HOST,
@@ -61,48 +67,82 @@ def main():
             create_collection=False  # Не создаем коллекцию, если она не существует
         )
 
-        # 2. Выполняем семантический поиск
-        docs = qdrant_manager.search(
-            query=SEARCH_QUERY,
-            filter_dict={"application_id": APPLICATION_ID},
-            k=LIMIT
+        # 3. Предобработка запроса для BGE моделей
+        if "bge" in MODEL_NAME.lower():
+            processed_query = f"query: {SEARCH_QUERY}"
+        else:
+            processed_query = SEARCH_QUERY
+
+        # 4. Получаем эмбеддинг запроса
+        query_embedding = qdrant_manager.embeddings.embed_query(processed_query)
+
+        # 5. Создаем фильтр для поиска по application_id
+        search_filter = Filter(
+            must=[
+                FieldCondition(
+                    key="metadata.application_id",
+                    match=MatchValue(value=APPLICATION_ID)
+                )
+            ]
         )
 
-        # 3. Выводим результаты
-        if not docs:
+        # 6. Выполняем поиск через метод query_points, как в примере
+        search_result = client.search(
+            collection_name=COLLECTION_NAME,
+            query_vector=query_embedding,
+            query_filter=search_filter,
+            limit=LIMIT
+        )
+
+        # 7. Обрабатываем результаты
+        if not search_result:
             print("Информация не найдена.")
             return
 
-        print(f"Найдено результатов: {len(docs)}\n")
+        print(f"Найдено результатов: {len(search_result)}\n")
 
-        for i, doc in enumerate(docs):
+        # 8. Подготовка результатов для вывода
+        document_list = [point.payload['page_content'] for point in search_result]
+        document_ids = [point.id for point in search_result]
+        document_scores = [point.score for point in search_result]
+        metadata_list = [point.payload.get('metadata', {}) for point in search_result]
+
+        # 9. Вывод результатов в виде таблицы
+        search_results_df = pd.DataFrame({
+            "ID": document_ids,
+            "Score": document_scores,
+            "Section": [metadata.get('section', 'Неизвестно') for metadata in metadata_list],
+            "Type": [metadata.get('content_type', 'Неизвестно') for metadata in metadata_list]
+        })
+        print(search_results_df)
+        print()
+
+        # 10. Вывод результатов в детальном формате
+        for i, (doc, score, metadata) in enumerate(zip(document_list, document_scores, metadata_list)):
             print(f"Результат {i + 1}:")
-            print(f"Раздел: {doc.metadata.get('section', 'Неизвестный раздел')}")
-
-            # Получаем тип содержимого
-            content_type = doc.metadata.get('content_type', 'Неизвестно')
-            print(f"Тип содержимого: {content_type}")
+            print(f"Релевантность: {score:.4f}")
+            print(f"Раздел: {metadata.get('section', 'Неизвестный раздел')}")
+            print(f"Тип содержимого: {metadata.get('content_type', 'Неизвестно')}")
 
             # Форматированный вывод текста
-            text = doc.page_content
-
-            # Для таблиц выводим полный текст, для остального - можем обрезать
-            should_truncate = content_type != "table" and len(text) > 1000
+            should_truncate = metadata.get('content_type', 'Неизвестно') != "table" and len(doc) > 1000
 
             if should_truncate:
                 print(f"Текст (сокращенно):")
                 print("-" * 40)
-                print(text[:997] + "...")
+                print(doc[:997] + "...")
             else:
                 print(f"Текст:")
                 print("-" * 40)
-                print(text)
+                print(doc)
 
             print("-" * 40)
             print()
 
     except Exception as e:
         print(f"Ошибка при поиске: {str(e)}")
+        import traceback
+        traceback.print_exc()
 
 
 if __name__ == "__main__":
