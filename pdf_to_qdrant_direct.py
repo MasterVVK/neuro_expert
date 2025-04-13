@@ -1,12 +1,12 @@
 """
 Скрипт для прямой конвертации PDF через docling в векторную базу Qdrant
-с сохранением структурных элементов, включая целостные таблицы.
+с использованием PPEEDocumentSplitter для разделения документа.
 """
 
 import os
 import logging
 import argparse
-import re
+import tempfile
 from typing import List, Dict, Any, Optional
 
 # Настройка логирования
@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 # Импорт классов из проекта
 from ppee_analyzer.vector_store import QdrantManager
+from ppee_analyzer.document_processor import PPEEDocumentSplitter
 from langchain_core.documents import Document
 
 # Проверяем наличие docling
@@ -40,10 +41,11 @@ def pdf_to_qdrant_direct(
         embeddings_type: str = "ollama",
         model_name: str = "bge-m3",
         device: str = "cuda",
-        ollama_url: str = "http://localhost:11434"
+        ollama_url: str = "http://localhost:11434",
+        delete_existing: bool = False
 ):
     """
-    Конвертирует PDF напрямую в векторную базу Qdrant через docling.
+    Конвертирует PDF через docling и индексирует в Qdrant с помощью PPEEDocumentSplitter.
 
     Args:
         pdf_path: Путь к PDF файлу
@@ -55,6 +57,7 @@ def pdf_to_qdrant_direct(
         model_name: Название модели эмбеддингов
         device: Устройство для вычислений
         ollama_url: URL для Ollama API
+        delete_existing: Удалять ли существующие документы с тем же application_id
 
     Returns:
         Dict[str, Any]: Результаты индексации
@@ -62,13 +65,10 @@ def pdf_to_qdrant_direct(
     if not DOCLING_AVAILABLE:
         return {"error": "Библиотека docling не установлена", "status": "error"}
 
-    logger.info(f"Обработка PDF файла напрямую в Qdrant: {pdf_path}")
+    logger.info(f"Обработка PDF файла: {pdf_path}")
 
     try:
-        # Получаем имя файла без расширения для ID документа
-        document_id = os.path.splitext(os.path.basename(pdf_path))[0]
-
-        # 1. Настраиваем опции для PDF
+        # 1. Настраиваем опции для docling
         pipeline_options = PdfPipelineOptions()
         pipeline_options.generate_picture_images = True
         pipeline_options.images_scale = 2
@@ -82,7 +82,7 @@ def pdf_to_qdrant_direct(
             InputFormat.PDF: pdf_format_option
         }
 
-        # 2. Инициализируем конвертер docling с опциями
+        # 2. Инициализируем конвертер docling
         logger.info("Инициализация конвертера docling")
         try:
             converter = DocumentConverter(format_options=format_options)
@@ -90,7 +90,7 @@ def pdf_to_qdrant_direct(
             logger.warning(f"Не удалось создать конвертер с опциями: {str(e)}")
             converter = DocumentConverter()
 
-        # 3. Конвертируем PDF напрямую в структуру docling
+        # 3. Конвертируем PDF в Markdown через docling
         logger.info(f"Конвертация PDF через docling")
         docling_result = converter.convert(pdf_path)
 
@@ -100,26 +100,28 @@ def pdf_to_qdrant_direct(
 
         logger.info(f"PDF успешно конвертирован через docling")
 
-        # Анализируем структуру результата docling для отладки
-        logger.info(f"Результат docling: тип={type(docling_result)}")
-        logger.info(f"Доступные атрибуты: {dir(docling_result)}")
+        # 4. Сохраняем Markdown во временный файл
+        with tempfile.NamedTemporaryFile(suffix=".md", delete=False) as temp_file:
+            temp_markdown_path = temp_file.name
+            docling_result.document.save_as_markdown(temp_markdown_path)
+            logger.info(f"Markdown сохранен во временный файл: {temp_markdown_path}")
 
-        if hasattr(docling_result, 'document'):
-            logger.info(f"Тип document: {type(docling_result.document)}")
-            logger.info(f"Атрибуты document: {dir(docling_result.document)}")
+        # 5. Используем PPEEDocumentSplitter для разделения документа
+        logger.info("Инициализация PPEEDocumentSplitter")
+        splitter = PPEEDocumentSplitter()
 
-        # 4. Создаем фрагменты напрямую из структуры docling
-        logger.info("Создание фрагментов из структуры docling")
-        chunks = create_chunks_from_docling(
-            docling_result=docling_result,
-            application_id=application_id,
-            document_id=document_id
-        )
+        # 6. Загружаем и разделяем документ
+        logger.info(f"Разделение документа на фрагменты")
+        chunks = splitter.load_and_process_file(temp_markdown_path, application_id)
 
-        logger.info(f"Создано {len(chunks)} фрагментов документа")
+        # 7. Удаляем временный файл
+        os.unlink(temp_markdown_path)
+        logger.info(f"Временный файл удален: {temp_markdown_path}")
 
-        # 5. Инициализируем менеджер Qdrant
-        logger.info("Инициализация менеджера Qdrant")
+        logger.info(f"Документ разделен на {len(chunks)} фрагментов")
+
+        # 8. Инициализируем менеджер Qdrant
+        logger.info("Инициализация QdrantManager")
         qdrant_manager = QdrantManager(
             collection_name=collection_name,
             host=qdrant_host,
@@ -130,17 +132,22 @@ def pdf_to_qdrant_direct(
             ollama_url=ollama_url
         )
 
-        # 6. Добавляем фрагменты в векторную базу данных
+        # 9. Если нужно, удаляем существующие документы
+        if delete_existing:
+            deleted_count = qdrant_manager.delete_application(application_id)
+            logger.info(f"Удалено {deleted_count} существующих документов для заявки {application_id}")
+
+        # 10. Добавляем фрагменты в векторную базу данных
         logger.info(f"Индексация фрагментов в Qdrant")
         indexed_count = qdrant_manager.add_documents(chunks)
 
-        # 7. Собираем статистику
+        # 11. Собираем статистику
         content_types = {}
         for chunk in chunks:
             content_type = chunk.metadata["content_type"]
             content_types[content_type] = content_types.get(content_type, 0) + 1
 
-        # 8. Возвращаем результат
+        # 12. Возвращаем результат
         result = {
             "pdf_path": pdf_path,
             "application_id": application_id,
@@ -158,222 +165,15 @@ def pdf_to_qdrant_direct(
         return {"error": str(e), "status": "error"}
 
 
-def create_chunks_from_docling(
-        docling_result: Any,
-        application_id: str,
-        document_id: str
-) -> List[Document]:
+def test_search(collection_name: str = "ppee_applications"):
     """
-    Создает фрагменты документов напрямую из структуры docling,
-    следуя логике деления из index_document.py.
+    Тестовая функция для проверки поиска.
 
     Args:
-        docling_result: Результат конвертации docling
-        application_id: Идентификатор заявки
-        document_id: Идентификатор документа
-
-    Returns:
-        List[Document]: Список фрагментов-документов
+        collection_name: Имя коллекции
     """
-    chunks = []
-
-    # Получаем доступ к документу
-    docling_doc = docling_result.document
-
-    # Экспортируем в markdown для дальнейшей обработки как в index_document.py
-    markdown_content = docling_doc.export_to_markdown()
-
-    if not markdown_content:
-        logger.error("Не удалось получить markdown-контент из документа")
-        return []
-
-    # Начинаем обработку по разделам
-    logger.info("Обработка markdown-контента для создания фрагментов")
-
-    # Регулярное выражение для поиска заголовков
-    header_pattern = r'^(#{1,6})\s+(.+)$'
-
-    # Разделяем на строки
-    lines = markdown_content.split('\n')
-
-    # Структура для хранения разделов и их содержимого
-    sections = []
-    current_section = {
-        'title': 'Введение',
-        'level': 0,
-        'content': []
-    }
-
-    # Разбиваем контент на секции
-    for line in lines:
-        header_match = re.match(header_pattern, line)
-
-        if header_match:
-            # Если встретили новый заголовок, сохраняем предыдущий раздел
-            if current_section['content']:
-                sections.append(current_section)
-
-            # Создаем новый раздел
-            level = len(header_match.group(1))
-            title = header_match.group(2).strip()
-
-            current_section = {
-                'title': title,
-                'level': level,
-                'content': []
-            }
-        else:
-            # Добавляем строку к текущему разделу
-            current_section['content'].append(line)
-
-    # Не забываем добавить последний раздел
-    if current_section['content']:
-        sections.append(current_section)
-
-    # Обрабатываем секции и создаем фрагменты
-    for section in sections:
-        section_content = '\n'.join(section['content'])
-
-        # Проверяем содержимое на наличие таблиц
-        # Исправленный паттерн для поиска таблиц
-        has_table = False
-        table_lines = []
-
-        # Разбиваем на строки для более простого поиска таблиц
-        content_lines = section_content.split('\n')
-        in_table = False
-        table_start_index = -1
-
-        for i, line in enumerate(content_lines):
-            # Определяем начало таблицы
-            if line.strip().startswith('|') and '|' in line[1:]:
-                if not in_table:
-                    in_table = True
-                    table_start_index = i
-            # Определяем конец таблицы
-            elif in_table and (not line.strip().startswith('|') or '|' not in line[1:]):
-                if i > table_start_index + 1:  # Минимальная таблица должна иметь хотя бы 2 строки
-                    has_table = True
-                    table = '\n'.join(content_lines[table_start_index:i])
-                    table_lines.append((table_start_index, i, table))
-                in_table = False
-
-        # Если таблица заканчивается в конце раздела
-        if in_table and table_start_index >= 0:
-            has_table = True
-            table = '\n'.join(content_lines[table_start_index:])
-            table_lines.append((table_start_index, len(content_lines), table))
-
-        # Если в разделе есть таблицы, обрабатываем их отдельно
-        if has_table:
-            # Создаем фрагменты текста между таблицами
-            last_end = 0
-
-            for start, end, table in table_lines:
-                # Добавляем текст до таблицы
-                if start > last_end:
-                    text_content = '\n'.join(content_lines[last_end:start])
-                    if text_content.strip():
-                        # Определяем тип контента
-                        content_type = "text"
-                        if any(line.strip().startswith(('-', '*', '+')) for line in text_content.split('\n')):
-                            content_type = "list"
-
-                        chunks.append(Document(
-                            page_content=text_content.strip(),
-                            metadata={
-                                "application_id": application_id,
-                                "document_id": document_id,
-                                "section": section['title'],
-                                "section_level": section['level'],
-                                "content_type": content_type
-                            }
-                        ))
-
-                # Добавляем таблицу
-                chunks.append(Document(
-                    page_content=table.strip(),
-                    metadata={
-                        "application_id": application_id,
-                        "document_id": document_id,
-                        "section": section['title'],
-                        "section_level": section['level'],
-                        "content_type": "table"
-                    }
-                ))
-
-                last_end = end
-
-            # Добавляем оставшийся текст после последней таблицы
-            if last_end < len(content_lines):
-                text_content = '\n'.join(content_lines[last_end:])
-                if text_content.strip():
-                    # Определяем тип контента
-                    content_type = "text"
-                    if any(line.strip().startswith(('-', '*', '+')) for line in text_content.split('\n')):
-                        content_type = "list"
-
-                    chunks.append(Document(
-                        page_content=text_content.strip(),
-                        metadata={
-                            "application_id": application_id,
-                            "document_id": document_id,
-                            "section": section['title'],
-                            "section_level": section['level'],
-                            "content_type": content_type
-                        }
-                    ))
-        else:
-            # Если таблиц нет, добавляем содержимое как один фрагмент
-            if section_content.strip():
-                # Определяем тип контента
-                content_type = "text"
-                if any(line.strip().startswith(('-', '*', '+')) for line in section_content.split('\n')):
-                    content_type = "list"
-
-                chunks.append(Document(
-                    page_content=section_content.strip(),
-                    metadata={
-                        "application_id": application_id,
-                        "document_id": document_id,
-                        "section": section['title'],
-                        "section_level": section['level'],
-                        "content_type": content_type
-                    }
-                ))
-
-    # Если после всех попыток фрагментов нет, добавляем весь документ как один фрагмент
-    if not chunks:
-        logger.warning("Не удалось создать фрагменты, добавляем весь документ целиком")
-        chunks.append(Document(
-            page_content=markdown_content,
-            metadata={
-                "application_id": application_id,
-                "document_id": document_id,
-                "section": "Весь документ",
-                "section_level": 0,
-                "content_type": "text"
-            }
-        ))
-
-    logger.info(f"Создано {len(chunks)} фрагментов")
-
-    # Выводим статистику
-    content_types = {}
-    for chunk in chunks:
-        content_type = chunk.metadata["content_type"]
-        content_types[content_type] = content_types.get(content_type, 0) + 1
-
-    logger.info(f"Статистика типов фрагментов: {content_types}")
-
-    return chunks
-
-
-# Модифицированный метод search в файле pdf_to_qdrant_direct.py
-def test_search():
-    """Тестовая функция для проверки поиска"""
     qdrant_manager = QdrantManager(
-        collection_name="ppee_applications",
+        collection_name=collection_name,
         host="localhost",
         port=6333,
         embeddings_type="ollama",
@@ -403,23 +203,25 @@ def test_search():
         # Выводим результаты
         if docs:
             for i, doc in enumerate(docs):
-                print(f"\nРезультат {i + 1}:")
+                print(f"\nРезультат {i+1}:")
                 print(f"Раздел: {doc.metadata.get('section', 'Неизвестный раздел')}")
                 print(f"Тип: {doc.metadata.get('content_type', 'Неизвестно')}")
 
-                # Печатаем первые 200 символов текста
+                # Печатаем контент (ограниченный)
                 content = doc.page_content
-                if len(content) > 200:
-                    content = content[:197] + "..."
+                if len(content) > 300:
+                    content = content[:297] + "..."
+
                 print(f"Содержание: {content}")
                 print(f"{'-' * 60}")
         else:
             print("Ничего не найдено")
 
+
 def main():
     """Функция командной строки для запуска процесса"""
     parser = argparse.ArgumentParser(
-        description="Прямая конвертация PDF в Qdrant через docling"
+        description="Конвертация PDF в Qdrant через docling с использованием PPEEDocumentSplitter"
     )
 
     # Обязательные аргументы
@@ -475,6 +277,18 @@ def main():
         help="URL для Ollama API (по умолчанию: http://localhost:11434)"
     )
 
+    # Дополнительные настройки
+    parser.add_argument(
+        "--delete-existing",
+        action="store_true",
+        help="Удалять существующие документы с тем же application_id"
+    )
+    parser.add_argument(
+        "--test-search",
+        action="store_true",
+        help="Выполнить тестовый поиск после индексации"
+    )
+
     args = parser.parse_args()
 
     # Запуск процесса обработки
@@ -487,7 +301,8 @@ def main():
         embeddings_type=args.embeddings,
         model_name=args.model,
         device=args.device,
-        ollama_url=args.ollama_url
+        ollama_url=args.ollama_url,
+        delete_existing=args.delete_existing
     )
 
     # Вывод результата
@@ -502,6 +317,10 @@ def main():
         print("\nСтатистика по типам фрагментов:")
         for content_type, count in result['content_types'].items():
             print(f"  - {content_type}: {count}")
+
+        # Если нужно, выполняем тестовый поиск
+        if args.test_search:
+            test_search(args.collection)
     else:
         print(f"\nОШИБКА при обработке: {result.get('error', 'Неизвестная ошибка')}")
 

@@ -23,7 +23,7 @@ from ppee_analyzer.vector_store import QdrantManager
 # Параметры, которые можно изменить
 SEARCH_QUERY = "полное наименование юридического лица"  # Параметр для поиска
 #SEARCH_QUERY = "ИНН"  # Параметр для поиска
-APPLICATION_ID = "app1"  # Идентификатор заявки
+APPLICATION_ID = "app2"  # Идентификатор заявки
 QDRANT_HOST = "localhost"  # Хост Qdrant
 QDRANT_PORT = 6333  # Порт Qdrant
 COLLECTION_NAME = "ppee_applications"  # Имя коллекции
@@ -35,7 +35,7 @@ MODEL_NAME = "bge-m3"  # Модель для Ollama (версия для лок�
 DEVICE = "cuda"  # Устройство (cpu/cuda) для HuggingFace
 OLLAMA_URL = "http://localhost:11434"  # URL для Ollama API
 
-LIMIT = 10  # Количество результатов
+LIMIT = 2  # Количество результатов
 
 
 def main():
