@@ -173,3 +173,352 @@ input, textarea, select {
     margin-bottom: 1.5rem;
     color: #666;
 }
+/* Стили для заявок */
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 20px;
+}
+
+.data-table th, .data-table td {
+    padding: 10px;
+    border: 1px solid #ddd;
+    text-align: left;
+}
+
+.data-table th {
+    background-color: #f5f5f5;
+    font-weight: bold;
+}
+
+.data-table tr:nth-child(even) {
+    background-color: #f9f9f9;
+}
+
+.data-table tr:hover {
+    background-color: #f0f0f0;
+}
+
+.button-small {
+    padding: 5px 10px;
+    font-size: 0.9em;
+}
+
+.button-secondary {
+    background-color: #6c757d;
+}
+
+.button-primary {
+    background-color: #007bff;
+}
+
+.button-success {
+    background-color: #28a745;
+}
+
+.button-danger {
+    background-color: #dc3545;
+}
+
+.button[disabled] {
+    opacity: 0.65;
+    cursor: not-allowed;
+}
+
+.status-badge {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 0.8em;
+    color: white;
+}
+
+.status-created {
+    background-color: #6c757d;
+}
+
+.status-indexing {
+    background-color: #ffc107;
+    color: #212529;
+}
+
+.status-indexed {
+    background-color: #17a2b8;
+}
+
+.status-analyzing {
+    background-color: #007bff;
+}
+
+.status-analyzed {
+    background-color: #28a745;
+}
+
+.status-error {
+    background-color: #dc3545;
+}
+
+.empty-list {
+    padding: 20px;
+    text-align: center;
+    background-color: #f8f9fa;
+    border-radius: 4px;
+    margin: 20px 0;
+}
+
+.info-card {
+    background-color: white;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.info-row {
+    display: flex;
+    margin-bottom: 10px;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 10px;
+}
+
+.info-label {
+    width: 150px;
+    font-weight: bold;
+}
+
+.info-value {
+    flex: 1;
+}
+
+.application-details {
+    margin-bottom: 30px;
+}
+
+.action-panel {
+    background-color: white;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.button-group {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.checklist-section, .file-section {
+    background-color: white;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.checklist-list {
+    margin-top: 10px;
+}
+
+.checklist-item {
+    padding: 10px;
+    border-bottom: 1px solid #eee;
+}
+
+.checklist-name {
+    font-weight: bold;
+    margin-right: 10px;
+}
+
+.checklist-info {
+    color: #6c757d;
+    font-size: 0.9em;
+}
+
+.form-container {
+    background-color: white;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    max-width: 800px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.form-note {
+    font-size: 0.9em;
+    color: #6c757d;
+    margin-top: 5px;
+}
+
+.form-actions {
+    margin-top: 20px;
+    display: flex;
+    gap: 10px;
+}
+
+.checkbox-group {
+    margin-top: 10px;
+}
+
+.checkbox-item {
+    margin-bottom: 5px;
+}
+
+.checkbox-item input[type="checkbox"] {
+    width: auto;
+    margin-right: 10px;
+}
+
+.results-container {
+    background-color: white;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.results-summary {
+    margin-bottom: 20px;
+    padding: 15px;
+    background-color: #f8f9fa;
+    border-radius: 4px;
+}
+
+.checklist-results {
+    margin-bottom: 30px;
+}
+
+.checklist-results h3 {
+    margin-bottom: 15px;
+    padding-bottom: 5px;
+    border-bottom: 1px solid #eee;
+}
+
+.confidence-bar {
+    position: relative;
+    height: 20px;
+    background-color: #e9ecef;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.confidence-value {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    background-color: #28a745;
+}
+
+.confidence-bar span {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    text-align: center;
+    line-height: 20px;
+    color: white;
+    font-weight: bold;
+    text-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
+}
+
+.results-actions {
+    margin-top: 20px;
+    text-align: center;
+}
+/* Дополнительные стили для LLM страниц */
+.model-item {
+    background-color: white;
+    border-radius: 8px;
+    padding: 15px;
+    margin-bottom: 15px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.model-item h3 {
+    margin-bottom: 10px;
+    color: #007bff;
+}
+
+.model-details {
+    margin-top: 10px;
+}
+
+.model-detail {
+    margin-bottom: 5px;
+}
+
+.detail-label {
+    font-weight: bold;
+    margin-right: 10px;
+}
+
+.model-error {
+    color: #dc3545;
+}
+
+.alert {
+    padding: 15px;
+    margin-bottom: 20px;
+    border-radius: 4px;
+}
+
+.alert-error {
+    background-color: #f8d7da;
+    border: 1px solid #f5c6cb;
+    color: #721c24;
+}
+
+.form-row {
+    display: flex;
+    gap: 15px;
+}
+
+.half-width {
+    width: 50%;
+}
+
+.llm-response {
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    padding: 15px;
+    margin-top: 15px;
+    white-space: pre-wrap;
+    font-family: monospace;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.response-container {
+    margin-top: 30px;
+    border-top: 1px solid #dee2e6;
+    padding-top: 20px;
+}
+
+.inline-form {
+    display: inline;
+}
+
+/* Дополнительные стили для чек-листов */
+.parameters-section {
+    background-color: white;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.action-buttons {
+    margin-top: 20px;
+    display: flex;
+    gap: 10px;
+}

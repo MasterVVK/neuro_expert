@@ -1,16 +1,43 @@
 {% extends "base.html" %}
 
 {% block content %}
-    <h1>Создание заявки</h1>
-    <form method="post">
-        <div class="form-group">
-            <label for="name">Название заявки</label>
-            <input type="text" id="name" name="name" required>
-        </div>
-        <div class="form-group">
-            <label for="description">Описание</label>
-            <textarea id="description" name="description" rows="4"></textarea>
-        </div>
-        <button type="submit" class="button">Создать</button>
-    </form>
+    <div class="page-header">
+        <h1>Создание заявки</h1>
+        <a href="{{ url_for('applications.index') }}" class="button button-secondary">Назад к списку</a>
+    </div>
+    
+    <div class="form-container">
+        <form method="post">
+            <div class="form-group">
+                <label for="name">Название заявки</label>
+                <input type="text" id="name" name="name" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="description">Описание</label>
+                <textarea id="description" name="description" rows="4"></textarea>
+            </div>
+            
+            <div class="form-group">
+                <label>Чек-листы</label>
+                {% if checklists %}
+                    <div class="checkbox-group">
+                        {% for checklist in checklists %}
+                            <div class="checkbox-item">
+                                <input type="checkbox" id="checklist_{{ checklist.id }}" name="checklists" value="{{ checklist.id }}">
+                                <label for="checklist_{{ checklist.id }}">{{ checklist.name }}</label>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <p class="form-note">Нет доступных чек-листов. Создайте чек-лист в разделе "Чек-листы".</p>
+                {% endif %}
+            </div>
+            
+            <div class="form-actions">
+                <button type="submit" class="button">Создать заявку</button>
+                <a href="{{ url_for('applications.index') }}" class="button button-secondary">Отмена</a>
+            </div>
+        </form>
+    </div>
 {% endblock %}

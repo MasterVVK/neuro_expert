@@ -50,6 +50,9 @@ def create_app(config_name=None):
     # Регистрация blueprint'ов
     register_blueprints(app)
     
+    # Регистрация пользовательских фильтров
+    register_template_filters(app)
+    
     return app
 
 def setup_logging(app):
@@ -84,3 +87,13 @@ def register_blueprints(app):
     app.register_blueprint(checklists_bp)
     app.register_blueprint(llm_bp)
     app.register_blueprint(auth_bp)
+
+def register_template_filters(app):
+    """Регистрация пользовательских фильтров для шаблонов"""
+    
+    @app.template_filter('nl2br')
+    def nl2br_filter(s):
+        """Заменяет переносы строк на HTML-тег <br>"""
+        if not s:
+            return ""
+        return s.replace('\n', '<br>')
