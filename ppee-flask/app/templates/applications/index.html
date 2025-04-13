@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <h1>Заявки</h1>
+    <p>Список заявок будет отображаться здесь.</p>
+    <a href="{{ url_for('applications.create') }}" class="button">Создать заявку</a>
+{% endblock %}

@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <div class="home-container">
+        <h1>PPEE Analyzer</h1>
+        <p class="lead">Система для анализа документов ППЭЭ с использованием семантического поиска и LLM</p>
+        
+        <div class="features">
+            <div class="feature-card">
+                <h3>Управление заявками</h3>
+                <p>Создание, просмотр и анализ заявок на проверку документов ППЭЭ</p>
+                <a href="{{ url_for('applications.index') }}" class="button">Перейти к заявкам</a>
+            </div>
+            
+            <div class="feature-card">
+                <h3>Чек-листы</h3>
+                <p>Создание и настройка чек-листов для проверки документов</p>
+                <a href="{{ url_for('checklists.index') }}" class="button">Перейти к чек-листам</a>
+            </div>
+            
+            <div class="feature-card">
+                <h3>Управление LLM</h3>
+                <p>Настройка параметров языковых моделей для анализа</p>
+                <a href="{{ url_for('llm_management.index') }}" class="button">Настройки LLM</a>
+            </div>
+        </div>
+    </div>
+{% endblock %}
