@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <div class="page-header">
+        <h1>Добавление параметра</h1>
+        <a href="{{ url_for('checklists.view', id=checklist.id) }}" class="button button-secondary">Назад к чек-листу</a>
+    </div>
+    
+    <div class="form-container">
+        <h2>Чек-лист: {{ checklist.name }}</h2>
+        
+        <form method="post">
+            <div class="form-group">
+                <label for="name">Название параметра</label>
+                <input type="text" id="name" name="name" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="description">Описание</label>
+                <textarea id="description" name="description" rows="2"></textarea>
+            </div>
+            
+            <div class="form-group">
+                <label for="search_query">Поисковый запрос</label>
+                <input type="text" id="search_query" name="search_query" required>
+                <p class="form-note">Запрос для семантического поиска в документах (например, "полное наименование юридического лица")</p>
+            </div>
+            
+            <h3>Настройки LLM</h3>
+            
+            <div class="form-group">
+                <label for="llm_model">Модель LLM</label>
+                <select id="llm_model" name="llm_model" required>
+                    {% for model in available_models %}
+                        <option value="{{ model }}">{{ model }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="llm_prompt_template">Шаблон промпта</label>
+                <textarea id="llm_prompt_template" name="llm_prompt_template" rows="10" required>{{ default_prompt }}</textarea>
+                <p class="form-note">Используйте {query} для вставки поискового запроса и {context} для вставки контекста из найденных документов</p>
+            </div>
+            
+            <div class="form-row">
+                <div class="form-group half-width">
+                    <label for="llm_temperature">Temperature</label>
+                    <input type="number" id="llm_temperature" name="llm_temperature" step="0.1" min="0" max="1" value="0.1">
+                    <p class="form-note">Значение от 0.0 до 1.0, влияет на креативность ответов</p>
+                </div>
+                
+                <div class="form-group half-width">
+                    <label for="llm_max_tokens">Max Tokens</label>
+                    <input type="number" id="llm_max_tokens" name="llm_max_tokens" min="100" max="4000" value="1000">
+                    <p class="form-note">Максимальная длина ответа в токенах</p>
+                </div>
+            </div>
+            
+            <div class="form-actions">
+                <button type="submit" class="button">Добавить параметр</button>
+                <a href="{{ url_for('checklists.view', id=checklist.id) }}" class="button button-secondary">Отмена</a>
+            </div>
+        </form>
+    </div>
+{% endblock %}

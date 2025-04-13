@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <div class="page-header">
+        <h1>Результаты анализа</h1>
+        <a href="{{ url_for('applications.view', id=application.id) }}" class="button button-secondary">Назад к заявке</a>
+    </div>
+    
+    <div class="results-container">
+        <h2>{{ application.name }}</h2>
+        
+        <div class="results-summary">
+            <p>Статус: <span class="status-badge status-{{ application.status }}">{{ application.get_status_display() }}</span></p>
+            <p>Проанализировано чек-листов: {{ checklist_results|length }}</p>
+        </div>
+        
+        {% for checklist_id, data in checklist_results.items() %}
+            <div class="checklist-results">
+                <h3>{{ data.checklist.name }}</h3>
+                
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Параметр</th>
+                            <th>Значение</th>
+                            <th>Уверенность</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in data.results %}
+                            <tr>
+                                <td>{{ item.parameter.name }}</td>
+                                <td>{{ item.result.value }}</td>
+                                <td>
+                                    <div class="confidence-bar">
+                                        <div class="confidence-value" style="width: {{ item.result.confidence * 100 }}%;"></div>
+                                        <span>{{ (item.result.confidence * 100)|int }}%</span>
+                                    </div>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% endfor %}
+        
+        <div class="results-actions">
+            <button class="button" onclick="window.print()">Распечатать отчет</button>
+        </div>
+    </div>
+{% endblock %}

@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <div class="page-header">
+        <h1>Тестирование LLM</h1>
+        <a href="{{ url_for('llm_management.index') }}" class="button button-secondary">Назад к управлению</a>
+    </div>
+    
+    <div class="form-container">
+        <form method="post">
+            <div class="form-group">
+                <label for="model_name">Модель</label>
+                <select id="model_name" name="model_name" required>
+                    {% for model in available_models %}
+                        <option value="{{ model }}" {% if model_name == model %}selected{% endif %}>{{ model }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="prompt">Запрос</label>
+                <textarea id="prompt" name="prompt" rows="5" required>{{ prompt or 'Расскажи о себе' }}</textarea>
+            </div>
+            
+            <div class="form-row">
+                <div class="form-group half-width">
+                    <label for="temperature">Temperature</label>
+                    <input type="number" id="temperature" name="temperature" step="0.1" min="0" max="1" value="{{ temperature or 0.1 }}">
+                </div>
+                
+                <div class="form-group half-width">
+                    <label for="max_tokens">Max Tokens</label>
+                    <input type="number" id="max_tokens" name="max_tokens" min="100" max="4000" value="{{ max_tokens or 1000 }}">
+                </div>
+            </div>
+            
+            <div class="form-actions">
+                <button type="submit" class="button">Отправить запрос</button>
+            </div>
+        </form>
+        
+        {% if response %}
+            <div class="response-container">
+                <h2>Ответ модели</h2>
+                <div class="llm-response">
+                    {{ response|nl2br }}
+                </div>
+            </div>
+        {% endif %}
+    </div>
+{% endblock %}

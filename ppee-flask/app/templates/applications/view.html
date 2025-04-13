@@ -1,0 +1,142 @@
+```html
+{% extends "base.html" %}
+
+{% block content %}
+    <div class="page-header">
+        <h1>Заявка: {{ application.name }}</h1>
+        <div class="button-group">
+            <a href="{{ url_for('applications.index') }}" class="button button-secondary">Назад к списку</a>
+            <form action="{{ url_for('applications.delete', id=application.id) }}" method="post" class="inline-form">
+                <button type="submit" class="button button-danger" onclick="return confirm('Вы уверены? Это действие нельзя отменить.')">
+                    Удалить заявку
+                </button>
+            </form>
+        </div>
+    </div>
+    
+    <!-- Основная информация о заявке -->
+    <div class="application-details">
+        <div class="info-card">
+            <h2>Основная информация</h2>
+            
+            <div class="info-row">
+                <div class="info-label">Идентификатор:</div>
+                <div class="info-value">{{ application.id }}</div>
+            </div>
+            
+            <div class="info-row">
+                <div class="info-label">Название:</div>
+                <div class="info-value">{{ application.name }}</div>
+            </div>
+            
+            <div class="info-row">
+                <div class="info-label">Статус:</div>
+                <div class="info-value">
+                    <span class="status-badge status-{{ application.status }}">
+                        {{ application.get_status_display() }}
+                    </span>
+                </div>
+            </div>
+            
+            {% if application.status_message %}
+            <div class="info-row">
+                <div class="info-label">Сообщение:</div>
+                <div class="info-value">{{ application.status_message }}</div>
+            </div>
+            {% endif %}
+            
+            <div class="info-row">
+                <div class="info-label">Описание:</div>
+                <div class="info-value">{{ application.description or 'Нет описания' }}</div>
+            </div>
+            
+            <div class="info-row">
+                <div class="info-label">Создана:</div>
+                <div class="info-value">{{ application.created_at.strftime('%d.%m.%Y %H:%M') }}</div>
+            </div>
+            
+            <div class="info-row">
+                <div class="info-label">Обновлена:</div>
+                <div class="info-value">{{ application.updated_at.strftime('%d.%m.%Y %H:%M') }}</div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Панель действий -->
+    <div class="action-panel">
+        <h2>Действия</h2>
+        <div class="button-group">
+            {% if application.status == 'created' %}
+                <a href="{{ url_for('applications.upload_file', id=application.id) }}" class="button button-primary">Загрузить документ</a>
+            {% elif application.status in ['indexed', 'analyzed'] %}
+                <a href="{{ url_for('applications.analyze', id=application.id) }}" class="button button-success">Анализировать</a>
+                <a href="{{ url_for('applications.upload_file', id=application.id) }}" class="button button-primary">Загрузить еще документы</a>
+            {% elif application.status == 'analyzing' %}
+                <button class="button" disabled>Выполняется анализ...</button>
+            {% elif application.status == 'indexing' %}
+                <button class="button" disabled>Выполняется индексация...</button>
+            {% elif application.status == 'error' %}
+                <a href="{{ url_for('applications.upload_file', id=application.id) }}" class="button button-primary">Попробовать снова</a>
+            {% endif %}
+            
+            {% if application.status == 'analyzed' %}
+                <a href="{{ url_for('applications.results', id=application.id) }}" class="button button-success">Смотреть результаты</a>
+            {% endif %}
+        </div>
+    </div>
+    
+    <!-- Файлы заявки -->
+    <div class="file-section">
+        <h2>Файлы</h2>
+        
+        {% if application.files.all() %}
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Имя файла</th>
+                        <th>Размер</th>
+                        <th>Дата загрузки</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for file in application.files.all() %}
+                        <tr>
+                            <td>{{ file.original_filename }}</td>
+                            <td>
+                                {% if file.file_size < 1024 %}
+                                    {{ file.file_size }} байт
+                                {% elif file.file_size < 1024 * 1024 %}
+                                    {{ (file.file_size / 1024) | round(1) }} Кб
+                                {% else %}
+                                    {{ (file.file_size / (1024 * 1024)) | round(1) }} Мб
+                                {% endif %}
+                            </td>
+                            <td>{{ file.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p class="empty-list">Нет загруженных файлов. <a href="{{ url_for('applications.upload_file', id=application.id) }}">Загрузить файл</a></p>
+        {% endif %}
+    </div>
+    
+    <!-- Связанные чек-листы -->
+    <div class="checklist-section">
+        <h2>Чек-листы</h2>
+        
+        {% if application.checklists %}
+            <div class="checklist-list">
+                {% for checklist in application.checklists %}
+                    <div class="checklist-item">
+                        <span class="checklist-name">{{ checklist.name }}</span>
+                        <span class="checklist-info">Параметров: {{ checklist.parameters.count() }}</span>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p class="empty-list">Нет связанных чек-листов</p>
+        {% endif %}
+    </div>
+{% endblock %}
+```
