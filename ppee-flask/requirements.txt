@@ -1,0 +1,12 @@
+Flask
+Flask-SQLAlchemy
+Flask-Migrate
+Flask-Login
+Flask-WTF
+Celery
+Redis
+psycopg2-binary
+python-dotenv
+Werkzeug
+Jinja2
+WTForms
