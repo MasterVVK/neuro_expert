@@ -87,18 +87,17 @@ class OllamaLLMProvider(LLMProvider):
             if query:
                 full_prompt = full_prompt.replace("{query}", query)
 
-            # Формируем запрос к Ollama API
+            # Формируем запрос к Ollama API в корректном формате
             payload = {
                 "model": model_name,
                 "prompt": full_prompt,
                 "stream": False,
-                "options": {
-                    "temperature": parameters.get("temperature", 0.1),
-                    "num_predict": parameters.get("max_tokens", 1000)
-                }
+                "temperature": parameters.get("temperature", 0.1),
+                "max_tokens": parameters.get("max_tokens", 1000)
             }
 
             logger.info(f"Отправка запроса к модели {model_name} через Ollama API")
+            logger.debug(f"Полный payload для Ollama API: {json.dumps(payload, indent=2)}")
 
             # Отправляем запрос
             response = requests.post(
@@ -110,14 +109,25 @@ class OllamaLLMProvider(LLMProvider):
 
             # Получаем ответ
             result = response.json()
+
+            # Проверяем на наличие ошибок в ответе
+            if "error" in result:
+                error_msg = f"Ошибка Ollama API: {result.get('error')}"
+                logger.error(error_msg)
+                return f"Ошибка: {error_msg}"
+
             answer = result.get("response", "")
 
             # Выводим полный ответ модели для отладки
-            logger.info(f"Полный ответ от модели {model_name}:\n{answer}")
-
             logger.info(f"Получен ответ от модели {model_name} длиной {len(answer)} символов")
+            logger.debug(f"Полный ответ от модели {model_name}:\n{answer}")
+
             return answer
 
+        except requests.exceptions.RequestException as e:
+            error_msg = f"Ошибка HTTP при запросе к Ollama API: {str(e)}"
+            logger.error(error_msg)
+            return f"Ошибка сети: {error_msg}"
         except Exception as e:
             error_msg = f"Ошибка при обработке запроса через Ollama API: {str(e)}"
             logger.error(error_msg)
