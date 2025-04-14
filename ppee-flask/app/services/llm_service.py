@@ -131,8 +131,10 @@ def analyze_application(application_id):
                     context=context,
                     parameters={
                         'temperature': parameter.llm_temperature,
-                        'max_tokens': parameter.llm_max_tokens
-                    }
+                        'max_tokens': parameter.llm_max_tokens,
+                        'search_query': parameter.search_query  # Добавляем поисковый запрос как запасной вариант
+                    },
+                    query=parameter.search_query  # Важно: явно передаем поисковый запрос
                 )
 
                 # Логируем ответ от LLM
@@ -242,20 +244,29 @@ def _extract_value_from_response(response, query):
     """
     logger.info("Извлечение значения из ответа LLM")
 
-    # Сначала ищем формат "запрос: значение"
+    # Сначала ищем формат "РЕЗУЛЬТАТ: значение"
     lines = [line.strip() for line in response.split('\n') if line.strip()]
     logger.info(f"Обнаружено {len(lines)} строк в ответе")
 
     for i, line in enumerate(lines):
         logger.info(f"Строка {i + 1}: {line}")
-        # Ищем строку с запросом и двоеточием
+        # Ищем строку с РЕЗУЛЬТАТ:
+        if line.startswith("РЕЗУЛЬТАТ:"):
+            value = line.replace("РЕЗУЛЬТАТ:", "").strip()
+            logger.info(f"Найдено значение в формате 'РЕЗУЛЬТАТ: значение' - {value}")
+            return value
+
+    # Далее ищем формат "запрос: значение"
+    for i, line in enumerate(lines):
         if ":" in line:
             parts = line.split(":", 1)
             if len(parts) == 2 and parts[1].strip():
-                logger.info(f"Найдено значение в формате 'запрос: значение' - {parts[1].strip()}")
-                return parts[1].strip()
+                # Проверяем, что это не строка с запросом
+                if not parts[0].strip().lower() == "запрос":
+                    logger.info(f"Найдено значение в формате 'запрос: значение' - {parts[1].strip()}")
+                    return parts[1].strip()
 
-    # Если не удалось найти формат "запрос: значение", пробуем найти строки, содержащие ключевые слова из запроса
+    # Если не удалось найти по форматам, ищем строки, содержащие ключевые слова из запроса
     query_keywords = [word.lower() for word in query.split() if len(word) > 3]
     for line in lines:
         line_lower = line.lower()
