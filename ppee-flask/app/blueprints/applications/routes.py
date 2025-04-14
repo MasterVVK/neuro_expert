@@ -1,5 +1,5 @@
 import os
-from flask import render_template, redirect, url_for, flash, request, current_app
+from flask import render_template, redirect, url_for, flash, request, current_app ,jsonify
 from werkzeug.utils import secure_filename
 import uuid
 
