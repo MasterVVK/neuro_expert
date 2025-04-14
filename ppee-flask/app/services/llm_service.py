@@ -74,7 +74,7 @@ def analyze_application(application_id):
                 search_results = search(
                     application_id=application_id,
                     query=parameter.search_query,
-                    limit=3
+                    limit=2
                 )
 
                 # Логируем результаты поиска
