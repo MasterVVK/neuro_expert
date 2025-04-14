@@ -31,10 +31,11 @@ from langchain_core.documents import Document
 #SEARCH_QUERY = "Идентификационный номер налогоплательщика ИНН"  # Параметр для поиска
 #SEARCH_QUERY = "применяемые ИТС НДТ"  # Параметр для поиска
 #SEARCH_QUERY = "почтовый адрес юридического лица или индивидуального предпринимателя(ИП)"  # Параметр для поиска
-SEARCH_QUERY = "Почтовый адрес"  # Параметр для поиска
+#SEARCH_QUERY = "Почтовый адрес"  # Параметр для поиска
+SEARCH_QUERY = "полное наименование юридического лица"
 
 
-APPLICATION_ID = "app2"  # Идентификатор заявки
+APPLICATION_ID = "1"  # Идентификатор заявки
 QDRANT_HOST = "localhost"  # Хост Qdrant
 QDRANT_PORT = 6333  # Порт Qdrant
 COLLECTION_NAME = "ppee_applications"  # Имя коллекции

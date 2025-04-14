@@ -162,14 +162,7 @@ def analyze(id):
         return redirect(url_for('applications.view', id=application.id))
 
     try:
-        # Обновляем статус заявки
-        application.status = 'analyzing'
-        db.session.commit()
-
-        # В реальном приложении здесь будет асинхронный вызов
-        # process_parameters_task.delay(application.id, [p.id for p in parameters])
-
-        # Синхронный вызов для тестирования
+        # Вызываем функцию analyze_application, которая сама изменит статус
         from app.services.llm_service import analyze_application
         analyze_application(application.id)
 
