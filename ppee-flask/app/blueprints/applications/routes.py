@@ -67,84 +67,35 @@ def upload_file(id):
     application = Application.query.get_or_404(id)
 
     if request.method == 'POST':
-        # Проверяем, был ли файл в запросе
-        if 'document' not in request.files:
-            flash('Файл не выбран', 'error')
-            return redirect(request.url)
+        # ... существующий код для сохранения файла ...
 
-        file = request.files['document']
+        # Обновляем статус заявки
+        application.status = 'indexing'
+        db.session.add(file_record)
+        db.session.commit()
 
-        # Если пользователь не выбрал файл
-        if file.filename == '':
-            flash('Файл не выбран', 'error')
-            return redirect(request.url)
+        # Запускаем задачу индексации асинхронно через Celery
+        try:
+            from app.tasks.indexing_tasks import index_document_task
+            task = index_document_task.delay(application.id, file_record.id)
 
-        if file:
-            # Генерация уникального имени файла
-            filename = secure_filename(file.filename)
-            filename_parts = os.path.splitext(filename)
-            unique_filename = f"{filename_parts[0]}_{uuid.uuid4().hex[:8]}{filename_parts[1]}"
-
-            # Полный путь для сохранения
-            uploads_path = os.path.join(current_app.root_path, current_app.config['UPLOAD_FOLDER'])
-            application_uploads_path = os.path.join(uploads_path, f"app_{application.id}")
-            os.makedirs(application_uploads_path, exist_ok=True)
-
-            # Используем абсолютный путь для предотвращения проблем
-            file_path = os.path.abspath(os.path.join(application_uploads_path, unique_filename))
-
-            # Сохраняем файл
-            file.save(file_path)
-
-            # Проверяем, что файл успешно создан
-            if not os.path.exists(file_path):
-                flash(f'Ошибка при сохранении файла: файл не найден после сохранения', 'error')
-                return redirect(request.url)
-
-            # Создаем запись о файле
-            file_record = File(
-                application_id=application.id,
-                filename=unique_filename,
-                original_filename=filename,
-                file_path=file_path,
-                file_size=os.path.getsize(file_path),
-                file_type='document'
-            )
-
-            # Обновляем статус заявки
-            application.status = 'indexing'
-
-            db.session.add(file_record)
+            # Сохраняем ID задачи
+            application.task_id = task.id
             db.session.commit()
 
-            # Запускаем задачу индексации в фоновом режиме
-            # Поскольку Celery еще не настроен полностью, выполним синхронно
-            try:
-                # В реальном приложении здесь будет асинхронный вызов
-                # index_document_task.delay(application.id, file_record.id)
+            flash('Файл успешно загружен и отправлен на индексацию', 'success')
+        except Exception as e:
+            flash(f'Ошибка при индексации файла: {str(e)}', 'error')
+            application.status = 'error'
+            application.status_message = str(e)
+            db.session.commit()
+            current_app.logger.error(f"Ошибка при индексации файла: {str(e)}")
 
-                # Логгирование информации о файле
-                current_app.logger.info(f"Загрузка файла: {file_record.original_filename}")
-                current_app.logger.info(f"Путь к файлу: {file_record.file_path}")
-                current_app.logger.info(f"Размер файла: {file_record.file_size} байт")
-
-                # Синхронный вызов для тестирования
-                from app.services.vector_service import index_document
-                index_document(application.id, file_record.id)
-                flash('Файл успешно загружен и отправлен на индексацию', 'success')
-            except Exception as e:
-                flash(f'Ошибка при индексации файла: {str(e)}', 'error')
-                application.status = 'error'
-                application.status_message = str(e)
-                db.session.commit()
-                current_app.logger.error(f"Ошибка при индексации файла: {str(e)}")
-
-            return redirect(url_for('applications.view', id=application.id))
+        return redirect(url_for('applications.view', id=application.id))
 
     return render_template('applications/upload.html',
                            title=f'Загрузка файла - {application.name}',
                            application=application)
-
 
 @bp.route('/<int:id>/analyze')
 def analyze(id):
@@ -236,3 +187,29 @@ def delete(id):
         flash(f'Ошибка при удалении заявки: {str(e)}', 'error')
 
     return redirect(url_for('applications.index'))
+
+
+@bp.route('/<int:id>/status')
+def status(id):
+    """Возвращает текущий статус заявки в формате JSON"""
+    application = Application.query.get_or_404(id)
+
+    # Базовый ответ
+    response_data = {
+        'status': application.status,
+        'progress': None,
+        'message': application.status_message or 'Выполняется обработка...',
+        'stage': None
+    }
+
+    # Если приложение использует Celery и индексируется, получаем статус задачи
+    if application.status == 'indexing' and application.task_id:
+        from app.tasks.indexing_tasks import index_document_task
+        task = index_document_task.AsyncResult(application.task_id)
+
+        if task.state == 'PROGRESS' and task.info:
+            # Копируем все доступные данные из информации о задаче
+            for key, value in task.info.items():
+                response_data[key] = value
+
+    return jsonify(response_data)

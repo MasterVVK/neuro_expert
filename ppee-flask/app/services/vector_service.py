@@ -20,13 +20,14 @@ def get_qdrant_adapter():
     )
 
 
-def index_document(application_id, file_id):
+def index_document(application_id, file_id, progress_callback=None):
     """
     Индексирует документ в векторной базе данных.
 
     Args:
         application_id: ID заявки
         file_id: ID файла
+        progress_callback: Функция обратного вызова для обновления прогресса
 
     Returns:
         dict: Результат индексации
@@ -56,6 +57,10 @@ def index_document(application_id, file_id):
         db.session.commit()
         raise FileNotFoundError(error_msg)
 
+    # Обновляем статус
+    if progress_callback:
+        progress_callback(10, 'prepare', 'Проверка файла...')
+
     logger.info(f"Файл найден: {file.file_path} (размер: {os.path.getsize(file.file_path)} байт)")
 
     try:
@@ -66,11 +71,16 @@ def index_document(application_id, file_id):
         _, ext = os.path.splitext(file.file_path)
         logger.info(f"Тип файла: {ext.lower()}")
 
-        # Индексируем документ
-        result = qdrant_adapter.index_document(
+        # Обновляем статус
+        if progress_callback:
+            progress_callback(15, 'convert', 'Конвертация документа...')
+
+        # Индексируем документ с отслеживанием прогресса
+        result = qdrant_adapter.index_document_with_progress(
             application_id=str(application_id),
             document_path=file.file_path,
-            delete_existing=True  # Удаляем существующие данные
+            delete_existing=True,
+            progress_callback=progress_callback
         )
 
         # Обновляем статус заявки на основе результата
@@ -94,7 +104,6 @@ def index_document(application_id, file_id):
         db.session.commit()
 
         raise
-
 
 def search(application_id, query, limit=5):
     """

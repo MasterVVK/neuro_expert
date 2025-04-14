@@ -522,3 +522,103 @@ input, textarea, select {
     display: flex;
     gap: 10px;
 }
+
+/* Стили для прогресса индексации */
+.indexing-progress-container {
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+.progress {
+    height: 20px;
+    margin: 15px 0;
+    background-color: #e9ecef;
+    border-radius: 0.25rem;
+    overflow: hidden;
+}
+
+.progress-bar {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    color: #fff;
+    text-align: center;
+    background-color: #007bff;
+    transition: width .6s ease;
+}
+
+.progress-bar-striped {
+    background-image: linear-gradient(45deg,rgba(255,255,255,.15) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.15) 50%,rgba(255,255,255,.15) 75%,transparent 75%,transparent);
+    background-size: 1rem 1rem;
+}
+
+.progress-bar-animated {
+    animation: progress-bar-stripes 1s linear infinite;
+}
+
+@keyframes progress-bar-stripes {
+    from { background-position: 1rem 0 }
+    to { background-position: 0 0 }
+}
+
+.indexing-stages {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 20px;
+    position: relative;
+}
+
+.indexing-stages:before {
+    content: '';
+    position: absolute;
+    top: 6px;
+    left: 25px;
+    right: 25px;
+    height: 2px;
+    background: #dee2e6;
+    z-index: 0;
+}
+
+.stage {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+    z-index: 1;
+    width: 70px;
+}
+
+.stage-dot {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background-color: #dee2e6;
+    border: 2px solid #fff;
+    margin-bottom: 8px;
+}
+
+.stage.active .stage-dot {
+    background-color: #007bff;
+    box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}
+
+.stage.completed .stage-dot {
+    background-color: #28a745;
+}
+
+.stage-label {
+    font-size: 12px;
+    text-align: center;
+    color: #6c757d;
+}
+
+.stage.active .stage-label {
+    color: #007bff;
+    font-weight: bold;
+}
+
+.stage.completed .stage-label {
+    color: #28a745;
+}

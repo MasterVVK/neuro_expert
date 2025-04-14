@@ -12,17 +12,18 @@ class Config:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     
     # Celery
-    CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL') or 'redis://localhost:6379/0'
-    CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND') or 'redis://localhost:6379/0'
+    CELERY_BROKER_URL = 'memory://'
+    CELERY_RESULT_BACKEND = 'cache'
+    CELERY_CACHE_BACKEND = 'memory'
     CELERY_CONFIG = {
         'broker_url': CELERY_BROKER_URL,
         'result_backend': CELERY_RESULT_BACKEND,
+        'cache_backend': CELERY_CACHE_BACKEND,
         'task_serializer': 'json',
         'accept_content': ['json'],
         'result_serializer': 'json',
         'enable_utc': True,
     }
-    
     # Qdrant
     QDRANT_HOST = os.environ.get('QDRANT_HOST') or 'localhost'
     QDRANT_PORT = int(os.environ.get('QDRANT_PORT') or 6333)

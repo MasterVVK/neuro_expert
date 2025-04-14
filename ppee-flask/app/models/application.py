@@ -25,6 +25,8 @@ class Application(db.Model):
     files = db.relationship('File', backref='application', lazy='dynamic', cascade='all, delete-orphan')
     parameter_results = db.relationship('ParameterResult', backref='application', lazy='dynamic', cascade='all, delete-orphan')
     checklists = db.relationship('Checklist', secondary=application_checklists, backref=db.backref('applications', lazy='dynamic'))
+
+    task_id = db.Column(db.String(36), nullable=True)  # ID задачи Celery
     
     def __repr__(self):
         return f'<Application {self.id}: {self.name}>'

@@ -269,3 +269,140 @@ class QdrantAdapter:
         except Exception as e:
             logger.error(f"Ошибка при получении статистики: {str(e)}")
             return {"error": str(e)}
+
+
+    def index_document_with_progress(self,
+                                     application_id: str,
+                                     document_path: str,
+                                     delete_existing: bool = False,
+                                     progress_callback=None) -> Dict[str, Any]:
+        """
+        Индексирует документ в Qdrant с отслеживанием прогресса.
+
+        Args:
+            application_id: ID заявки
+            document_path: Путь к документу
+            delete_existing: Удалить существующие данные заявки
+            progress_callback: Функция обратного вызова для обновления прогресса
+
+        Returns:
+            Dict[str, Any]: Результаты индексации
+        """
+        try:
+            # Проверяем, что файл существует
+            if not os.path.exists(document_path):
+                error_msg = f"Документ не найден по пути: {document_path}"
+                logger.error(error_msg)
+                return {
+                    "application_id": application_id,
+                    "document_path": document_path,
+                    "error": error_msg,
+                    "status": "error"
+                }
+
+            # Обновляем прогресс
+            if progress_callback:
+                progress_callback(20, 'convert', 'Начало конвертации документа...')
+
+            # Проверяем расширение файла
+            _, ext = os.path.splitext(document_path)
+            ext = ext.lower()
+
+            # Если это PDF, сначала конвертируем его в Markdown
+            processing_path = document_path
+            if ext == '.pdf':
+                logger.info(f"Обнаружен PDF файл, требуется конвертация")
+                try:
+                    processing_path = self._convert_pdf_to_markdown(document_path)
+                    logger.info(f"PDF успешно конвертирован в Markdown: {processing_path}")
+
+                    # Обновляем прогресс
+                    if progress_callback:
+                        progress_callback(35, 'split', 'Документ успешно конвертирован, подготовка к разделению...')
+                except Exception as e:
+                    logger.error(f"Ошибка при конвертации PDF: {str(e)}")
+                    processing_path = document_path
+
+                    # Обновляем прогресс с информацией об ошибке конвертации
+                    if progress_callback:
+                        progress_callback(35, 'split', 'Ошибка конвертации, продолжаем с исходным файлом...')
+
+            # Если нужно, удаляем существующие данные заявки
+            if delete_existing:
+                deleted_count = self.qdrant_manager.delete_application(application_id)
+                logger.info(f"Удалено {deleted_count} существующих документов для заявки {application_id}")
+
+            # Обновляем прогресс
+            if progress_callback:
+                progress_callback(40, 'split', 'Разделение документа на фрагменты...')
+
+            # Разделяем документ на фрагменты
+            logger.info(f"Разделение документа на фрагменты: {processing_path}")
+            chunks = self.splitter.load_and_process_file(processing_path, application_id)
+            logger.info(f"Документ разделен на {len(chunks)} фрагментов")
+
+            # Собираем статистику по типам фрагментов
+            content_types = {}
+            for chunk in chunks:
+                content_type = chunk.metadata["content_type"]
+                content_types[content_type] = content_types.get(content_type, 0) + 1
+
+            # Обновляем прогресс
+            if progress_callback:
+                progress_callback(50, 'index', f'Начало индексации {len(chunks)} фрагментов...')
+
+            # Индексируем фрагменты с отслеживанием прогресса
+            total_chunks = len(chunks)
+            batch_size = 20
+
+            # Индексируем фрагменты пакетами
+            for i in range(0, total_chunks, batch_size):
+                end_idx = min(i + batch_size, total_chunks)
+                batch = chunks[i:end_idx]
+
+                # Добавляем пакет в индекс
+                self.qdrant_manager.add_documents(batch)
+
+                # Рассчитываем и обновляем прогресс
+                progress = 50 + int(45 * (end_idx / total_chunks))
+                logger.info(f"Индексация партии {i + 1}-{end_idx} из {total_chunks}")
+
+                if progress_callback:
+                    progress_callback(
+                        progress,
+                        'index',
+                        f'Индексация фрагментов: {end_idx}/{total_chunks}...'
+                    )
+
+            logger.info(f"Проиндексировано {total_chunks} фрагментов")
+
+            # Финальное обновление прогресса
+            if progress_callback:
+                progress_callback(95, 'complete', 'Завершение индексации...')
+
+            # Формируем результат
+            result = {
+                "application_id": application_id,
+                "document_path": document_path,
+                "processing_path": processing_path,
+                "total_chunks": total_chunks,
+                "indexed_count": total_chunks,
+                "content_types": content_types,
+                "status": "success"
+            }
+
+            return result
+
+        except Exception as e:
+            logger.exception(f"Ошибка при индексации документа: {str(e)}")
+
+            # Обновляем прогресс с информацией об ошибке
+            if progress_callback:
+                progress_callback(0, 'error', f'Ошибка индексации: {str(e)}')
+
+            return {
+                "application_id": application_id,
+                "document_path": document_path,
+                "error": str(e),
+                "status": "error"
+            }
