@@ -63,9 +63,12 @@ def analyze_application(application_id):
         for checklist in application.checklists:
             parameters.extend(checklist.parameters.all())
 
+        logger.info(f"Всего параметров для анализа: {len(parameters)}")
+
         for parameter in parameters:
             try:
                 logger.info(f"Обработка параметра {parameter.id}: {parameter.name}")
+                logger.info(f"Поисковый запрос: {parameter.search_query}")
 
                 # Выполняем семантический поиск
                 search_results = search(
@@ -73,6 +76,18 @@ def analyze_application(application_id):
                     query=parameter.search_query,
                     limit=3
                 )
+
+                # Логируем результаты поиска
+                logger.info(f"Результаты поиска для параметра {parameter.name}:")
+                for i, doc in enumerate(search_results):
+                    logger.info(f"Результат {i + 1}:")
+                    if 'metadata' in doc:
+                        logger.info(f"  Раздел: {doc['metadata'].get('section', 'Н/Д')}")
+                        logger.info(f"  Тип: {doc['metadata'].get('content_type', 'Н/Д')}")
+
+                    # Выводим полный текст для анализа
+                    if 'text' in doc:
+                        logger.info(f"  Полный текст:\n{doc['text']}")
 
                 # Если не найдено результатов, создаем запись об этом
                 if not search_results:
@@ -100,6 +115,15 @@ def analyze_application(application_id):
                 # Форматируем контекст для LLM
                 context = _format_documents_for_context(search_results)
 
+                # Логируем полный запрос к LLM
+                full_prompt = parameter.llm_prompt_template.replace("{query}", parameter.search_query).replace(
+                    "{context}", context)
+                logger.info(f"Запрос к LLM для параметра {parameter.name}:")
+                logger.info(f"Модель: {parameter.llm_model}")
+                logger.info(f"Температура: {parameter.llm_temperature}")
+                logger.info(f"Max tokens: {parameter.llm_max_tokens}")
+                logger.info(f"Полный промпт:\n{full_prompt}")
+
                 # Обрабатываем параметр через LLM
                 llm_response = llm_provider.process_query(
                     model_name=parameter.llm_model,
@@ -111,9 +135,16 @@ def analyze_application(application_id):
                     }
                 )
 
+                # Логируем ответ от LLM
+                logger.info(f"Ответ от LLM для параметра {parameter.name}:")
+                logger.info(f"Raw response: {llm_response}")
+
                 # Анализируем ответ
-                value = _extract_value_from_response(llm_response)
+                value = _extract_value_from_response(llm_response, parameter.search_query)
                 confidence = _calculate_confidence(llm_response)
+
+                logger.info(f"Извлеченное значение: {value}")
+                logger.info(f"Уверенность: {confidence}")
 
                 # Создаем или обновляем результат
                 result = ParameterResult.query.filter_by(
@@ -192,23 +223,54 @@ def _format_documents_for_context(documents):
 
         formatted_docs.append(formatted_doc)
 
-    return "\n".join(formatted_docs)
+    context = "\n".join(formatted_docs)
+    logger.info(f"Сформирован контекст длиной {len(context)} символов")
+
+    return context
 
 
-def _extract_value_from_response(response):
+def _extract_value_from_response(response, query):
     """
     Извлекает значение из ответа LLM.
 
     Args:
         response: Ответ LLM
+        query: Исходный поисковый запрос
 
     Returns:
         str: Извлеченное значение
     """
-    # Простая эвристика: берем последнюю непустую строку
+    logger.info("Извлечение значения из ответа LLM")
+
+    # Сначала ищем формат "запрос: значение"
     lines = [line.strip() for line in response.split('\n') if line.strip()]
+    logger.info(f"Обнаружено {len(lines)} строк в ответе")
+
+    for i, line in enumerate(lines):
+        logger.info(f"Строка {i + 1}: {line}")
+        # Ищем строку с запросом и двоеточием
+        if ":" in line:
+            parts = line.split(":", 1)
+            if len(parts) == 2 and parts[1].strip():
+                logger.info(f"Найдено значение в формате 'запрос: значение' - {parts[1].strip()}")
+                return parts[1].strip()
+
+    # Если не удалось найти формат "запрос: значение", пробуем найти строки, содержащие ключевые слова из запроса
+    query_keywords = [word.lower() for word in query.split() if len(word) > 3]
+    for line in lines:
+        line_lower = line.lower()
+        if any(keyword in line_lower for keyword in query_keywords) and ":" in line:
+            parts = line.split(":", 1)
+            if len(parts) == 2 and parts[1].strip():
+                logger.info(f"Найдено значение по ключевым словам: {parts[1].strip()}")
+                return parts[1].strip()
+
+    # Если не удалось найти по ключевым словам, берем последнюю строку
     if lines:
+        logger.info(f"Значение не найдено по ключевым словам, возвращаем последнюю строку: {lines[-1]}")
         return lines[-1]
+
+    logger.info("Ответ не содержит строк, возвращаем сообщение об ошибке")
     return "Не удалось извлечь значение"
 
 
@@ -229,8 +291,14 @@ def _calculate_confidence(response):
     ]
 
     base_confidence = 0.8
+    lowered_confidence = base_confidence
+
     for phrase in uncertainty_phrases:
         if phrase in response.lower():
-            base_confidence -= 0.1
+            lowered_confidence -= 0.1
+            logger.info(f"Обнаружена фраза неуверенности: '{phrase}', понижаем оценку")
 
-    return max(0.1, min(base_confidence, 1.0))  # Ограничиваем значением от 0.1 до 1.0
+    final_confidence = max(0.1, min(lowered_confidence, 1.0))  # Ограничиваем значением от 0.1 до 1.0
+    logger.info(f"Итоговая оценка уверенности: {final_confidence}")
+
+    return final_confidence
