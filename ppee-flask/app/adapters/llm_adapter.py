@@ -6,51 +6,54 @@ from typing import List, Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
+
 class LLMProvider(ABC):
     """Интерфейс для провайдеров LLM"""
-    
+
     @abstractmethod
     def get_available_models(self) -> List[str]:
         """Возвращает список доступных моделей"""
         pass
-    
+
     @abstractmethod
-    def process_query(self, 
-                      model_name: str, 
-                      prompt: str, 
-                      context: str, 
-                      parameters: Dict[str, Any]) -> str:
+    def process_query(self,
+                      model_name: str,
+                      prompt: str,
+                      context: str,
+                      parameters: Dict[str, Any],
+                      query: str = None) -> str:
         """Обрабатывает запрос к LLM"""
         pass
 
+
 class OllamaLLMProvider(LLMProvider):
     """Реализация провайдера LLM через Ollama API"""
-    
+
     def __init__(self, base_url: str = "http://localhost:11434"):
         """
         Инициализирует провайдер Ollama.
-        
+
         Args:
             base_url: URL для Ollama API
         """
         self.base_url = base_url.rstrip('/')
         logger.info(f"OllamaLLMProvider инициализирован с URL: {self.base_url}")
-    
+
     def get_available_models(self) -> List[str]:
         """
         Возвращает список доступных моделей в Ollama.
-        
+
         Returns:
             List[str]: Список имен моделей
         """
         try:
             response = requests.get(f"{self.base_url}/api/tags")
             response.raise_for_status()
-            
+
             models = []
             for model in response.json().get("models", []):
                 models.append(model.get("name"))
-            
+
             logger.info(f"Получено {len(models)} доступных моделей из Ollama")
             return models
         except Exception as e:
@@ -61,7 +64,8 @@ class OllamaLLMProvider(LLMProvider):
                       model_name: str,
                       prompt: str,
                       context: str,
-                      parameters: Dict[str, Any]) -> str:
+                      parameters: Dict[str, Any],
+                      query: str = None) -> str:
         """
         Обрабатывает запрос к LLM через Ollama API.
 
@@ -70,13 +74,18 @@ class OllamaLLMProvider(LLMProvider):
             prompt: Шаблон промпта
             context: Контекст (результаты поиска)
             parameters: Параметры генерации
+            query: Поисковый запрос (если нужно заменить {query} в шаблоне)
 
         Returns:
             str: Ответ модели
         """
         try:
-            # Создаем полный промпт, заменяя placeholder для контекста
+            # Создаем полный промпт, заменяя плейсхолдеры
             full_prompt = prompt.replace("{context}", context)
+
+            # Заменяем {query} на поисковый запрос, если он предоставлен
+            if query:
+                full_prompt = full_prompt.replace("{query}", query)
 
             # Формируем запрос к Ollama API
             payload = {
@@ -103,7 +112,7 @@ class OllamaLLMProvider(LLMProvider):
             result = response.json()
             answer = result.get("response", "")
 
-            # Выводим ПОЛНЫЙ ответ модели для отладки
+            # Выводим полный ответ модели для отладки
             logger.info(f"Полный ответ от модели {model_name}:\n{answer}")
 
             logger.info(f"Получен ответ от модели {model_name} длиной {len(answer)} символов")
