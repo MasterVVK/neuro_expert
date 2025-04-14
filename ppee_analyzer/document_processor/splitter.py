@@ -3,6 +3,8 @@
 """
 
 import re
+import os
+import logging
 from typing import List, Dict, Any, Optional
 from langchain_community.document_loaders import TextLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -301,20 +303,65 @@ class PPEEDocumentSplitter:
         Returns:
             List[Document]: Список фрагментов с метаданными
         """
-        # Загрузка документа
-        loader = TextLoader(file_path, encoding='utf-8')
-        documents = loader.load()
-        document_text = documents[0].page_content
+        logger = logging.getLogger(__name__)
 
-        # Создаем идентификатор документа на основе имени файла
-        import os
-        document_id = f"doc_{os.path.basename(file_path).replace(' ', '_').replace('.', '_')}"
-        document_name = os.path.basename(file_path)
+        # Проверяем существование файла
+        if not os.path.exists(file_path):
+            error_msg = f"Файл не найден: {file_path}"
+            logger.error(error_msg)
+            raise FileNotFoundError(error_msg)
 
-        # Обрабатываем документ
-        return self.process_document(
-            text=document_text,
-            application_id=application_id,
-            document_id=document_id,
-            document_name=document_name
-        )
+        logger.info(f"Загрузка и обработка файла: {file_path}")
+
+        # Определяем расширение файла
+        _, ext = os.path.splitext(file_path)
+        ext = ext.lower()
+
+        try:
+            # Выбираем подходящий загрузчик в зависимости от типа файла
+            from langchain_community.document_loaders import TextLoader, PyPDFLoader
+
+            if ext == '.pdf':
+                logger.info(f"Использование PyPDFLoader для файла: {file_path}")
+                try:
+                    loader = PyPDFLoader(file_path)
+                    documents = loader.load()
+                except Exception as e:
+                    logger.error(f"Ошибка PyPDFLoader: {str(e)}")
+                    # Запасной вариант - просто загружаем как текст
+                    loader = TextLoader(file_path, encoding='utf-8')
+                    documents = loader.load()
+            else:
+                logger.info(f"Использование TextLoader для файла: {file_path}")
+                loader = TextLoader(file_path, encoding='utf-8')
+                documents = loader.load()
+
+            # Если документ состоит из нескольких частей (например, страниц PDF)
+            # объединяем их
+            if len(documents) > 1:
+                logger.info(f"Объединение {len(documents)} фрагментов документа")
+                combined_text = "\n\n".join([doc.page_content for doc in documents])
+                document_text = combined_text
+            else:
+                document_text = documents[0].page_content
+
+            # Создаем идентификатор документа на основе имени файла
+            document_id = f"doc_{os.path.basename(file_path).replace(' ', '_').replace('.', '_')}"
+            document_name = os.path.basename(file_path)
+
+            logger.info(f"Обработка документа: ID={document_id}, Имя={document_name}")
+
+            # Обрабатываем документ
+            chunks = self.process_document(
+                text=document_text,
+                application_id=application_id,
+                document_id=document_id,
+                document_name=document_name
+            )
+
+            logger.info(f"Документ успешно разделен на {len(chunks)} фрагментов")
+            return chunks
+
+        except Exception as e:
+            logger.exception(f"Ошибка при загрузке и обработке файла {file_path}: {str(e)}")
+            raise
