@@ -12,18 +12,21 @@ class Config:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     
     # Celery
-    CELERY_BROKER_URL = 'memory://'
-    CELERY_RESULT_BACKEND = 'cache'
-    CELERY_CACHE_BACKEND = 'memory'
+    # Redis для Celery
+    CELERY_BROKER_URL = 'redis://localhost:6379/0'
+    CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
     CELERY_CONFIG = {
         'broker_url': CELERY_BROKER_URL,
         'result_backend': CELERY_RESULT_BACKEND,
-        'cache_backend': CELERY_CACHE_BACKEND,
         'task_serializer': 'json',
         'accept_content': ['json'],
         'result_serializer': 'json',
         'enable_utc': True,
+        'task_always_eager': False,  # Важно! Установите в False для асинхронного режима
+        'task_eager_propagates': False  # Также устанавливаем в False
     }
+
+
     # Qdrant
     QDRANT_HOST = os.environ.get('QDRANT_HOST') or 'localhost'
     QDRANT_PORT = int(os.environ.get('QDRANT_PORT') or 6333)
