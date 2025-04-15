@@ -37,6 +37,15 @@
                     <option value="10">10</option>
                 </select>
             </div>
+
+            <div class="form-group">
+                <label for="use_reranker">Использовать ре-ранкинг</label>
+                <div class="checkbox-item">
+                    <input type="checkbox" id="use_reranker" name="use_reranker" value="true">
+                    <label for="use_reranker">Применить модель BAAI/bge-reranker-v2-m3 для уточнения результатов</label>
+                </div>
+            </div>
+
             <div class="form-actions">
                 <button type="submit" class="button">Найти</button>
             </div>
@@ -87,7 +96,11 @@
                         resultsContainer.style.display = 'block';
 
                         // Отображаем статистику
-                        resultsStats.innerHTML = `<p>Найдено результатов: <strong>${data.count}</strong></p>`;
+                        let statsHTML = `<p>Найдено результатов: <strong>${data.count}</strong></p>`;
+                        if (data.use_reranker) {
+                            statsHTML += `<p>Применен ре-ранкинг с моделью BAAI/bge-reranker-v2-m3</p>`;
+                        }
+                        resultsStats.innerHTML = statsHTML;
 
                         // Очищаем предыдущие результаты
                         searchResults.innerHTML = '';
@@ -104,7 +117,8 @@
                                         <div class="result-meta">
                                             <span class="result-section">Раздел: ${result.section}</span>
                                             <span class="result-type">Тип: ${result.content_type}</span>
-                                            <span class="result-score">Релевантность: ${result.score}</span>
+                                            <span class="result-score">Векторная релевантность: ${result.score}</span>
+                                            ${result.rerank_score !== null ? `<span class="result-rerank-score">Ре-ранкинг: ${result.rerank_score}</span>` : ''}
                                         </div>
                                     </div>
                                     <div class="result-content">${result.text}</div>
@@ -136,115 +150,21 @@
     </script>
 
     <style>
-        .search-container {
-            background-color: white;
-            border-radius: 8px;
-            padding: 20px;
-            margin-bottom: 20px;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-        }
-
-        .search-form {
-            margin-bottom: 20px;
-        }
-
-        .loading-indicator {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-        }
-
-        .spinner {
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid #007bff;
-            border-radius: 50%;
-            width: 40px;
-            height: 40px;
-            animation: spin 1s linear infinite;
-            margin-bottom: 10px;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        .results-stats {
-            margin-bottom: 10px;
-            padding: 10px;
-            background-color: #f8f9fa;
-            border-radius: 4px;
-        }
-
-        .result-item {
-            background-color: #f8f9fa;
-            border-left: 4px solid #007bff;
-            padding: 15px;
-            margin-bottom: 15px;
-            border-radius: 0 4px 4px 0;
-        }
-
-        .result-header {
-            display: flex;
-            margin-bottom: 10px;
-        }
-
-        .result-position {
-            font-size: 1.2rem;
-            font-weight: bold;
-            margin-right: 15px;
-            background-color: #007bff;
-            color: white;
-            width: 30px;
-            height: 30px;
+        .checkbox-item {
             display: flex;
             align-items: center;
-            justify-content: center;
-            border-radius: 50%;
+            margin-top: 5px;
         }
 
-        .result-meta {
-            display: flex;
-            flex-direction: column;
+        .checkbox-item input[type="checkbox"] {
+            width: auto;
+            margin-right: 10px;
         }
 
-        .result-section, .result-type {
+        .result-rerank-score {
             font-size: 0.9rem;
-            color: #6c757d;
-        }
-
-        .result-score {
-            font-size: 0.9rem;
-            color: #28a745;
+            color: #6f42c1;  /* Фиолетовый цвет для отличия от обычной оценки */
             font-weight: bold;
-        }
-
-        .result-content {
-            white-space: pre-wrap;  /* Изменено с pre-line на pre-wrap для лучшего форматирования */
-            font-family: monospace;
-            background-color: white;
-            padding: 10px;
-            border-radius: 4px;
-            border: 1px solid #dee2e6;
-            max-height: 500px;  /* Увеличено с 300px на 500px */
-            overflow-y: auto;
-            word-break: break-word;  /* Добавлено для предотвращения горизонтальной прокрутки */
-        }
-
-        .error-message {
-            color: #dc3545;
-            padding: 10px;
-            background-color: #f8d7da;
-            border-radius: 4px;
-        }
-
-        .no-results {
-            padding: 20px;
-            text-align: center;
-            background-color: #f8f9fa;
-            border-radius: 4px;
         }
     </style>
 {% endblock %}
