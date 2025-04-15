@@ -81,12 +81,15 @@ def register_blueprints(app):
     from app.blueprints.checklists import bp as checklists_bp
     from app.blueprints.llm_management import bp as llm_bp
     from app.blueprints.auth import bp as auth_bp
-    
+    from app.blueprints.search import bp as search_bp
+
     app.register_blueprint(main_bp)
     app.register_blueprint(applications_bp)
     app.register_blueprint(checklists_bp)
     app.register_blueprint(llm_bp)
     app.register_blueprint(auth_bp)
+    app.register_blueprint(search_bp)
+
 
 def register_template_filters(app):
     """Регистрация пользовательских фильтров для шаблонов"""
