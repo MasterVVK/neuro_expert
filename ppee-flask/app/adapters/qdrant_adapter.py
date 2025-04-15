@@ -222,10 +222,14 @@ class QdrantAdapter:
 
             # Преобразуем результаты
             results = []
-            for doc in docs:
+            for i, doc in enumerate(docs):
+                # Получаем score из metadata (если есть) или устанавливаем значение по умолчанию
+                score = doc.metadata.get('score', 0.0)
+
                 results.append({
                     "text": doc.page_content,
-                    "metadata": doc.metadata
+                    "metadata": doc.metadata,
+                    "score": score  # Добавляем score в результаты
                 })
 
             logger.info(f"Найдено {len(results)} результатов")
@@ -234,6 +238,7 @@ class QdrantAdapter:
         except Exception as e:
             logger.error(f"Ошибка при поиске: {str(e)}")
             return []
+
 
     def delete_application_data(self, application_id: str) -> bool:
         """

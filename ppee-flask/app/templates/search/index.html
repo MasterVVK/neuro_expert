@@ -104,6 +104,7 @@
                                         <div class="result-meta">
                                             <span class="result-section">Раздел: ${result.section}</span>
                                             <span class="result-type">Тип: ${result.content_type}</span>
+                                            <span class="result-score">Релевантность: ${result.score}</span>
                                         </div>
                                     </div>
                                     <div class="result-content">${result.text}</div>
@@ -212,6 +213,12 @@
         .result-section, .result-type {
             font-size: 0.9rem;
             color: #6c757d;
+        }
+
+        .result-score {
+            font-size: 0.9rem;
+            color: #28a745;
+            font-weight: bold;
         }
 
         .result-content {

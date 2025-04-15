@@ -143,10 +143,10 @@ class QdrantManager:
         return total_documents
 
     def search(
-        self,
-        query: str,
-        filter_dict: Optional[Dict[str, Any]] = None,
-        k: int = 3
+            self,
+            query: str,
+            filter_dict: Optional[Dict[str, Any]] = None,
+            k: int = 3
     ) -> List[Document]:
         """
         Выполняет семантический поиск в векторном хранилище.
@@ -177,11 +177,21 @@ class QdrantManager:
                 filter_obj = models.Filter(must=conditions)
 
         # Выполнение поиска
-        return self.vector_store.similarity_search(
+        search_results = self.vector_store.similarity_search_with_score(
             query=processed_query,
             filter=filter_obj,
             k=k
         )
+
+        # Преобразование результатов с сохранением scores
+        documents = []
+        for doc, score in search_results:
+            # Добавляем score в метаданные
+            doc.metadata['score'] = float(score)
+            documents.append(doc)
+
+        return documents
+
 
     def get_application_ids(self) -> List[str]:
         """
