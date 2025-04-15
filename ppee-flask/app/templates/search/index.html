@@ -215,14 +215,15 @@
         }
 
         .result-content {
-            white-space: pre-line;
+            white-space: pre-wrap;  /* Изменено с pre-line на pre-wrap для лучшего форматирования */
             font-family: monospace;
             background-color: white;
             padding: 10px;
             border-radius: 4px;
             border: 1px solid #dee2e6;
-            max-height: 300px;
+            max-height: 500px;  /* Увеличено с 300px на 500px */
             overflow-y: auto;
+            word-break: break-word;  /* Добавлено для предотвращения горизонтальной прокрутки */
         }
 
         .error-message {
