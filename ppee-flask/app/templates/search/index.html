@@ -53,9 +53,36 @@
             </div>
         </form>
 
-        <div id="loading" class="loading-indicator" style="display: none;">
-            <div class="spinner"></div>
-            <p>Выполняется поиск...</p>
+        <div id="search-progress" class="search-progress" style="display: none;">
+            <h3>Выполнение поиска</h3>
+            <div class="progress">
+                <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated"
+                     role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" style="width: 0%"></div>
+            </div>
+            <p id="status-message">Выполняется поиск...</p>
+
+            <div id="progress-stages" class="search-stages">
+                <div class="stage" id="stage-starting">
+                    <span class="stage-dot"></span>
+                    <span class="stage-label">Инициализация</span>
+                </div>
+                <div class="stage" id="stage-initializing">
+                    <span class="stage-dot"></span>
+                    <span class="stage-label">Подготовка</span>
+                </div>
+                <div class="stage" id="stage-vector_search">
+                    <span class="stage-dot"></span>
+                    <span class="stage-label">Векторный поиск</span>
+                </div>
+                <div class="stage" id="stage-reranking">
+                    <span class="stage-dot"></span>
+                    <span class="stage-label">Ререйтинг</span>
+                </div>
+                <div class="stage" id="stage-finishing">
+                    <span class="stage-dot"></span>
+                    <span class="stage-label">Завершение</span>
+                </div>
+            </div>
         </div>
 
         <div id="results-container" class="results-container" style="display: none;">
@@ -68,19 +95,145 @@
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             const searchForm = document.getElementById('search-form');
-            const loadingIndicator = document.getElementById('loading');
+            const searchProgress = document.getElementById('search-progress');
+            const progressBar = document.getElementById('progress-bar');
+            const statusMessage = document.getElementById('status-message');
             const resultsContainer = document.getElementById('results-container');
             const resultsStats = document.getElementById('results-stats');
             const searchResults = document.getElementById('search-results');
 
+            let taskId = null;
+            let statusCheckInterval = null;
+
+            // Функция для обновления отображения этапов
+            function updateStages(stage) {
+                const stages = ['starting', 'initializing', 'vector_search', 'reranking', 'finishing'];
+                let reachedCurrentStage = false;
+
+                stages.forEach(s => {
+                    const stageElement = document.getElementById(`stage-${s}`);
+                    if (stageElement) {
+                        if (s === stage) {
+                            stageElement.classList.add('active');
+                            stageElement.classList.remove('completed');
+                            reachedCurrentStage = true;
+                        } else if (!reachedCurrentStage) {
+                            stageElement.classList.remove('active');
+                            stageElement.classList.add('completed');
+                        } else {
+                            stageElement.classList.remove('active');
+                            stageElement.classList.remove('completed');
+                        }
+                    }
+                });
+            }
+
+            // Функция для проверки статуса задачи
+            function checkTaskStatus() {
+                fetch(`/search/status/${taskId}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'pending') {
+                            // Задача ожидает выполнения
+                            statusMessage.textContent = data.message;
+                            progressBar.style.width = '5%';
+                            updateStages('starting');
+                        } else if (data.status === 'progress') {
+                            // Задача выполняется
+                            statusMessage.textContent = data.message;
+                            progressBar.style.width = `${data.progress}%`;
+                            updateStages(data.substatus);
+                        } else if (data.status === 'error') {
+                            // Произошла ошибка
+                            clearInterval(statusCheckInterval);
+                            searchProgress.style.display = 'none';
+                            resultsContainer.style.display = 'block';
+                            resultsStats.innerHTML = '';
+                            searchResults.innerHTML = `<p class="error-message">Ошибка: ${data.message}</p>`;
+                        } else if (data.status === 'success') {
+                            // Задача выполнена успешно
+                            clearInterval(statusCheckInterval);
+                            searchProgress.style.display = 'none';
+                            showResults(data);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Ошибка при проверке статуса задачи:', error);
+                    });
+            }
+
+            // Функция для отображения результатов
+            function showResults(data) {
+                // Показываем результаты
+                resultsContainer.style.display = 'block';
+
+                // Отображаем статистику
+                const statsText = data.use_reranker
+                    ? `Найдено результатов: <strong>${data.count}</strong> (с применением ререйтинга)`
+                    : `Найдено результатов: <strong>${data.count}</strong>`;
+
+                resultsStats.innerHTML = `<p>${statsText}</p>`;
+                if (data.execution_time) {
+                    resultsStats.innerHTML += `<p>Время выполнения: <strong>${data.execution_time}</strong> сек.</p>`;
+                }
+
+                // Очищаем предыдущие результаты
+                searchResults.innerHTML = '';
+
+                // Добавляем новые результаты
+                if (data.results.length > 0) {
+                    data.results.forEach(result => {
+                        const resultItem = document.createElement('div');
+                        resultItem.className = 'result-item';
+
+                        // Подготавливаем информацию о релевантности
+                        let scoreHtml = `<span class="result-score">Релевантность: ${result.score}</span>`;
+
+                        if (data.use_reranker && result.rerank_score) {
+                            scoreHtml = `
+                                <span class="result-score-rerank">Релевантность (ререйтинг): ${result.rerank_score}</span>
+                                <span class="result-score">Релевантность (векторная): ${result.score}</span>
+                            `;
+                        }
+
+                        resultItem.innerHTML = `
+                            <div class="result-header">
+                                <span class="result-position">${result.position}</span>
+                                <div class="result-meta">
+                                    <span class="result-section">Раздел: ${result.section}</span>
+                                    <span class="result-type">Тип: ${result.content_type}</span>
+                                    ${scoreHtml}
+                                </div>
+                            </div>
+                            <div class="result-content">${result.text}</div>
+                        `;
+
+                        searchResults.appendChild(resultItem);
+                    });
+                } else {
+                    searchResults.innerHTML = '<p class="no-results">По вашему запросу ничего не найдено</p>';
+                }
+            }
+
+            // Обработчик отправки формы
             searchForm.addEventListener('submit', function(e) {
                 e.preventDefault();
 
-                // Показываем индикатор загрузки
-                loadingIndicator.style.display = 'flex';
+                // Сбрасываем предыдущий интервал
+                if (statusCheckInterval) {
+                    clearInterval(statusCheckInterval);
+                }
+
+                // Скрываем предыдущие результаты
                 resultsContainer.style.display = 'none';
 
-                // Собираем данные формы
+                // Показываем прогресс
+                searchProgress.style.display = 'block';
+                progressBar.style.width = '0%';
+                statusMessage.textContent = 'Запуск задачи поиска...';
+                updateStages('starting');
+
+                // Формируем данные для отправки
                 const formData = new FormData(searchForm);
 
                 // Отправляем запрос
@@ -90,77 +243,132 @@
                 })
                 .then(response => response.json())
                 .then(data => {
-                    // Скрываем индикатор загрузки
-                    loadingIndicator.style.display = 'none';
+                    if (data.status === 'pending') {
+                        // Получен ID задачи - начинаем отслеживать прогресс
+                        taskId = data.task_id;
 
-                    if (data.status === 'success') {
-                        // Показываем результаты
-                        resultsContainer.style.display = 'block';
-
-                        // Отображаем статистику
-                        const statsText = data.use_reranker
-                            ? `Найдено результатов: <strong>${data.count}</strong> (с применением ререйтинга)`
-                            : `Найдено результатов: <strong>${data.count}</strong>`;
-
-                        resultsStats.innerHTML = `<p>${statsText}</p>`;
-
-                        // Очищаем предыдущие результаты
-                        searchResults.innerHTML = '';
-
-                        // Добавляем новые результаты
-                        if (data.results.length > 0) {
-                            data.results.forEach(result => {
-                                const resultItem = document.createElement('div');
-                                resultItem.className = 'result-item';
-
-                                // Подготавливаем информацию о релевантности
-                                let scoreHtml = `<span class="result-score">Релевантность: ${result.score}</span>`;
-
-                                if (data.use_reranker && result.rerank_score) {
-                                    scoreHtml = `
-                                        <span class="result-score-rerank">Релевантность (ререйтинг): ${result.rerank_score}</span>
-                                        <span class="result-score">Релевантность (векторная): ${result.score}</span>
-                                    `;
-                                }
-
-                                resultItem.innerHTML = `
-                                    <div class="result-header">
-                                        <span class="result-position">${result.position}</span>
-                                        <div class="result-meta">
-                                            <span class="result-section">Раздел: ${result.section}</span>
-                                            <span class="result-type">Тип: ${result.content_type}</span>
-                                            ${scoreHtml}
-                                        </div>
-                                    </div>
-                                    <div class="result-content">${result.text}</div>
-                                `;
-
-                                searchResults.appendChild(resultItem);
-                            });
-                        } else {
-                            searchResults.innerHTML = '<p class="no-results">По вашему запросу ничего не найдено</p>';
-                        }
-                    } else {
-                        // Отображаем ошибку
+                        // Запускаем проверку статуса каждые 500 мс
+                        statusCheckInterval = setInterval(checkTaskStatus, 500);
+                    } else if (data.status === 'error') {
+                        // Показываем ошибку
+                        searchProgress.style.display = 'none';
                         resultsContainer.style.display = 'block';
                         resultsStats.innerHTML = '';
                         searchResults.innerHTML = `<p class="error-message">Ошибка: ${data.message}</p>`;
                     }
                 })
                 .catch(error => {
-                    // Скрываем индикатор загрузки
-                    loadingIndicator.style.display = 'none';
-
-                    // Отображаем ошибку
+                    console.error('Ошибка при запуске задачи поиска:', error);
+                    searchProgress.style.display = 'none';
                     resultsContainer.style.display = 'block';
                     resultsStats.innerHTML = '';
-                    searchResults.innerHTML = `<p class="error-message">Ошибка: ${error.message}</p>`;
+                    searchResults.innerHTML = `<p class="error-message">Ошибка при запуске задачи: ${error.message}</p>`;
                 });
             });
         });
     </script>
 
     <style>
+        /* Стили для прогресса поиска */
+        .search-progress {
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .progress {
+            height: 20px;
+            margin: 15px 0;
+            background-color: #e9ecef;
+            border-radius: 0.25rem;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            color: #fff;
+            text-align: center;
+            background-color: #007bff;
+            transition: width .6s ease;
+        }
+
+        .progress-bar-striped {
+            background-image: linear-gradient(45deg,rgba(255,255,255,.15) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.15) 50%,rgba(255,255,255,.15) 75%,transparent 75%,transparent);
+            background-size: 1rem 1rem;
+        }
+
+        .progress-bar-animated {
+            animation: progress-bar-stripes 1s linear infinite;
+        }
+
+        @keyframes progress-bar-stripes {
+            from { background-position: 1rem 0 }
+            to { background-position: 0 0 }
+        }
+
+        .search-stages {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 20px;
+            position: relative;
+        }
+
+        .search-stages:before {
+            content: '';
+            position: absolute;
+            top: 6px;
+            left: 25px;
+            right: 25px;
+            height: 2px;
+            background: #dee2e6;
+            z-index: 0;
+        }
+
+        .stage {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            position: relative;
+            z-index: 1;
+            width: 70px;
+        }
+
+        .stage-dot {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background-color: #dee2e6;
+            border: 2px solid #fff;
+            margin-bottom: 8px;
+        }
+
+        .stage.active .stage-dot {
+            background-color: #007bff;
+            box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+        }
+
+        .stage.completed .stage-dot {
+            background-color: #28a745;
+        }
+
+        .stage-label {
+            font-size: 12px;
+            text-align: center;
+            color: #6c757d;
+        }
+
+        .stage.active .stage-label {
+            color: #007bff;
+            font-weight: bold;
+        }
+
+        .stage.completed .stage-label {
+            color: #28a745;
+        }
+
         /* Дополнительные стили для ререйтинга */
         .form-row {
             display: flex;

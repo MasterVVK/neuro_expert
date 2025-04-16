@@ -1,8 +1,7 @@
 from flask import render_template, redirect, url_for, flash, request, jsonify, current_app
 from app.blueprints.search import bp
 from app.models import Application
-from app.adapters.qdrant_adapter import QdrantAdapter
-from app.services.vector_service import search
+from app.tasks.search_tasks import semantic_search_task
 
 
 @bp.route('/')
@@ -30,74 +29,62 @@ def execute_search():
             'message': 'Не указана заявка или поисковый запрос'
         })
 
-    qdrant_adapter = None
     try:
-        # Фиксируем время начала поиска
-        import time
-        start_time = time.time()
-
         # Логируем запрос
         current_app.logger.info(f"Поиск: '{query}', Заявка: {application_id}, Ререйтинг: {use_reranker}")
 
-        # Получаем адаптер для поиска с поддержкой ререйтинга
-        qdrant_adapter = QdrantAdapter(
-            host=current_app.config['QDRANT_HOST'],
-            port=current_app.config['QDRANT_PORT'],
-            collection_name=current_app.config['QDRANT_COLLECTION'],
-            embeddings_type='ollama',
-            model_name='bge-m3',
-            ollama_url=current_app.config['OLLAMA_URL'],
-            use_reranker=use_reranker,  # Передаем параметр ререйтинга
-            reranker_model='BAAI/bge-reranker-v2-m3'  # Модель ререйтинга
-        )
-
-        # Для ререйтинга нужно получить больше первичных результатов
-        rerank_limit = limit * 4 if use_reranker else None
-
-        # Выполняем поиск
-        results = qdrant_adapter.search(
+        # Вызываем асинхронную задачу Celery для выполнения поиска
+        task = semantic_search_task.delay(
             application_id=application_id,
-            query=query,
+            query_text=query,
             limit=limit,
-            rerank_limit=rerank_limit
+            use_reranker=use_reranker
         )
 
-        # Форматируем результаты
-        formatted_results = []
-        for i, result in enumerate(results):
-            formatted_result = {
-                'position': i + 1,
-                'text': result.get('text', ''),
-                'section': result.get('metadata', {}).get('section', 'Неизвестно'),
-                'content_type': result.get('metadata', {}).get('content_type', 'Неизвестно'),
-                'score': round(float(result.get('score', 0.0)), 4)
-            }
-
-            # Добавляем оценку ререйтинга, если она есть
-            if use_reranker and 'rerank_score' in result:
-                formatted_result['rerank_score'] = round(float(result.get('rerank_score', 0.0)), 4)
-
-            formatted_results.append(formatted_result)
-
-        # Вычисляем общее время выполнения
-        execution_time = time.time() - start_time
-        current_app.logger.info(f"Поиск выполнен за {execution_time:.2f} сек., найдено {len(results)} результатов")
-
+        # Возвращаем ID задачи для последующего отслеживания
         return jsonify({
-            'status': 'success',
-            'count': len(results),
-            'use_reranker': use_reranker,
-            'execution_time': round(execution_time, 2),
-            'results': formatted_results
+            'status': 'pending',
+            'task_id': task.id,
+            'message': 'Поиск запущен асинхронно'
         })
 
     except Exception as e:
-        current_app.logger.error(f"Ошибка при выполнении поиска: {str(e)}")
+        current_app.logger.error(f"Ошибка при запуске задачи поиска: {str(e)}")
         return jsonify({
             'status': 'error',
             'message': str(e)
         })
-    finally:
-        # Гарантируем очистку ресурсов независимо от результата
-        if qdrant_adapter and qdrant_adapter.use_reranker:
-            qdrant_adapter.cleanup()
+
+
+@bp.route('/status/<task_id>')
+def check_status(task_id):
+    """Проверяет статус выполнения задачи поиска"""
+    task = semantic_search_task.AsyncResult(task_id)
+
+    if task.state == 'PENDING':
+        response = {
+            'status': 'pending',
+            'progress': 0,
+            'message': 'Задача ожидает выполнения...'
+        }
+    elif task.state == 'PROGRESS':
+        response = {
+            'status': 'progress',
+            'progress': task.info.get('progress', 0),
+            'message': task.info.get('message', ''),
+            'substatus': task.info.get('status', '')
+        }
+    elif task.state == 'FAILURE':
+        response = {
+            'status': 'error',
+            'message': str(task.info)
+        }
+    elif task.state == 'SUCCESS':
+        response = task.info
+    else:
+        response = {
+            'status': 'unknown',
+            'message': 'Неизвестный статус задачи'
+        }
+
+    return jsonify(response)
