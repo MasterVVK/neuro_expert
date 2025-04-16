@@ -22,21 +22,32 @@
                 <input type="text" id="query" name="query" placeholder="Введите поисковый запрос..." required>
             </div>
 
-            <div class="form-group">
-                <label for="limit">Количество результатов</label>
-                <select id="limit" name="limit">
-                    <option value="1">1</option>
-                    <option value="2">2</option>
-                    <option value="3" selected>3</option>
-                    <option value="4">4</option>
-                    <option value="5">5</option>
-                    <option value="6">6</option>
-                    <option value="7">7</option>
-                    <option value="8">8</option>
-                    <option value="9">9</option>
-                    <option value="10">10</option>
-                </select>
+            <div class="form-row">
+                <div class="form-group half-width">
+                    <label for="limit">Количество результатов</label>
+                    <select id="limit" name="limit">
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                        <option value="3" selected>3</option>
+                        <option value="4">4</option>
+                        <option value="5">5</option>
+                        <option value="6">6</option>
+                        <option value="7">7</option>
+                        <option value="8">8</option>
+                        <option value="9">9</option>
+                        <option value="10">10</option>
+                    </select>
+                </div>
+
+                <div class="form-group half-width">
+                    <div class="checkbox-item">
+                        <input type="checkbox" id="use_reranker" name="use_reranker" value="true">
+                        <label for="use_reranker">Использовать ререйтинг</label>
+                    </div>
+                    <p class="form-note">Ререйтинг может улучшить качество результатов, но требует больше времени</p>
+                </div>
             </div>
+
             <div class="form-actions">
                 <button type="submit" class="button">Найти</button>
             </div>
@@ -87,7 +98,11 @@
                         resultsContainer.style.display = 'block';
 
                         // Отображаем статистику
-                        resultsStats.innerHTML = `<p>Найдено результатов: <strong>${data.count}</strong></p>`;
+                        const statsText = data.use_reranker
+                            ? `Найдено результатов: <strong>${data.count}</strong> (с применением ререйтинга)`
+                            : `Найдено результатов: <strong>${data.count}</strong>`;
+
+                        resultsStats.innerHTML = `<p>${statsText}</p>`;
 
                         // Очищаем предыдущие результаты
                         searchResults.innerHTML = '';
@@ -98,13 +113,23 @@
                                 const resultItem = document.createElement('div');
                                 resultItem.className = 'result-item';
 
+                                // Подготавливаем информацию о релевантности
+                                let scoreHtml = `<span class="result-score">Релевантность: ${result.score}</span>`;
+
+                                if (data.use_reranker && result.rerank_score) {
+                                    scoreHtml = `
+                                        <span class="result-score-rerank">Релевантность (ререйтинг): ${result.rerank_score}</span>
+                                        <span class="result-score">Релевантность (векторная): ${result.score}</span>
+                                    `;
+                                }
+
                                 resultItem.innerHTML = `
                                     <div class="result-header">
                                         <span class="result-position">${result.position}</span>
                                         <div class="result-meta">
                                             <span class="result-section">Раздел: ${result.section}</span>
                                             <span class="result-type">Тип: ${result.content_type}</span>
-                                            <span class="result-score">Релевантность: ${result.score}</span>
+                                            ${scoreHtml}
                                         </div>
                                     </div>
                                     <div class="result-content">${result.text}</div>
@@ -136,115 +161,39 @@
     </script>
 
     <style>
-        .search-container {
-            background-color: white;
-            border-radius: 8px;
-            padding: 20px;
-            margin-bottom: 20px;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-        }
-
-        .search-form {
-            margin-bottom: 20px;
-        }
-
-        .loading-indicator {
+        /* Дополнительные стили для ререйтинга */
+        .form-row {
             display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-        }
-
-        .spinner {
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid #007bff;
-            border-radius: 50%;
-            width: 40px;
-            height: 40px;
-            animation: spin 1s linear infinite;
-            margin-bottom: 10px;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        .results-stats {
-            margin-bottom: 10px;
-            padding: 10px;
-            background-color: #f8f9fa;
-            border-radius: 4px;
-        }
-
-        .result-item {
-            background-color: #f8f9fa;
-            border-left: 4px solid #007bff;
-            padding: 15px;
+            gap: 15px;
             margin-bottom: 15px;
-            border-radius: 0 4px 4px 0;
         }
 
-        .result-header {
-            display: flex;
-            margin-bottom: 10px;
+        .half-width {
+            width: 48%;
         }
 
-        .result-position {
-            font-size: 1.2rem;
-            font-weight: bold;
-            margin-right: 15px;
-            background-color: #007bff;
-            color: white;
-            width: 30px;
-            height: 30px;
+        .checkbox-item {
             display: flex;
             align-items: center;
-            justify-content: center;
-            border-radius: 50%;
+            margin-bottom: 5px;
         }
 
-        .result-meta {
-            display: flex;
-            flex-direction: column;
+        .checkbox-item input[type="checkbox"] {
+            width: auto;
+            margin-right: 8px;
         }
 
-        .result-section, .result-type {
+        .result-score-rerank {
             font-size: 0.9rem;
-            color: #6c757d;
+            color: #28a745;
+            font-weight: bold;
+            display: block;
         }
 
         .result-score {
             font-size: 0.9rem;
-            color: #28a745;
-            font-weight: bold;
-        }
-
-        .result-content {
-            white-space: pre-wrap;  /* Изменено с pre-line на pre-wrap для лучшего форматирования */
-            font-family: monospace;
-            background-color: white;
-            padding: 10px;
-            border-radius: 4px;
-            border: 1px solid #dee2e6;
-            max-height: 500px;  /* Увеличено с 300px на 500px */
-            overflow-y: auto;
-            word-break: break-word;  /* Добавлено для предотвращения горизонтальной прокрутки */
-        }
-
-        .error-message {
-            color: #dc3545;
-            padding: 10px;
-            background-color: #f8d7da;
-            border-radius: 4px;
-        }
-
-        .no-results {
-            padding: 20px;
-            text-align: center;
-            background-color: #f8f9fa;
-            border-radius: 4px;
+            color: #6c757d;
+            display: block;
         }
     </style>
 {% endblock %}
