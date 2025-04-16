@@ -247,7 +247,6 @@ class QdrantAdapter:
             logger.error(f"Ошибка при получении статистики: {str(e)}")
             return {"error": str(e)}
 
-
     def index_document_with_progress(self,
                                      application_id: str,
                                      document_path: str,
@@ -384,7 +383,6 @@ class QdrantAdapter:
                 "status": "error"
             }
 
-
     def search(self,
                application_id: str,
                query: str,
@@ -438,12 +436,28 @@ class QdrantAdapter:
                     top_k=limit,
                     text_key="text"
                 )
+                # Очищаем ресурсы после использования ререйтинга
+                self.cleanup()
                 return reranked_results[:limit]
             else:
                 return results[:limit]
-
         except Exception as e:
             logger.error(f"Ошибка при поиске: {str(e)}")
+            # В случае ошибки тоже освобождаем ресурсы
+            if self.use_reranker:
+                self.cleanup()
             return []
 
-    # ... проверка ...
+    def cleanup(self):
+        """
+        Освобождает ресурсы после использования.
+        Особенно важно для освобождения памяти GPU после поиска с ререйтингом.
+        """
+        if self.use_reranker and hasattr(self, 'reranker'):
+            logger.info("Освобождение ресурсов ререйтера...")
+            try:
+                # Вызываем метод cleanup у ререйтера
+                if hasattr(self.reranker, 'cleanup'):
+                    self.reranker.cleanup()
+            except Exception as e:
+                logger.error(f"Ошибка при освобождении ресурсов ререйтера: {str(e)}")

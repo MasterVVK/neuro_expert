@@ -125,3 +125,33 @@ class BGEReranker:
             scores.extend(batch_scores.cpu().tolist())
 
         return scores
+
+    def cleanup(self):
+        """
+        Освобождает ресурсы, занимаемые моделью.
+        Вызывается для очистки VRAM после использования.
+        """
+        logger.info("Освобождение ресурсов модели ререйтинга...")
+
+        # Выгружаем модель из памяти GPU
+        if hasattr(self, 'model'):
+            try:
+                # Переносим модель на CPU
+                if self.device == "cuda":
+                    self.model = self.model.to('cpu')
+
+                # Удаляем ссылки на модель и токенизатор
+                del self.model
+                if hasattr(self, 'tokenizer'):
+                    del self.tokenizer
+
+                # Явно вызываем сборщик мусора
+                import gc
+                gc.collect()
+
+                # Очищаем кэш CUDA если доступно
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    logger.info("VRAM очищена после использования ререйтинга")
+            except Exception as e:
+                logger.error(f"Ошибка при очистке ресурсов ререйтинга: {str(e)}")

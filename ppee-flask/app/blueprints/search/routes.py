@@ -30,6 +30,7 @@ def execute_search():
             'message': 'Не указана заявка или поисковый запрос'
         })
 
+    qdrant_adapter = None
     try:
         # Фиксируем время начала поиска
         import time
@@ -50,10 +51,10 @@ def execute_search():
             reranker_model='BAAI/bge-reranker-v2-m3'  # Модель ререйтинга
         )
 
-        # Выполняем поиск с учетом ререйтинга
         # Для ререйтинга нужно получить больше первичных результатов
         rerank_limit = limit * 4 if use_reranker else None
 
+        # Выполняем поиск
         results = qdrant_adapter.search(
             application_id=application_id,
             query=query,
@@ -96,3 +97,7 @@ def execute_search():
             'status': 'error',
             'message': str(e)
         })
+    finally:
+        # Гарантируем очистку ресурсов независимо от результата
+        if qdrant_adapter and qdrant_adapter.use_reranker:
+            qdrant_adapter.cleanup()
