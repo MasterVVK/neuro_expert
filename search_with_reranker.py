@@ -26,7 +26,7 @@ from langchain_core.documents import Document
 
 # Параметры поиска и Qdrant
 #SEARCH_QUERY = "полное наименование юридического лица"  # Параметр для поиска
-SEARCH_QUERY = "ИНН"
+SEARCH_QUERY = "Идентификационный номер налогоплательщика ИНН"
 APPLICATION_ID = "1"  # Идентификатор заявки
 QDRANT_HOST = "localhost"  # Хост Qdrant
 QDRANT_PORT = 6333  # Порт Qdrant
