@@ -69,12 +69,16 @@ def analyze_application(application_id):
             try:
                 logger.info(f"Обработка параметра {parameter.id}: {parameter.name}")
                 logger.info(f"Поисковый запрос: {parameter.search_query}")
+                logger.info(
+                    f"Ререйтинг: {parameter.use_reranker}, Лимит: {parameter.search_limit}, Лимит ререйтинга: {parameter.rerank_limit}")
 
-                # Выполняем семантический поиск
+                # Выполняем семантический поиск с учетом настроек параметра
                 search_results = search(
                     application_id=application_id,
                     query=parameter.search_query,
-                    limit=2
+                    limit=parameter.search_limit,
+                    use_reranker=parameter.use_reranker,
+                    rerank_limit=parameter.rerank_limit
                 )
 
                 # Логируем результаты поиска
@@ -84,10 +88,9 @@ def analyze_application(application_id):
                     if 'metadata' in doc:
                         logger.info(f"  Раздел: {doc['metadata'].get('section', 'Н/Д')}")
                         logger.info(f"  Тип: {doc['metadata'].get('content_type', 'Н/Д')}")
-
-                    # Выводим полный текст для анализа
-                    if 'text' in doc:
-                        logger.info(f"  Полный текст:\n{doc['text']}")
+                        if parameter.use_reranker and 'rerank_score' in doc:
+                            logger.info(f"  Оценка ререйтинга: {doc.get('rerank_score', 0.0)}")
+                        logger.info(f"  Оценка векторная: {doc.get('score', 0.0)}")
 
                 # Если не найдено результатов, создаем запись об этом
                 if not search_results:
@@ -122,7 +125,6 @@ def analyze_application(application_id):
                 logger.info(f"Модель: {parameter.llm_model}")
                 logger.info(f"Температура: {parameter.llm_temperature}")
                 logger.info(f"Max tokens: {parameter.llm_max_tokens}")
-                logger.info(f"Полный промпт:\n{full_prompt}")
 
                 # Обрабатываем параметр через LLM
                 llm_response = llm_provider.process_query(
@@ -132,9 +134,9 @@ def analyze_application(application_id):
                     parameters={
                         'temperature': parameter.llm_temperature,
                         'max_tokens': parameter.llm_max_tokens,
-                        'search_query': parameter.search_query  # Добавляем поисковый запрос как запасной вариант
+                        'search_query': parameter.search_query
                     },
-                    query=parameter.search_query  # Важно: явно передаем поисковый запрос
+                    query=parameter.search_query
                 )
 
                 # Логируем ответ от LLM
@@ -216,19 +218,25 @@ def _format_documents_for_context(documents):
     for i, doc in enumerate(documents):
         formatted_doc = f"Документ {i + 1}:\n"
 
+        # Добавляем информацию о документе
         if 'metadata' in doc:
-            formatted_doc += f"Раздел: {doc['metadata'].get('section', 'Н/Д')}\n"
-            formatted_doc += f"Тип: {doc['metadata'].get('content_type', 'Н/Д')}\n"
+            metadata = doc.get('metadata', {})
+            formatted_doc += f"Раздел: {metadata.get('section', 'Н/Д')}\n"
+            formatted_doc += f"Тип: {metadata.get('content_type', 'Н/Д')}\n"
 
+            # Добавляем информацию о ререйтинге, если доступна
+            if 'rerank_score' in doc:
+                formatted_doc += f"Оценка релевантности (ререйтинг): {doc.get('rerank_score', 0.0):.4f}\n"
+
+            formatted_doc += f"Оценка релевантности: {doc.get('score', 0.0):.4f}\n"
+
+        # Добавляем текст документа
         formatted_doc += f"Текст:\n{doc.get('text', '')}\n"
         formatted_doc += "-" * 40 + "\n"
 
         formatted_docs.append(formatted_doc)
 
-    context = "\n".join(formatted_docs)
-    logger.info(f"Сформирован контекст длиной {len(context)} символов")
-
-    return context
+    return "\n".join(formatted_docs)
 
 
 def _extract_value_from_response(response, query):

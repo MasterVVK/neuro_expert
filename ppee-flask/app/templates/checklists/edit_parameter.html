@@ -26,8 +26,47 @@
                 <p class="form-note">Запрос для семантического поиска в документах (например, "полное наименование юридического лица")</p>
             </div>
             
+            <h3>Настройки поиска</h3>
+
+            <div class="form-row">
+                <div class="form-group half-width">
+                    <label for="search_limit">Количество результатов</label>
+                    <select id="search_limit" name="search_limit">
+                        <option value="1" {% if parameter.search_limit == 1 %}selected{% endif %}>1</option>
+                        <option value="2" {% if parameter.search_limit == 2 %}selected{% endif %}>2</option>
+                        <option value="3" {% if parameter.search_limit == 3 %}selected{% endif %}>3</option>
+                        <option value="4" {% if parameter.search_limit == 4 %}selected{% endif %}>4</option>
+                        <option value="5" {% if parameter.search_limit == 5 %}selected{% endif %}>5</option>
+                        <option value="6" {% if parameter.search_limit == 6 %}selected{% endif %}>6</option>
+                        <option value="7" {% if parameter.search_limit == 7 %}selected{% endif %}>7</option>
+                        <option value="8" {% if parameter.search_limit == 8 %}selected{% endif %}>8</option>
+                    </select>
+                    <p class="form-note">Количество результатов поиска для обработки LLM</p>
+                </div>
+
+                <div class="form-group half-width">
+                    <div class="checkbox-item">
+                        <input type="checkbox" id="use_reranker" name="use_reranker" value="true" {% if parameter.use_reranker %}checked{% endif %}>
+                        <label for="use_reranker">Использовать ререйтинг</label>
+                    </div>
+                    <p class="form-note">Ререйтинг улучшает качество результатов, но требует больше ресурсов</p>
+                </div>
+            </div>
+
+            <div class="form-group rerank-limit-container" style="display: {% if parameter.use_reranker %}block{% else %}none{% endif %};">
+                <label for="rerank_limit">Количество документов для ререйтинга</label>
+                <select id="rerank_limit" name="rerank_limit">
+                    <option value="5" {% if parameter.rerank_limit == 5 %}selected{% endif %}>5</option>
+                    <option value="10" {% if parameter.rerank_limit == 10 %}selected{% endif %}>10</option>
+                    <option value="15" {% if parameter.rerank_limit == 15 %}selected{% endif %}>15</option>
+                    <option value="20" {% if parameter.rerank_limit == 20 %}selected{% endif %}>20</option>
+                    <option value="30" {% if parameter.rerank_limit == 30 %}selected{% endif %}>30</option>
+                </select>
+                <p class="form-note">Количество документов, извлекаемых для применения ререйтинга</p>
+            </div>
+
             <h3>Настройки LLM</h3>
-            
+
             <div class="form-group">
                 <label for="llm_model">Модель LLM</label>
                 <select id="llm_model" name="llm_model" required>
@@ -36,31 +75,52 @@
                     {% endfor %}
                 </select>
             </div>
-            
+
             <div class="form-group">
                 <label for="llm_prompt_template">Шаблон промпта</label>
                 <textarea id="llm_prompt_template" name="llm_prompt_template" rows="10" required>{{ parameter.llm_prompt_template }}</textarea>
                 <p class="form-note">Используйте {query} для вставки поискового запроса и {context} для вставки контекста из найденных документов</p>
             </div>
-            
+
             <div class="form-row">
                 <div class="form-group half-width">
                     <label for="llm_temperature">Temperature</label>
                     <input type="number" id="llm_temperature" name="llm_temperature" step="0.1" min="0" max="1" value="{{ parameter.llm_temperature }}">
                     <p class="form-note">Значение от 0.0 до 1.0, влияет на креативность ответов</p>
                 </div>
-                
+
                 <div class="form-group half-width">
                     <label for="llm_max_tokens">Max Tokens</label>
                     <input type="number" id="llm_max_tokens" name="llm_max_tokens" min="100" max="4000" value="{{ parameter.llm_max_tokens }}">
                     <p class="form-note">Максимальная длина ответа в токенах</p>
                 </div>
             </div>
-            
+
             <div class="form-actions">
                 <button type="submit" class="button">Сохранить изменения</button>
                 <a href="{{ url_for('checklists.view', id=checklist.id) }}" class="button button-secondary">Отмена</a>
             </div>
         </form>
     </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Элементы для управления отображением дополнительных настроек ререйтинга
+            const useRerankerCheckbox = document.getElementById('use_reranker');
+            const rerankLimitContainer = document.querySelector('.rerank-limit-container');
+
+            // Функция для обновления видимости настроек ререйтинга
+            function updateRerankSettings() {
+                if (useRerankerCheckbox.checked) {
+                    rerankLimitContainer.style.display = 'block';
+                } else {
+                    rerankLimitContainer.style.display = 'none';
+                }
+            }
+
+            // Инициализация и установка обработчика событий
+            updateRerankSettings();
+            useRerankerCheckbox.addEventListener('change', updateRerankSettings);
+        });
+    </script>
 {% endblock %}

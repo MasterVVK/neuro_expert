@@ -26,8 +26,47 @@
                 <p class="form-note">Запрос для семантического поиска в документах (например, "полное наименование юридического лица")</p>
             </div>
             
+            <h3>Настройки поиска</h3>
+
+            <div class="form-row">
+                <div class="form-group half-width">
+                    <label for="search_limit">Количество результатов</label>
+                    <select id="search_limit" name="search_limit">
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                        <option value="3" selected>3</option>
+                        <option value="4">4</option>
+                        <option value="5">5</option>
+                        <option value="6">6</option>
+                        <option value="7">7</option>
+                        <option value="8">8</option>
+                    </select>
+                    <p class="form-note">Количество результатов поиска для обработки LLM</p>
+                </div>
+
+                <div class="form-group half-width">
+                    <div class="checkbox-item">
+                        <input type="checkbox" id="use_reranker" name="use_reranker" value="true">
+                        <label for="use_reranker">Использовать ререйтинг</label>
+                    </div>
+                    <p class="form-note">Ререйтинг улучшает качество результатов, но требует больше ресурсов</p>
+                </div>
+            </div>
+
+            <div class="form-group rerank-limit-container" style="display: none;">
+                <label for="rerank_limit">Количество документов для ререйтинга</label>
+                <select id="rerank_limit" name="rerank_limit">
+                    <option value="5">5</option>
+                    <option value="10" selected>10</option>
+                    <option value="15">15</option>
+                    <option value="20">20</option>
+                    <option value="30">30</option>
+                </select>
+                <p class="form-note">Количество документов, извлекаемых для применения ререйтинга</p>
+            </div>
+
             <h3>Настройки LLM</h3>
-            
+
             <div class="form-group">
                 <label for="llm_model">Модель LLM</label>
                 <select id="llm_model" name="llm_model" required>
@@ -36,31 +75,52 @@
                     {% endfor %}
                 </select>
             </div>
-            
+
             <div class="form-group">
                 <label for="llm_prompt_template">Шаблон промпта</label>
                 <textarea id="llm_prompt_template" name="llm_prompt_template" rows="10" required>{{ default_prompt }}</textarea>
                 <p class="form-note">Используйте {query} для вставки поискового запроса и {context} для вставки контекста из найденных документов</p>
             </div>
-            
+
             <div class="form-row">
                 <div class="form-group half-width">
                     <label for="llm_temperature">Temperature</label>
                     <input type="number" id="llm_temperature" name="llm_temperature" step="0.1" min="0" max="1" value="0.1">
                     <p class="form-note">Значение от 0.0 до 1.0, влияет на креативность ответов</p>
                 </div>
-                
+
                 <div class="form-group half-width">
                     <label for="llm_max_tokens">Max Tokens</label>
                     <input type="number" id="llm_max_tokens" name="llm_max_tokens" min="100" max="4000" value="1000">
                     <p class="form-note">Максимальная длина ответа в токенах</p>
                 </div>
             </div>
-            
+
             <div class="form-actions">
                 <button type="submit" class="button">Добавить параметр</button>
                 <a href="{{ url_for('checklists.view', id=checklist.id) }}" class="button button-secondary">Отмена</a>
             </div>
         </form>
     </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Элементы для управления отображением дополнительных настроек ререйтинга
+            const useRerankerCheckbox = document.getElementById('use_reranker');
+            const rerankLimitContainer = document.querySelector('.rerank-limit-container');
+
+            // Функция для обновления видимости настроек ререйтинга
+            function updateRerankSettings() {
+                if (useRerankerCheckbox.checked) {
+                    rerankLimitContainer.style.display = 'block';
+                } else {
+                    rerankLimitContainer.style.display = 'none';
+                }
+            }
+
+            // Инициализация и установка обработчика событий
+            updateRerankSettings();
+            useRerankerCheckbox.addEventListener('change', updateRerankSettings);
+        });
+    </script>
 {% endblock %}

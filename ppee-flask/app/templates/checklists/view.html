@@ -44,6 +44,7 @@
                             <tr>
                                 <th>Название</th>
                                 <th>Поисковый запрос</th>
+                                <th>Настройки поиска</th>
                                 <th>Модель LLM</th>
                                 <th>Действия</th>
                             </tr>
@@ -53,10 +54,19 @@
                                 <tr>
                                     <td>{{ parameter.name }}</td>
                                     <td>{{ parameter.search_query }}</td>
+                                    <td>
+                                        <span class="search-settings">
+                                            Результатов: {{ parameter.search_limit }}
+                                            {% if parameter.use_reranker %}
+                                                <br><span class="badge badge-success">Ререйтинг</span>
+                                                <span class="small">(лимит: {{ parameter.rerank_limit }})</span>
+                                            {% endif %}
+                                        </span>
+                                    </td>
                                     <td>{{ parameter.llm_model }}</td>
                                     <td>
                                         <a href="{{ url_for('checklists.edit_parameter', id=parameter.id) }}" class="button button-small">Редактировать</a>
-                                        
+
                                         <form method="post" action="{{ url_for('checklists.delete_parameter', id=parameter.id) }}" class="inline-form" onsubmit="return confirm('Вы уверены, что хотите удалить этот параметр? Это действие необратимо.');">
                                             <button type="submit" class="button button-small button-danger">Удалить</button>
                                         </form>
@@ -71,4 +81,29 @@
             {% endif %}
         </div>
     </div>
+
+    <style>
+        .badge {
+            display: inline-block;
+            padding: 0.25em 0.4em;
+            font-size: 75%;
+            font-weight: 700;
+            line-height: 1;
+            text-align: center;
+            white-space: nowrap;
+            vertical-align: baseline;
+            border-radius: 0.25rem;
+            margin-right: 5px;
+        }
+
+        .badge-success {
+            color: #fff;
+            background-color: #28a745;
+        }
+
+        .small {
+            font-size: 80%;
+            color: #6c757d;
+        }
+    </style>
 {% endblock %}

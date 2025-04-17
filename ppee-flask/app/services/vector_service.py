@@ -8,15 +8,25 @@ from flask import current_app
 logger = logging.getLogger(__name__)
 
 
-def get_qdrant_adapter():
-    """Создает и возвращает адаптер для Qdrant"""
+def get_qdrant_adapter(use_reranker=False):
+    """
+    Создает и возвращает адаптер для Qdrant
+
+    Args:
+        use_reranker: Использовать ли ререйтинг
+
+    Returns:
+        QdrantAdapter: Адаптер для Qdrant
+    """
     return QdrantAdapter(
         host=current_app.config['QDRANT_HOST'],
         port=current_app.config['QDRANT_PORT'],
         collection_name=current_app.config['QDRANT_COLLECTION'],
         embeddings_type='ollama',  # Можно сделать настраиваемым через конфигурацию
         model_name='bge-m3',  # Можно сделать настраиваемым через конфигурацию
-        ollama_url=current_app.config['OLLAMA_URL']
+        ollama_url=current_app.config['OLLAMA_URL'],
+        use_reranker=use_reranker,
+        reranker_model='BAAI/bge-reranker-v2-m3'
     )
 
 
@@ -105,7 +115,8 @@ def index_document(application_id, file_id, progress_callback=None):
 
         raise
 
-def search(application_id, query, limit=5):
+
+def search(application_id, query, limit=5, use_reranker=False, rerank_limit=None):
     """
     Выполняет семантический поиск.
 
@@ -113,27 +124,43 @@ def search(application_id, query, limit=5):
         application_id: ID заявки
         query: Поисковый запрос
         limit: Максимальное количество результатов
+        use_reranker: Использовать ли ререйтинг
+        rerank_limit: Количество документов для ререйтинга
 
     Returns:
         list: Результаты поиска
     """
-    logger.info(f"Выполнение поиска '{query}' для заявки {application_id}")
+    logger.info(f"Выполнение поиска '{query}' для заявки {application_id} (ререйтинг: {use_reranker})")
 
     try:
         # Получаем адаптер Qdrant
-        qdrant_adapter = get_qdrant_adapter()
+        qdrant_adapter = get_qdrant_adapter(use_reranker=use_reranker)
 
         # Выполняем поиск
         results = qdrant_adapter.search(
             application_id=str(application_id),
             query=query,
-            limit=limit
+            limit=limit,
+            rerank_limit=rerank_limit
         )
+
+        # Освобождаем ресурсы, если использовался ререйтинг
+        if use_reranker:
+            try:
+                qdrant_adapter.cleanup()
+            except Exception as e:
+                logger.warning(f"Ошибка при освобождении ресурсов ререйтинга: {str(e)}")
 
         return results
 
     except Exception as e:
         logger.exception(f"Ошибка при выполнении поиска: {str(e)}")
+        # Освобождаем ресурсы в случае ошибки
+        if 'qdrant_adapter' in locals() and qdrant_adapter.use_reranker:
+            try:
+                qdrant_adapter.cleanup()
+            except:
+                pass
         raise
 
 
