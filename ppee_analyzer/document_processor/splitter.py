@@ -16,9 +16,8 @@ class PPEEDocumentSplitter:
 
     def __init__(
             self,
-            text_chunk_size: int = 800,
+            text_chunk_size: int = 1500,  # Увеличен с 800 до 1500
             table_chunk_size: int = 2000,
-            list_chunk_size: int = 1500,
             chunk_overlap: int = 150
     ):
         """
@@ -27,12 +26,10 @@ class PPEEDocumentSplitter:
         Args:
             text_chunk_size: Размер фрагмента для обычного текста
             table_chunk_size: Размер фрагмента для таблиц
-            list_chunk_size: Размер фрагмента для списков
             chunk_overlap: Перекрытие между фрагментами
         """
         self.text_chunk_size = text_chunk_size
         self.table_chunk_size = table_chunk_size
-        self.list_chunk_size = list_chunk_size
         self.chunk_overlap = chunk_overlap
 
     def identify_content_type(self, text: str) -> str:
@@ -43,17 +40,13 @@ class PPEEDocumentSplitter:
             text: Текст фрагмента
 
         Returns:
-            str: Тип содержимого ("table", "list", "text")
+            str: Тип содержимого ("table" или "text")
         """
         # Проверка на таблицу (содержит | и типичные разделители таблиц в markdown)
         if "|" in text and re.search(r'\|[\s-]+\|', text):
             return "table"
 
-        # Проверка на список
-        if re.search(r'(\n\s*[-*]\s+[^\n]+){2,}', text):
-            return "list"
-
-        # По умолчанию - обычный текст
+        # По умолчанию - обычный текст (включая списки)
         return "text"
 
     def extract_section_info(self, text: str) -> Dict[str, str]:
@@ -128,6 +121,7 @@ class PPEEDocumentSplitter:
     def split_by_sections(self, text: str) -> List[str]:
         """
         Разделяет текст на крупные секции по заголовкам.
+        Каждая секция включает заголовок и содержание до следующего заголовка.
 
         Args:
             text: Текст документа
@@ -142,19 +136,24 @@ class PPEEDocumentSplitter:
         matches = list(re.finditer(section_pattern, text))
 
         if not matches:
-            return [text]
+            return [text]  # Если заголовков нет, возвращаем весь текст как одну секцию
 
         sections = []
 
-        # Добавляем текст до первого заголовка, если он есть
+        # Добавляем текст до первого заголовка, если он есть и не пустой
         if matches[0].start() > 0:
-            sections.append(text[:matches[0].start()])
+            intro_text = text[:matches[0].start()].strip()
+            if intro_text:  # Добавляем только если там действительно есть текст
+                sections.append(intro_text)
 
-        # Добавляем каждую секцию
+        # Добавляем каждую секцию с заголовком
         for i in range(len(matches)):
-            start = matches[i].start()
-            end = matches[i + 1].start() if i < len(matches) - 1 else len(text)
-            sections.append(text[start:end])
+            start = matches[i].start()  # Начало текущего заголовка
+            end = matches[i + 1].start() if i < len(matches) - 1 else len(text)  # Начало следующего заголовка или конец текста
+
+            section = text[start:end].strip()
+            if section:  # Проверяем, что секция не пустая
+                sections.append(section)
 
         return sections
 
@@ -194,38 +193,7 @@ class PPEEDocumentSplitter:
 
                 return chunks
 
-        elif content_type == "list":
-            # Для списков: стараемся не разрывать связанные пункты
-            if len(section_text) <= self.list_chunk_size:
-                return [section_text]  # Список целиком
-            else:
-                # Делим список на логические группы
-                list_items = re.split(r'(\n\s*[-*]\s+)', section_text)
-
-                chunks = []
-                current_chunk = ""
-
-                for i in range(len(list_items)):
-                    if i % 2 == 0:  # текст перед маркером списка
-                        current_text = list_items[i]
-                    else:  # маркер списка + текст после него
-                        if i + 1 < len(list_items):
-                            current_text = list_items[i] + list_items[i + 1]
-                        else:
-                            current_text = list_items[i]
-
-                    if len(current_chunk + current_text) > self.list_chunk_size and current_chunk:
-                        chunks.append(current_chunk)
-                        current_chunk = current_text
-                    else:
-                        current_chunk += current_text
-
-                if current_chunk:
-                    chunks.append(current_chunk)
-
-                return chunks
-
-        else:  # Обычный текст или другой тип
+        else:  # Обычный текст (включая списки)
             # Используем рекурсивный разделитель для обычного текста
             text_splitter = RecursiveCharacterTextSplitter(
                 chunk_size=self.text_chunk_size,
