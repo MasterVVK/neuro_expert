@@ -69,12 +69,12 @@ class PPEEDocumentSplitter:
             section_path = section_number_match.group(1)
 
         # Поиск заголовка раздела
-        section_match = re.search(r'## ([^#\n]+)', text)
+        section_match = re.search(r'##\s+([^\n]+)', text)
         if section_match:
             section = section_match.group(1).strip()
 
         # Поиск подзаголовка
-        subsection_match = re.search(r'### ([^#\n]+)', text)
+        subsection_match = re.search(r'###\s+([^\n]+)', text)
         if subsection_match:
             subsection = subsection_match.group(1).strip()
 
@@ -129,6 +129,10 @@ class PPEEDocumentSplitter:
         Returns:
             List[str]: Список секций
         """
+        # Добавляем \n в начало, если его нет, чтобы регулярное выражение работало корректно
+        if not text.startswith('\n'):
+            text = '\n' + text
+
         # Регулярное выражение для поиска заголовков разделов
         section_pattern = r'\n##\s+[^\n]+'
 
@@ -160,6 +164,7 @@ class PPEEDocumentSplitter:
     def split_section(self, section_text: str) -> List[str]:
         """
         Разделяет секцию на фрагменты с учетом типа содержимого.
+        Гарантирует, что заголовок не отделяется от содержимого.
 
         Args:
             section_text: Текст секции
@@ -194,16 +199,62 @@ class PPEEDocumentSplitter:
                 return chunks
 
         else:  # Обычный текст (включая списки)
-            # Используем рекурсивный разделитель для обычного текста
-            text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=self.text_chunk_size,
-                chunk_overlap=self.chunk_overlap,
-                separators=["\n\n", "\n", ". ", ", ", " ", ""],
-                keep_separator=True
-            )
+            # Проверяем, есть ли заголовок в тексте
+            header_match = re.search(r'^##\s+[^\n]+', section_text, re.MULTILINE)
 
-            chunks = text_splitter.split_text(section_text)
-            return chunks
+            if header_match:
+                # Получаем заголовок
+                header = header_match.group(0)
+
+                # Разделяем текст
+                text_splitter = RecursiveCharacterTextSplitter(
+                    chunk_size=self.text_chunk_size,
+                    chunk_overlap=self.chunk_overlap,
+                    separators=["\n\n", "\n", ". ", ", ", " ", ""],
+                    keep_separator=True
+                )
+
+                chunks = text_splitter.split_text(section_text)
+
+                # Проверяем каждый фрагмент
+                processed_chunks = []
+                skip_next = False
+
+                for i in range(len(chunks)):
+                    if skip_next:
+                        skip_next = False
+                        continue
+
+                    chunk = chunks[i]
+
+                    # Если фрагмент содержит только заголовок (или близок к этому)
+                    if chunk.strip() == header.strip() or (len(chunk.strip()) - len(header.strip()) < 20):
+                        # Если это последний фрагмент, объединяем его с предыдущим (если есть)
+                        if i == len(chunks) - 1 and processed_chunks:
+                            processed_chunks[-1] = processed_chunks[-1] + "\n" + chunk
+                        # Если есть следующий фрагмент, объединяем с ним
+                        elif i < len(chunks) - 1:
+                            combined_chunk = chunk + "\n" + chunks[i+1]
+                            processed_chunks.append(combined_chunk)
+                            skip_next = True
+                        else:
+                            # В крайнем случае добавляем как есть
+                            processed_chunks.append(chunk)
+                    else:
+                        processed_chunks.append(chunk)
+
+                return processed_chunks
+            else:
+                # Если заголовка нет, просто разделяем текст
+                text_splitter = RecursiveCharacterTextSplitter(
+                    chunk_size=self.text_chunk_size,
+                    chunk_overlap=self.chunk_overlap,
+                    separators=["\n\n", "\n", ". ", ", ", " ", ""],
+                    keep_separator=True
+                )
+
+                chunks = text_splitter.split_text(section_text)
+                return chunks
 
     def process_document(self, text: str, application_id: str, document_id: str, document_name: str) -> List[Document]:
         """
@@ -235,6 +286,10 @@ class PPEEDocumentSplitter:
 
             # Шаг 4: Добавляем метаданные к каждому фрагменту
             for i, chunk_text in enumerate(section_chunks):
+                # Пропускаем пустые фрагменты или фрагменты, содержащие только заголовок
+                if not chunk_text.strip() or chunk_text.strip().startswith('##') and len(chunk_text.strip().split('\n')) <= 1:
+                    continue
+
                 # Определяем дополнительную информацию
                 special_content = self.detect_special_content(chunk_text)
                 page_number = self.extract_page_number(chunk_text)
