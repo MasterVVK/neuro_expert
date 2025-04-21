@@ -2,6 +2,7 @@ from flask import render_template, redirect, url_for, flash, request, jsonify, c
 from app.blueprints.search import bp
 from app.models import Application
 from app.tasks.search_tasks import semantic_search_task
+from app.adapters.llm_adapter import OllamaLLMProvider
 
 
 @bp.route('/')
@@ -10,9 +11,18 @@ def index():
     # Получаем список доступных заявок
     applications = Application.query.filter(Application.status.in_(['indexed', 'analyzed'])).all()
 
+    # Получаем список доступных моделей LLM
+    llm_provider = OllamaLLMProvider(base_url=current_app.config['OLLAMA_URL'])
+    available_models = llm_provider.get_available_models()
+
+    # Если не удалось получить список моделей, используем фиксированный список
+    if not available_models:
+        available_models = ['gemma3:27b', 'llama3:8b', 'mistral:7b']
+
     return render_template('search/index.html',
                            title='Семантический поиск',
-                           applications=applications)
+                           applications=applications,
+                           available_models=available_models)
 
 
 @bp.route('/execute', methods=['POST'])
@@ -20,8 +30,21 @@ def execute_search():
     """Выполняет поиск и возвращает результаты в формате JSON"""
     application_id = request.form.get('application_id')
     query = request.form.get('query')
-    limit = int(request.form.get('limit', 5))
-    use_reranker = request.form.get('use_reranker') == 'true'  # Получаем параметр ререйтинга
+    search_limit = int(request.form.get('search_limit', 5))
+    use_reranker = request.form.get('use_reranker') == 'true'
+    rerank_limit = int(request.form.get('rerank_limit', 10)) if use_reranker else None
+
+    # Параметры LLM
+    use_llm = request.form.get('use_llm') == 'true'
+    llm_params = None
+
+    if use_llm:
+        llm_params = {
+            'model_name': request.form.get('llm_model', 'gemma3:27b'),
+            'prompt_template': request.form.get('llm_prompt_template', ''),
+            'temperature': float(request.form.get('llm_temperature', 0.1)),
+            'max_tokens': int(request.form.get('llm_max_tokens', 1000))
+        }
 
     if not application_id or not query:
         return jsonify({
@@ -31,14 +54,17 @@ def execute_search():
 
     try:
         # Логируем запрос
-        current_app.logger.info(f"Поиск: '{query}', Заявка: {application_id}, Ререйтинг: {use_reranker}")
+        current_app.logger.info(f"Поиск: '{query}', Заявка: {application_id}, Ререйтинг: {use_reranker}, LLM: {use_llm}")
 
         # Вызываем асинхронную задачу Celery для выполнения поиска
         task = semantic_search_task.delay(
             application_id=application_id,
             query_text=query,
-            limit=limit,
-            use_reranker=use_reranker
+            limit=search_limit,
+            use_reranker=use_reranker,
+            rerank_limit=rerank_limit,
+            use_llm=use_llm,
+            llm_params=llm_params
         )
 
         # Возвращаем ID задачи для последующего отслеживания

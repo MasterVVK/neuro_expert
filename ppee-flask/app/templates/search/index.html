@@ -2,7 +2,7 @@
 
 {% block content %}
     <div class="page-header">
-        <h1>Семантический поиск</h1>
+        <h1>Тестирование семантического поиска</h1>
     </div>
 
     <div class="search-container">
@@ -22,10 +22,12 @@
                 <input type="text" id="query" name="query" placeholder="Введите поисковый запрос..." required>
             </div>
 
+            <h3>Настройки поиска</h3>
+
             <div class="form-row">
                 <div class="form-group half-width">
-                    <label for="limit">Количество результатов</label>
-                    <select id="limit" name="limit">
+                    <label for="search_limit">Количество результатов</label>
+                    <select id="search_limit" name="search_limit">
                         <option value="1">1</option>
                         <option value="2">2</option>
                         <option value="3" selected>3</option>
@@ -34,9 +36,8 @@
                         <option value="6">6</option>
                         <option value="7">7</option>
                         <option value="8">8</option>
-                        <option value="9">9</option>
-                        <option value="10">10</option>
                     </select>
+                    <p class="form-note">Количество результатов поиска для отображения</p>
                 </div>
 
                 <div class="form-group half-width">
@@ -44,15 +45,86 @@
                         <input type="checkbox" id="use_reranker" name="use_reranker" value="true">
                         <label for="use_reranker">Использовать ререйтинг</label>
                     </div>
-                    <p class="form-note">Ререйтинг может улучшить качество результатов, но требует больше времени</p>
+                    <p class="form-note">Ререйтинг улучшает качество результатов, но требует больше ресурсов</p>
+                </div>
+            </div>
+
+            <div class="form-group rerank-limit-container" style="display: none;">
+                <label for="rerank_limit">Количество документов для ререйтинга</label>
+                <select id="rerank_limit" name="rerank_limit">
+                    <option value="5">5</option>
+                    <option value="10" selected>10</option>
+                    <option value="15">15</option>
+                    <option value="20">20</option>
+                    <option value="30">30</option>
+                </select>
+                <p class="form-note">Количество документов, извлекаемых для применения ререйтинга</p>
+            </div>
+
+            <h3>Настройки LLM для обработки результатов (опционально)</h3>
+
+            <div class="form-group">
+                <div class="checkbox-item">
+                    <input type="checkbox" id="use_llm" name="use_llm" value="true">
+                    <label for="use_llm">Обработать результаты через LLM</label>
+                </div>
+                <p class="form-note">Извлечение конкретного значения из результатов поиска с помощью LLM</p>
+            </div>
+
+            <div id="llm-settings" style="display: none;">
+                <div class="form-group">
+                    <label for="llm_model">Модель LLM</label>
+                    <select id="llm_model" name="llm_model">
+                        {% for model in available_models %}
+                            <option value="{{ model }}">{{ model }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="llm_prompt_template">Шаблон промпта</label>
+                    <textarea id="llm_prompt_template" name="llm_prompt_template" rows="10">Ты эксперт по поиску информации в документах.
+
+Нужно найти значение для параметра: "{query}"
+
+Найденные результаты:
+{context}
+
+Твоя задача - извлечь точное значение для параметра "{query}" из предоставленных документов.
+
+Правила:
+1. Если значение найдено в нескольких местах, выбери наиболее полное и точное.
+2. Если значение в таблице, внимательно определи соответствие между строкой и нужным столбцом.
+3. Не добавляй никаких комментариев или пояснений - только параметр и его значение.
+4. Значение должно содержать данные, которые есть в документах.
+5. Если параметр не найден, укажи: "Информация не найдена".
+
+Ответь одной строкой в указанном формате:
+{query}: [значение]</textarea>
+                    <p class="form-note">Используйте {query} для вставки поискового запроса и {context} для вставки контекста из найденных документов</p>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group half-width">
+                        <label for="llm_temperature">Temperature</label>
+                        <input type="number" id="llm_temperature" name="llm_temperature" step="0.1" min="0" max="1" value="0.1">
+                        <p class="form-note">Значение от 0.0 до 1.0, влияет на креативность ответов</p>
+                    </div>
+
+                    <div class="form-group half-width">
+                        <label for="llm_max_tokens">Max Tokens</label>
+                        <input type="number" id="llm_max_tokens" name="llm_max_tokens" min="100" max="4000" value="1000">
+                        <p class="form-note">Максимальная длина ответа в токенах</p>
+                    </div>
                 </div>
             </div>
 
             <div class="form-actions">
-                <button type="submit" class="button">Найти</button>
+                <button type="submit" class="button">Выполнить поиск</button>
             </div>
         </form>
 
+        <!-- Индикатор прогресса -->
         <div id="search-progress" class="search-progress" style="display: none;">
             <h3>Выполнение поиска</h3>
             <div class="progress">
@@ -61,7 +133,8 @@
             </div>
             <p id="status-message">Выполняется поиск...</p>
 
-            <div id="progress-stages" class="search-stages">
+            <!-- Горизонтальный статус бар -->
+            <div class="indexing-stages" id="progress-stages">
                 <div class="stage" id="stage-starting">
                     <span class="stage-dot"></span>
                     <span class="stage-label">Инициализация</span>
@@ -72,11 +145,15 @@
                 </div>
                 <div class="stage" id="stage-vector_search">
                     <span class="stage-dot"></span>
-                    <span class="stage-label">Векторный поиск</span>
+                    <span class="stage-label">Векторный<br>поиск</span>
                 </div>
-                <div class="stage" id="stage-reranking">
+                <div class="stage" id="stage-reranking" style="display: none;">
                     <span class="stage-dot"></span>
                     <span class="stage-label">Ререйтинг</span>
+                </div>
+                <div class="stage" id="stage-llm_processing" style="display: none;">
+                    <span class="stage-dot"></span>
+                    <span class="stage-label">Обработка<br>LLM</span>
                 </div>
                 <div class="stage" id="stage-finishing">
                     <span class="stage-dot"></span>
@@ -85,15 +162,42 @@
             </div>
         </div>
 
+        <!-- Контейнер для результатов -->
         <div id="results-container" class="results-container" style="display: none;">
             <h2>Результаты поиска</h2>
             <div id="results-stats" class="results-stats"></div>
+
+            <!-- Блок для отображения результата LLM -->
+            <div id="llm-result" class="llm-result" style="display: none;">
+                <h3>Извлеченное значение (LLM)</h3>
+                <div class="info-card">
+                    <div id="llm-value" class="llm-value"></div>
+                    <div id="llm-confidence" class="confidence-container">
+                        <p>Уверенность:</p>
+                        <div class="confidence-bar">
+                            <div id="confidence-value" class="confidence-value" style="width: 0%"></div>
+                            <span id="confidence-text">0%</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <h3>Найденные документы</h3>
             <div id="search-results" class="search-results"></div>
         </div>
     </div>
 
     <script>
         document.addEventListener('DOMContentLoaded', function() {
+            // Элементы для управления отображением настроек
+            const useRerankerCheckbox = document.getElementById('use_reranker');
+            const rerankLimitContainer = document.querySelector('.rerank-limit-container');
+            const useLlmCheckbox = document.getElementById('use_llm');
+            const llmSettings = document.getElementById('llm-settings');
+            const rerankingStage = document.getElementById('stage-reranking');
+            const llmProcessingStage = document.getElementById('stage-llm_processing');
+
+            // Элементы формы и результатов
             const searchForm = document.getElementById('search-form');
             const searchProgress = document.getElementById('search-progress');
             const progressBar = document.getElementById('progress-bar');
@@ -101,18 +205,45 @@
             const resultsContainer = document.getElementById('results-container');
             const resultsStats = document.getElementById('results-stats');
             const searchResults = document.getElementById('search-results');
+            const llmResult = document.getElementById('llm-result');
+            const llmValue = document.getElementById('llm-value');
+            const confidenceValue = document.getElementById('confidence-value');
+            const confidenceText = document.getElementById('confidence-text');
 
+            // Переменные для отслеживания задачи
             let taskId = null;
             let statusCheckInterval = null;
 
+            // Функция для обновления отображения настроек ререйтинга
+            function updateRerankSettings() {
+                if (useRerankerCheckbox.checked) {
+                    rerankLimitContainer.style.display = 'block';
+                    rerankingStage.style.display = '';
+                } else {
+                    rerankLimitContainer.style.display = 'none';
+                    rerankingStage.style.display = 'none';
+                }
+            }
+
+            // Функция для обновления отображения настроек LLM
+            function updateLlmSettings() {
+                if (useLlmCheckbox.checked) {
+                    llmSettings.style.display = 'block';
+                    llmProcessingStage.style.display = '';
+                } else {
+                    llmSettings.style.display = 'none';
+                    llmProcessingStage.style.display = 'none';
+                }
+            }
+
             // Функция для обновления отображения этапов
             function updateStages(stage) {
-                const stages = ['starting', 'initializing', 'vector_search', 'reranking', 'finishing'];
+                const stages = ['starting', 'initializing', 'vector_search', 'reranking', 'llm_processing', 'finishing'];
                 let reachedCurrentStage = false;
 
                 stages.forEach(s => {
                     const stageElement = document.getElementById(`stage-${s}`);
-                    if (stageElement) {
+                    if (stageElement && stageElement.style.display !== 'none') {
                         if (s === stage) {
                             stageElement.classList.add('active');
                             stageElement.classList.remove('completed');
@@ -150,6 +281,7 @@
                             resultsContainer.style.display = 'block';
                             resultsStats.innerHTML = '';
                             searchResults.innerHTML = `<p class="error-message">Ошибка: ${data.message}</p>`;
+                            llmResult.style.display = 'none';
                         } else if (data.status === 'success') {
                             // Задача выполнена успешно
                             clearInterval(statusCheckInterval);
@@ -175,6 +307,28 @@
                 resultsStats.innerHTML = `<p>${statsText}</p>`;
                 if (data.execution_time) {
                     resultsStats.innerHTML += `<p>Время выполнения: <strong>${data.execution_time}</strong> сек.</p>`;
+                }
+
+                // Отображаем результат LLM, если есть
+                if (data.llm_result) {
+                    llmResult.style.display = 'block';
+                    llmValue.textContent = data.llm_result.value;
+
+                    // Устанавливаем индикатор уверенности
+                    const confidence = data.llm_result.confidence * 100;
+                    confidenceValue.style.width = `${confidence}%`;
+                    confidenceText.textContent = `${Math.round(confidence)}%`;
+
+                    // Меняем цвет индикатора в зависимости от уверенности
+                    if (confidence > 75) {
+                        confidenceValue.style.backgroundColor = '#28a745'; // зеленый
+                    } else if (confidence > 50) {
+                        confidenceValue.style.backgroundColor = '#ffc107'; // желтый
+                    } else {
+                        confidenceValue.style.backgroundColor = '#dc3545'; // красный
+                    }
+                } else {
+                    llmResult.style.display = 'none';
                 }
 
                 // Очищаем предыдущие результаты
@@ -226,6 +380,7 @@
 
                 // Скрываем предыдущие результаты
                 resultsContainer.style.display = 'none';
+                llmResult.style.display = 'none';
 
                 // Показываем прогресс
                 searchProgress.style.display = 'block';
@@ -255,6 +410,7 @@
                         resultsContainer.style.display = 'block';
                         resultsStats.innerHTML = '';
                         searchResults.innerHTML = `<p class="error-message">Ошибка: ${data.message}</p>`;
+                        llmResult.style.display = 'none';
                     }
                 })
                 .catch(error => {
@@ -263,145 +419,68 @@
                     resultsContainer.style.display = 'block';
                     resultsStats.innerHTML = '';
                     searchResults.innerHTML = `<p class="error-message">Ошибка при запуске задачи: ${error.message}</p>`;
+                    llmResult.style.display = 'none';
                 });
             });
+
+            // Инициализация и установка обработчиков событий
+            updateRerankSettings();
+            updateLlmSettings();
+            useRerankerCheckbox.addEventListener('change', updateRerankSettings);
+            useLlmCheckbox.addEventListener('change', updateLlmSettings);
         });
     </script>
 
     <style>
-        /* Стили для прогресса поиска */
-        .search-progress {
-            background-color: #f8f9fa;
-            border-radius: 8px;
-            padding: 20px;
+        /* Дополнительные стили для новых элементов */
+        .llm-result {
             margin-bottom: 20px;
         }
 
-        .progress {
+        .llm-value {
+            font-size: 1.2rem;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            border-left: 4px solid #007bff;
+            margin-bottom: 10px;
+        }
+
+        .confidence-container {
+            margin-top: 10px;
+        }
+
+        .confidence-container p {
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        .confidence-bar {
+            position: relative;
             height: 20px;
-            margin: 15px 0;
             background-color: #e9ecef;
-            border-radius: 0.25rem;
+            border-radius: 4px;
             overflow: hidden;
         }
 
-        .progress-bar {
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            color: #fff;
-            text-align: center;
-            background-color: #007bff;
-            transition: width .6s ease;
-        }
-
-        .progress-bar-striped {
-            background-image: linear-gradient(45deg,rgba(255,255,255,.15) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.15) 50%,rgba(255,255,255,.15) 75%,transparent 75%,transparent);
-            background-size: 1rem 1rem;
-        }
-
-        .progress-bar-animated {
-            animation: progress-bar-stripes 1s linear infinite;
-        }
-
-        @keyframes progress-bar-stripes {
-            from { background-position: 1rem 0 }
-            to { background-position: 0 0 }
-        }
-
-        .search-stages {
-            display: flex;
-            justify-content: space-between;
-            margin-top: 20px;
-            position: relative;
-        }
-
-        .search-stages:before {
-            content: '';
+        .confidence-value {
             position: absolute;
-            top: 6px;
-            left: 25px;
-            right: 25px;
-            height: 2px;
-            background: #dee2e6;
-            z-index: 0;
-        }
-
-        .stage {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            position: relative;
-            z-index: 1;
-            width: 70px;
-        }
-
-        .stage-dot {
-            width: 14px;
-            height: 14px;
-            border-radius: 50%;
-            background-color: #dee2e6;
-            border: 2px solid #fff;
-            margin-bottom: 8px;
-        }
-
-        .stage.active .stage-dot {
-            background-color: #007bff;
-            box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
-        }
-
-        .stage.completed .stage-dot {
+            top: 0;
+            left: 0;
+            height: 100%;
             background-color: #28a745;
         }
 
-        .stage-label {
-            font-size: 12px;
+        .confidence-bar span {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
             text-align: center;
-            color: #6c757d;
-        }
-
-        .stage.active .stage-label {
-            color: #007bff;
+            line-height: 20px;
+            color: white;
             font-weight: bold;
-        }
-
-        .stage.completed .stage-label {
-            color: #28a745;
-        }
-
-        /* Дополнительные стили для ререйтинга */
-        .form-row {
-            display: flex;
-            gap: 15px;
-            margin-bottom: 15px;
-        }
-
-        .half-width {
-            width: 48%;
-        }
-
-        .checkbox-item {
-            display: flex;
-            align-items: center;
-            margin-bottom: 5px;
-        }
-
-        .checkbox-item input[type="checkbox"] {
-            width: auto;
-            margin-right: 8px;
-        }
-
-        .result-score-rerank {
-            font-size: 0.9rem;
-            color: #28a745;
-            font-weight: bold;
-            display: block;
-        }
-
-        .result-score {
-            font-size: 0.9rem;
-            color: #6c757d;
-            display: block;
+            text-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
         }
     </style>
 {% endblock %}
