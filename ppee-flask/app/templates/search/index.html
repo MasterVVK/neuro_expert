@@ -76,7 +76,7 @@
                     <label for="llm_model">Модель LLM</label>
                     <select id="llm_model" name="llm_model">
                         {% for model in available_models %}
-                            <option value="{{ model }}">{{ model }}</option>
+                            <option value="{{ model }}" {% if model == 'gemma3:27b' %}selected{% endif %}>{{ model }}</option>
                         {% endfor %}
                     </select>
                 </div>
