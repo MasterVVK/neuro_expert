@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Скрипт для разделения PDF документа по страницам с объединением разделенных таблиц
+Переработанный скрипт для правильного разделения PDF документов по страницам.
+Использует анализ структуры документа docling для корректного определения границ страниц.
 """
 
 import os
@@ -8,21 +9,18 @@ import sys
 import json
 import logging
 import argparse
-from typing import List, Dict, Any
+import re
+from typing import List, Dict, Any, Tuple
 from datetime import datetime
+from collections import defaultdict
 
-# Настройка детального логирования
+# Настройка логирования
 logging.basicConfig(
-    level=logging.DEBUG,  # Включаем DEBUG уровень
+    level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# Включаем дебаг для docling
-docling_logger = logging.getLogger('docling')
-docling_logger.setLevel(logging.DEBUG)
-
-# Импортируем docling
 try:
     import docling
     from docling.datamodel.base_models import InputFormat
@@ -36,33 +34,34 @@ except ImportError as e:
     sys.exit(1)
 
 
-class SimplePageSplitter:
-    """Класс для разделения документа по страницам с объединением таблиц"""
+class EnhancedPageSplitter:
+    """Улучшенный класс для разделения документа по страницам"""
 
-    def __init__(self):
-        logger.debug("Инициализация SimplePageSplitter")
+    def __init__(self, merge_split_tables: bool = True):
+        """
+        Инициализация splitter'а.
 
-        # Настраиваем docling с отключенной обработкой изображений
+        Args:
+            merge_split_tables: Объединять ли разбитые таблицы
+        """
+        self.merge_split_tables = merge_split_tables
+        logger.debug("Инициализация EnhancedPageSplitter")
+
+        # Настраиваем docling для анализа структуры документа
         self.pipeline_options = PdfPipelineOptions()
         self.pipeline_options.generate_picture_images = False
         self.pipeline_options.images_scale = 1
         self.pipeline_options.table_structure_options.do_cell_matching = True
 
-        logger.debug(f"Pipeline options: generate_picture_images={self.pipeline_options.generate_picture_images}, "
-                     f"images_scale={self.pipeline_options.images_scale}, "
-                     f"do_cell_matching={self.pipeline_options.table_structure_options.do_cell_matching}")
-
-        # Настраиваем опции PDF
+        # Создаем опции для конвертера
         self.pdf_format_option = PdfFormatOption(
             pipeline_options=self.pipeline_options,
             extract_images=False,
             extract_tables=True
         )
 
-        logger.debug("Создаем DocumentConverter")
-
+        # Инициализируем конвертер
         try:
-            # Создаем конвертер
             self.converter = DocumentConverter(
                 format_options={
                     InputFormat.PDF: self.pdf_format_option
@@ -73,189 +72,264 @@ class SimplePageSplitter:
             logger.error(f"Ошибка при создании DocumentConverter: {e}", exc_info=True)
             raise
 
-    def extract_and_merge_pages(self, pdf_path: str) -> List[Dict[str, Any]]:
-        """Извлекает страницы из PDF файла и объединяет если таблица разделена"""
-        logger.info(f"Начинаем конвертацию PDF через docling: {pdf_path}")
+    def _parse_document_structure(self, result) -> List[Dict[str, Any]]:
+        """
+        Анализирует структуру документа и извлекает элементы с информацией о страницах.
 
-        # Проверяем файл
-        if not os.path.exists(pdf_path):
-            logger.error(f"Файл не существует: {pdf_path}")
-            raise FileNotFoundError(f"Файл не найден: {pdf_path}")
+        Args:
+            result: Результат конвертации docling
 
-        file_size = os.path.getsize(pdf_path)
-        logger.debug(f"Размер файла: {file_size} байт")
+        Returns:
+            List[Dict[str, Any]]: Список элементов документа с метаданными
+        """
+        document_elements = []
 
         try:
-            logger.debug("Вызываем converter.convert()")
-            result = self.converter.convert(pdf_path)
-            logger.debug(f"Результат конвертации получен: {type(result)}")
-
-            # Проверяем структуру результата
-            if hasattr(result, 'document'):
-                logger.debug(f"result.document присутствует: {type(result.document)}")
-            else:
-                logger.error("result.document отсутствует")
-                logger.debug(f"Доступные атрибуты result: {dir(result)}")
-
-            # Получаем документ docling
+            # Извлекаем все элементы документа
             doc = result.document
-            logger.debug(f"Тип документа: {type(doc)}")
-            logger.debug(f"Доступные атрибуты документа: {dir(doc)}")
 
-            # Получаем markdown представление
-            logger.debug("Экспортируем в markdown")
-            markdown_content = doc.export_to_markdown()
-            logger.debug(f"Markdown получен, длина: {len(markdown_content)}")
+            # Пытаемся получить элементы из различных атрибутов
+            if hasattr(doc, 'items'):
+                items = doc.items
+                logger.debug(f"Найдено {len(items)} элементов через атрибут items")
 
-            # Печатаем первые 500 символов для диагностики
-            logger.debug(f"Начало markdown: {markdown_content[:500]}")
+                for item in items:
+                    element = {
+                        'content': str(item),
+                        'page_number': None,
+                        'type': getattr(item, 'type', 'unknown'),
+                        'is_table': False,
+                        'table_continues': False
+                    }
 
-            # Разделяем по страницам
-            pages = self._split_by_pages(markdown_content)
-            logger.debug(f"Получено страниц: {len(pages)}")
+                    # Определяем номер страницы
+                    if hasattr(item, 'page_no'):
+                        element['page_number'] = item.page_no
+                    elif hasattr(item, 'metadata') and hasattr(item.metadata, 'page_number'):
+                        element['page_number'] = item.metadata.page_number
+                    elif hasattr(item, 'properties'):
+                        for prop_key in ['page', 'page_no', 'page_number']:
+                            if prop_key in item.properties:
+                                element['page_number'] = item.properties[prop_key]
+                                break
 
-            # Объединяем разделенные таблицы
-            merged_pages = self._merge_split_table_pages(pages)
-            logger.debug(f"После объединения таблиц: {len(merged_pages)} страниц")
+                    # Определяем тип элемента
+                    if element['type'] == 'table':
+                        element['is_table'] = True
 
-            return merged_pages
+                        # Проверяем, продолжается ли таблица
+                        if hasattr(item, 'continues') and item.continues:
+                            element['table_continues'] = True
+
+                    document_elements.append(element)
+
+            # Если элементы не найдены через items, пробуем другие атрибуты
+            if not document_elements:
+                logger.debug("Элементы через items не найдены, проверяем другие атрибуты")
+
+                if hasattr(doc, 'pages'):
+                    pages = doc.pages
+                    logger.debug(f"Найдено {len(pages)} страниц через атрибут pages")
+
+                    for page_idx, page in enumerate(pages):
+                        if hasattr(page, 'elements'):
+                            for elem in page.elements:
+                                element = {
+                                    'content': str(elem),
+                                    'page_number': page_idx + 1,
+                                    'type': getattr(elem, 'type', 'unknown'),
+                                    'is_table': getattr(elem, 'type', 'unknown') == 'table',
+                                    'table_continues': False
+                                }
+                                document_elements.append(element)
+
+            return document_elements
 
         except Exception as e:
-            logger.error(f"Ошибка при конвертации: {e}", exc_info=True)
+            logger.error(f"Ошибка при анализе структуры документа: {e}", exc_info=True)
+            return []
+
+    def _extract_pages_with_metadata(self, pdf_path: str) -> List[Dict[str, Any]]:
+        """
+        Извлекает страницы из PDF с сохранением метаданных о структуре.
+
+        Args:
+            pdf_path: Путь к PDF файлу
+
+        Returns:
+            List[Dict[str, Any]]: Список страниц с метаданными
+        """
+        logger.info(f"Начинаем анализ PDF файла: {pdf_path}")
+
+        try:
+            # Конвертируем документ
+            result = self.converter.convert(pdf_path)
+
+            # Анализируем структуру документа
+            elements = self._parse_document_structure(result)
+            logger.debug(f"Найдено {len(elements)} элементов в документе")
+
+            # Группируем элементы по страницам
+            pages_dict = defaultdict(list)
+
+            for elem in elements:
+                page_num = elem['page_number']
+
+                # Если номер страницы не определен, используем последний известный
+                if page_num is None:
+                    if pages_dict:
+                        page_num = max(pages_dict.keys())
+                    else:
+                        page_num = 1
+
+                pages_dict[page_num].append(elem)
+
+            # Преобразуем в список страниц
+            pages = []
+            for page_num in sorted(pages_dict.keys()):
+                page_elements = pages_dict[page_num]
+
+                # Собираем содержимое страницы
+                content_parts = []
+                has_table = False
+                has_split_table = False
+
+                for elem in page_elements:
+                    content_parts.append(elem['content'])
+
+                    if elem['is_table']:
+                        has_table = True
+
+                    if elem['table_continues']:
+                        has_split_table = True
+
+                page = {
+                    'page_number': page_num,
+                    'content': '\n'.join(content_parts),
+                    'has_table': has_table,
+                    'has_split_table': has_split_table,
+                    'element_count': len(page_elements)
+                }
+
+                pages.append(page)
+
+            logger.info(f"Извлечено {len(pages)} страниц из документа")
+            return pages
+
+        except Exception as e:
+            logger.error(f"Ошибка при извлечении страниц: {e}", exc_info=True)
             raise
 
-    def _split_by_pages(self, markdown_content: str) -> List[Dict[str, Any]]:
-        """Разделяет markdown контент по страницам"""
-        logger.debug("Начинаем разделение по страницам")
-
-        # Проверяем наличие разделителей
-        if '---' in markdown_content:
-            logger.debug("Найдены разделители '---'")
-            page_contents = markdown_content.split('---')
-        else:
-            logger.debug("Разделители '---' не найдены, ищем альтернативные разделители")
-            # Пробуем другие разделители
-            if '\f' in markdown_content:  # Form feed character
-                logger.debug("Найден символ form feed")
-                page_contents = markdown_content.split('\f')
-            else:
-                logger.debug("Разделители не найдены, возвращаем весь контент как одну страницу")
-                page_contents = [markdown_content]
-
-        pages = []
-
-        for i, content in enumerate(page_contents):
-            if content.strip():
-                pages.append({
-                    'page_number': i + 1,
-                    'content': content.strip(),
-                    'has_split_table': False
-                })
-                logger.debug(f"Страница {i + 1}: {len(content)} символов")
-
-        return pages
-
     def _merge_split_table_pages(self, pages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Объединяет страницы с разделенными таблицами"""
-        logger.debug("Начинаем объединение страниц с разделенными таблицами")
+        """
+        Объединяет страницы с разделенными таблицами.
+
+        Args:
+            pages: Список страниц
+
+        Returns:
+            List[Dict[str, Any]]: Объединенные страницы
+        """
+        if not self.merge_split_tables:
+            return pages
+
         merged_pages = []
         i = 0
 
         while i < len(pages):
             current_page = pages[i]
-            page_content = current_page['content']
-            page_metadata = {
-                'page_numbers': [current_page['page_number']],
-                'length': len(page_content),
-                'has_split_table': False
-            }
 
-            # Проверяем на разделенную таблицу
-            if self._has_incomplete_table(page_content) and i < len(pages) - 1:
+            # Если таблица продолжается на следующей странице
+            if current_page['has_split_table'] and i < len(pages) - 1:
                 next_page = pages[i + 1]
-                if self._starts_with_table_continuation(next_page['content']):
-                    logger.debug(
-                        f"Обнаружена разделенная таблица между страницами {current_page['page_number']} и {next_page['page_number']}")
-                    page_content += '\n' + next_page['content']
-                    page_metadata['page_numbers'].append(next_page['page_number'])
-                    page_metadata['table_merged'] = True
-                    i += 1
 
-            merged_pages.append({
-                'content': page_content,
-                'metadata': page_metadata
-            })
+                # Проверяем, что следующая страница содержит продолжение таблицы
+                if next_page['has_table']:
+                    logger.debug(f"Объединяем страницы {current_page['page_number']} и {next_page['page_number']}")
 
+                    # Объединяем содержимое
+                    merged_page = {
+                        'page_numbers': [current_page['page_number'], next_page['page_number']],
+                        'content': current_page['content'] + '\n' + next_page['content'],
+                        'merged_table': True
+                    }
+
+                    merged_pages.append(merged_page)
+                    i += 2  # Пропускаем следующую страницу
+                    continue
+
+            # Если нет разделенной таблицы, сохраняем страницу как есть
+            page_entry = {
+                'page_numbers': [current_page['page_number']],
+                'content': current_page['content'],
+                'merged_table': False
+            }
+            merged_pages.append(page_entry)
             i += 1
 
         return merged_pages
 
-    def _has_incomplete_table(self, content: str) -> bool:
-        """Проверяет, заканчивается ли страница неполной таблицей"""
-        lines = content.strip().split('\n')
-        if not lines:
-            return False
+    def analyze_document(self, pdf_path: str) -> Dict[str, Any]:
+        """
+        Анализирует документ и возвращает результаты.
 
-        last_lines = lines[-5:] if len(lines) > 5 else lines
-        table_lines = [line for line in last_lines if '|' in line]
+        Args:
+            pdf_path: Путь к PDF файлу
 
-        if not table_lines:
-            return False
+        Returns:
+            Dict[str, Any]: Результаты анализа
+        """
+        # Извлекаем страницы с метаданными
+        pages = self._extract_pages_with_metadata(pdf_path)
 
-        last_line = lines[-1]
-        if '|' in last_line and not last_line.strip().endswith('|'):
-            logger.debug(f"Найдена неполная таблица, последняя строка: {last_line}")
-            return True
+        # Объединяем разделенные таблицы
+        merged_pages = self._merge_split_table_pages(pages)
 
-        if table_lines and table_lines[-1] == lines[-1]:
-            logger.debug(f"Найдена таблица в конце страницы: {table_lines[-1]}")
-            return True
-
-        return False
-
-    def _starts_with_table_continuation(self, content: str) -> bool:
-        """Проверяет, начинается ли страница с продолжения таблицы"""
-        lines = content.strip().split('\n')
-        if not lines:
-            return False
-
-        first_lines = lines[:5] if len(lines) > 5 else lines
-
-        if '|' in first_lines[0] and not first_lines[0].strip().startswith('#'):
-            logger.debug(f"Найдено продолжение таблицы, первая строка: {first_lines[0]}")
-            return True
-
-        return False
-
-    def analyze_pages(self, pages: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Анализирует страницы и возвращает статистику"""
+        # Собираем статистику
         stats = {
-            'total_pages': len(pages),
-            'page_sizes': [len(p['content']) for p in pages],
-            'merged_tables': 0,
+            'total_pages': len(merged_pages),
+            'page_sizes': [len(p['content']) for p in merged_pages],
+            'merged_tables': sum(1 for p in merged_pages if p.get('merged_table', False)),
             'original_page_numbers': []
         }
 
-        for page in pages:
-            stats['original_page_numbers'].extend(page['metadata']['page_numbers'])
-
-            if page['metadata'].get('table_merged', False):
-                stats['merged_tables'] += 1
+        # Собираем все исходные номера страниц
+        for page in merged_pages:
+            stats['original_page_numbers'].extend(page['page_numbers'])
 
         stats['original_pages_count'] = len(set(stats['original_page_numbers']))
-        return stats
+
+        result = {
+            'file_path': pdf_path,
+            'timestamp': datetime.now().isoformat(),
+            'statistics': stats,
+            'pages': []
+        }
+
+        # Добавляем информацию о каждой странице
+        for i, page in enumerate(merged_pages):
+            result['pages'].append({
+                'index': i,
+                'page_numbers': page['page_numbers'],
+                'length': len(page['content']),
+                'preview': page['content'][:200] + '...' if len(page['content']) > 200 else page['content'],
+                'table_merged': page.get('merged_table', False)
+            })
+
+        return result
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Разделение PDF документа по страницам с объединением разделенных таблиц'
+        description='Улучшенное разделение PDF документа по страницам'
     )
     parser.add_argument('file_path', help='Путь к PDF файлу')
     parser.add_argument('--output', help='Путь для сохранения результатов в JSON')
+    parser.add_argument('--merge-tables', action='store_true', default=True, help='Объединять разделенные таблицы')
+    parser.add_argument('--no-merge-tables', action='store_false', dest='merge_tables',
+                        help='Не объединять разделенные таблицы')
 
     args = parser.parse_args()
-
-    logger.debug(f"Аргументы: file_path={args.file_path}, output={args.output}")
 
     # Проверяем существование файла
     if not os.path.exists(args.file_path):
@@ -270,31 +344,10 @@ def main():
 
     try:
         # Инициализируем разделитель
-        splitter = SimplePageSplitter()
+        splitter = EnhancedPageSplitter(merge_split_tables=args.merge_tables)
 
-        # Извлекаем и объединяем страницы
-        merged_pages = splitter.extract_and_merge_pages(args.file_path)
-
-        # Анализируем результаты
-        stats = splitter.analyze_pages(merged_pages)
-
-        # Формируем результат
-        result = {
-            'file_path': args.file_path,
-            'timestamp': datetime.now().isoformat(),
-            'statistics': stats,
-            'pages': []
-        }
-
-        # Добавляем информацию о каждой странице
-        for i, page in enumerate(merged_pages):
-            result['pages'].append({
-                'index': i,
-                'page_numbers': page['metadata']['page_numbers'],
-                'length': len(page['content']),
-                'preview': page['content'][:200] + '...' if len(page['content']) > 200 else page['content'],
-                'table_merged': page['metadata'].get('table_merged', False)
-            })
+        # Анализируем документ
+        result = splitter.analyze_document(args.file_path)
 
         # Выводим или сохраняем результаты
         if args.output:
@@ -305,6 +358,7 @@ def main():
             print(json.dumps(result, ensure_ascii=False, indent=2))
 
         # Выводим краткую статистику
+        stats = result['statistics']
         logger.info(f"Исходных страниц: {stats['original_pages_count']}")
         logger.info(f"Итоговых страниц: {stats['total_pages']}")
         logger.info(f"Объединено таблиц: {stats['merged_tables']}")
