@@ -60,60 +60,71 @@ class SimplePageSplitter:
         logger.info(f"Конвертация PDF через docling: {pdf_path}")
         result = self.converter.convert(pdf_path)
 
-        pages = []
-        current_page = []
-        current_page_num = 1
-        merged_pages = []
+        # Получаем документ docling
+        doc = result.document
 
-        # Сначала извлекаем все страницы
-        for item in result.document.items:
-            # Проверяем номер страницы
-            if hasattr(item, 'page_no') and item.page_no > current_page_num:
-                if current_page:
-                    pages.append({
-                        'page_number': current_page_num,
-                        'content': '\n'.join(current_page),
-                        'has_split_table': False  # Изначально предполагаем, что нет разделенной таблицы
-                    })
-                current_page = []
-                current_page_num = item.page_no
+        # Получаем markdown представление для анализа
+        markdown_content = doc.export_to_markdown()
 
-            # Проверяем, является ли элемент таблицей и продолжается ли она
-            if hasattr(item, 'type') and item.type == 'table':
-                if hasattr(item, 'is_multipage') and item.is_multipage:
-                    # Таблица продолжается на следующей странице
-                    if pages:
-                        pages[-1]['has_split_table'] = True  # Помечаем предыдущую страницу
+        # Разделяем по страницам на основе маркеров
+        pages = self._split_by_pages(markdown_content)
 
-            current_page.append(str(item))
+        # Определяем, какие страницы содержат разделенные таблицы
+        merged_pages = self._merge_split_table_pages(pages)
 
-        # Добавляем последнюю страницу
-        if current_page:
-            pages.append({
-                'page_number': current_page_num,
-                'content': '\n'.join(current_page),
+        return merged_pages
+
+    def _split_by_pages(self, markdown_content: str) -> List[Dict[str, Any]]:
+        """Разделяет markdown контент по страницам"""
+        # В docling страницы обычно разделяются маркерами --- или другими разделителями
+        # Здесь мы предполагаем, что есть маркеры страниц
+
+        # Если нет явных маркеров страниц, возвращаем весь контент как одну страницу
+        if '---' not in markdown_content:
+            return [{
+                'page_number': 1,
+                'content': markdown_content,
                 'has_split_table': False
-            })
+            }]
 
-        # Теперь объединяем страницы с разделенными таблицами
+        # Разделяем по маркерам страниц
+        page_contents = markdown_content.split('---')
+        pages = []
+
+        for i, content in enumerate(page_contents):
+            if content.strip():
+                pages.append({
+                    'page_number': i + 1,
+                    'content': content.strip(),
+                    'has_split_table': False
+                })
+
+        return pages
+
+    def _merge_split_table_pages(self, pages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Объединяет страницы с разделенными таблицами"""
+        merged_pages = []
         i = 0
+
         while i < len(pages):
             current_page = pages[i]
             page_content = current_page['content']
             page_metadata = {
                 'page_numbers': [current_page['page_number']],
                 'length': len(page_content),
-                'has_split_table': current_page.get('has_split_table', False)
+                'has_split_table': False
             }
 
-            # Проверяем, есть ли разделенная таблица
-            if current_page.get('has_split_table', False) and i < len(pages) - 1:
-                # Объединяем с следующей страницей, так как таблица продолжается
+            # Проверяем, заканчивается ли страница неполной таблицей
+            if self._has_incomplete_table(page_content) and i < len(pages) - 1:
                 next_page = pages[i + 1]
-                page_content += '\n' + next_page['content']
-                page_metadata['page_numbers'].append(next_page['page_number'])
-                page_metadata['table_merged'] = True
-                i += 1
+                # Проверяем, начинается ли следующая страница с продолжения таблицы
+                if self._starts_with_table_continuation(next_page['content']):
+                    # Объединяем страницы
+                    page_content += '\n' + next_page['content']
+                    page_metadata['page_numbers'].append(next_page['page_number'])
+                    page_metadata['table_merged'] = True
+                    i += 1
 
             # Добавляем обработанную страницу
             merged_pages.append({
@@ -124,6 +135,47 @@ class SimplePageSplitter:
             i += 1
 
         return merged_pages
+
+    def _has_incomplete_table(self, content: str) -> bool:
+        """Проверяет, заканчивается ли страница неполной таблицей"""
+        lines = content.strip().split('\n')
+        if not lines:
+            return False
+
+        # Проверяем последние строки на признаки таблицы
+        last_lines = lines[-5:] if len(lines) > 5 else lines
+
+        # Таблица обычно содержит символы |
+        table_lines = [line for line in last_lines if '|' in line]
+
+        if not table_lines:
+            return False
+
+        # Проверяем, есть ли в конце страницы строка таблицы без разделителя
+        last_line = lines[-1]
+        if '|' in last_line and not last_line.strip().endswith('|'):
+            return True
+
+        # Проверяем, заканчивается ли страница строкой таблицы
+        if table_lines and table_lines[-1] == lines[-1]:
+            return True
+
+        return False
+
+    def _starts_with_table_continuation(self, content: str) -> bool:
+        """Проверяет, начинается ли страница с продолжения таблицы"""
+        lines = content.strip().split('\n')
+        if not lines:
+            return False
+
+        # Проверяем первые строки на признаки таблицы
+        first_lines = lines[:5] if len(lines) > 5 else lines
+
+        # Если первая строка содержит | и не является заголовком таблицы
+        if '|' in first_lines[0] and not first_lines[0].strip().startswith('#'):
+            return True
+
+        return False
 
     def analyze_pages(self, pages: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Анализирует страницы и возвращает статистику"""
