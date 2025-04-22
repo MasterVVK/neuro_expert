@@ -35,17 +35,17 @@ class SimplePageSplitter:
     """Класс для разделения документа по страницам с объединением таблиц"""
 
     def __init__(self):
-        # Настраиваем docling для лучшего распознавания таблиц
+        # Настраиваем docling с отключенной обработкой изображений, но с полноценной обработкой таблиц
         self.pipeline_options = PdfPipelineOptions()
-        self.pipeline_options.generate_picture_images = True
-        self.pipeline_options.images_scale = 2
-        self.pipeline_options.table_structure_options.do_cell_matching = True
+        self.pipeline_options.generate_picture_images = False  # Отключаем обработку картинок
+        self.pipeline_options.images_scale = 1  # Минимальный масштаб
+        self.pipeline_options.table_structure_options.do_cell_matching = True  # Сохраняем точное сопоставление ячеек таблиц
 
         # Настраиваем опции PDF
         self.pdf_format_option = PdfFormatOption(
             pipeline_options=self.pipeline_options,
-            extract_images=True,
-            extract_tables=True
+            extract_images=False,  # Отключаем извлечение изображений
+            extract_tables=True  # Оставляем только таблицы
         )
 
         # Создаем конвертер
