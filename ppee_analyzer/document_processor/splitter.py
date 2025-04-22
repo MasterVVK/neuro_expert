@@ -118,48 +118,94 @@ class PPEEDocumentSplitter:
                 pass
         return None
 
-    def split_by_sections(self, text: str) -> List[str]:
+    def split_section(self, section_text: str) -> List[str]:
         """
-        Разделяет текст на крупные секции по заголовкам.
-        Каждая секция включает заголовок и содержание до следующего заголовка.
+        Разделяет секцию на фрагменты с учетом типа содержимого.
+        Гарантирует, что заголовок всегда остается с содержимым.
 
         Args:
-            text: Текст документа
+            section_text: Текст секции
 
         Returns:
-            List[str]: Список секций
+            List[str]: Список фрагментов
         """
-        # Добавляем \n в начало, если его нет, чтобы регулярное выражение работало корректно
-        if not text.startswith('\n'):
-            text = '\n' + text
+        content_type = self.identify_content_type(section_text)
 
-        # Регулярное выражение для поиска заголовков разделов
-        section_pattern = r'\n##\s+[^\n]+'
+        # Проверка на наличие заголовка и выделение содержимого
+        lines = section_text.split('\n')
+        header = None
+        content_lines = []
 
-        # Находим все позиции заголовков
-        matches = list(re.finditer(section_pattern, text))
+        # Проверяем первую строку на наличие заголовка
+        if lines and lines[0].strip().startswith('##'):
+            header = lines[0].strip()
+            content_lines = lines[1:]
+        else:
+            content_lines = lines
 
-        if not matches:
-            return [text]  # Если заголовков нет, возвращаем весь текст как одну секцию
+        content_text = '\n'.join(content_lines).strip()
 
-        sections = []
+        # Если нет содержимого после заголовка, возвращаем пустой список
+        if not content_text:
+            return []
 
-        # Добавляем текст до первого заголовка, если он есть и не пустой
-        if matches[0].start() > 0:
-            intro_text = text[:matches[0].start()].strip()
-            if intro_text:  # Добавляем только если там действительно есть текст
-                sections.append(intro_text)
+        # Выбираем размер фрагмента в зависимости от типа контента
+        if content_type == "table":
+            # Для таблиц: проверка размера
+            if len(section_text) <= self.table_chunk_size:
+                return [section_text]  # Хранить таблицу целиком
+            else:
+                # Таблица слишком большая - делим по строкам
+                rows = content_text.split('\n')
+                table_header = []
 
-        # Добавляем каждую секцию с заголовком
-        for i in range(len(matches)):
-            start = matches[i].start()  # Начало текущего заголовка
-            end = matches[i + 1].start() if i < len(matches) - 1 else len(text)  # Начало следующего заголовка или конец текста
+                # Сохраняем заголовок таблицы (первые 2 строки)
+                if len(rows) >= 2 and '|' in rows[0] and '|' in rows[1]:
+                    table_header = rows[0:2]
+                    rows = rows[2:]
 
-            section = text[start:end].strip()
-            if section:  # Проверяем, что секция не пустая
-                sections.append(section)
+                chunks = []
+                current_chunk = []
 
-        return sections
+                # Если есть заголовок раздела, добавляем его первый раз
+                if header:
+                    current_chunk.append(header)
+
+                if table_header:
+                    current_chunk.extend(table_header)
+
+                for row in rows:
+                    if len('\n'.join(current_chunk + [row])) > self.table_chunk_size:
+                        if current_chunk:
+                            chunks.append('\n'.join(current_chunk))
+                        current_chunk = table_header.copy()
+                    current_chunk.append(row)
+
+                if current_chunk:
+                    chunks.append('\n'.join(current_chunk))
+
+                return chunks
+
+        else:  # Обычный текст (включая списки)
+            # Создаем полный текст для разделения
+            full_text = section_text if not header else content_text
+
+            # Разделяем текст
+            text_splitter = RecursiveCharacterTextSplitter(
+                chunk_size=self.text_chunk_size,
+                chunk_overlap=self.chunk_overlap,
+                separators=["\n\n", "\n", ". ", ", ", " ", ""],
+                keep_separator=True
+            )
+
+            chunks = text_splitter.split_text(full_text)
+
+            # Если есть заголовок раздела, добавляем его к первому фрагменту
+            if header and chunks:
+                chunks[0] = f"{header}\n{chunks[0]}"
+
+            return chunks
+
 
     def split_section(self, section_text: str) -> List[str]:
         """
@@ -286,8 +332,14 @@ class PPEEDocumentSplitter:
 
             # Шаг 4: Добавляем метаданные к каждому фрагменту
             for i, chunk_text in enumerate(section_chunks):
-                # Пропускаем пустые фрагменты или фрагменты, содержащие только заголовок
-                if not chunk_text.strip() or chunk_text.strip().startswith('##') and len(chunk_text.strip().split('\n')) <= 1:
+                # Пропускаем пустые фрагменты
+                if not chunk_text.strip():
+                    continue
+
+                # Проверяем наличие содержания после заголовка
+                lines = chunk_text.strip().split('\n', 1)  # Делим только на 2 части
+                if len(lines) == 1 and lines[0].startswith('##'):
+                    # Это только заголовок без содержания - пропускаем
                     continue
 
                 # Определяем дополнительную информацию
@@ -315,6 +367,7 @@ class PPEEDocumentSplitter:
 
         return chunks
 
+    
     def load_and_process_file(self, file_path: str, application_id: str) -> List[Document]:
         """
         Загружает файл и обрабатывает его.
