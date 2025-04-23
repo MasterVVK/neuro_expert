@@ -108,6 +108,15 @@ def analyze_application(application_id):
                     result.value = "Информация не найдена"
                     result.confidence = 0.0
                     result.search_results = []
+                    result.llm_request = {
+                        'prompt_template': parameter.llm_prompt_template,
+                        'query': parameter.search_query,
+                        'context': '',
+                        'model': parameter.llm_model,
+                        'temperature': parameter.llm_temperature,
+                        'max_tokens': parameter.llm_max_tokens,
+                        'error': 'Не найдено результатов поиска'
+                    }
 
                     db.session.add(result)
                     db.session.commit()
@@ -118,9 +127,22 @@ def analyze_application(application_id):
                 # Форматируем контекст для LLM
                 context = _format_documents_for_context(search_results)
 
-                # Логируем полный запрос к LLM
+                # Создаем полный запрос к LLM
                 full_prompt = parameter.llm_prompt_template.replace("{query}", parameter.search_query).replace(
                     "{context}", context)
+
+                # Сохраняем запрос для последующего отображения
+                llm_request = {
+                    'prompt_template': parameter.llm_prompt_template,
+                    'query': parameter.search_query,
+                    'context': context,
+                    'full_prompt': full_prompt,
+                    'model': parameter.llm_model,
+                    'temperature': parameter.llm_temperature,
+                    'max_tokens': parameter.llm_max_tokens
+                }
+
+                # Логируем полный запрос к LLM
                 logger.info(f"Запрос к LLM для параметра {parameter.name}:")
                 logger.info(f"Модель: {parameter.llm_model}")
                 logger.info(f"Температура: {parameter.llm_temperature}")
@@ -138,6 +160,9 @@ def analyze_application(application_id):
                     },
                     query=parameter.search_query
                 )
+
+                # Добавляем ответ LLM в запрос
+                llm_request['response'] = llm_response
 
                 # Логируем ответ от LLM
                 logger.info(f"Ответ от LLM для параметра {parameter.name}:")
@@ -162,6 +187,7 @@ def analyze_application(application_id):
                 result.value = value
                 result.confidence = confidence
                 result.search_results = search_results
+                result.llm_request = llm_request
 
                 db.session.add(result)
                 db.session.commit()

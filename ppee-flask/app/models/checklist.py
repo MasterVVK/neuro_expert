@@ -61,6 +61,7 @@ class ParameterResult(db.Model):
     value = db.Column(db.Text)
     confidence = db.Column(db.Float)
     search_results = db.Column(db.JSON)
+    llm_request = db.Column(db.JSON)  # Новое поле для хранения запроса к LLM
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def __repr__(self):

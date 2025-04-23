@@ -14,16 +14,21 @@
             <p>Проанализировано чек-листов: {{ checklist_results|length }}</p>
         </div>
         
+        <div class="view-options">
+            <button class="button toggle-all-prompts" onclick="toggleAllPrompts()">Показать все запросы</button>
+        </div>
+
         {% for checklist_id, data in checklist_results.items() %}
             <div class="checklist-results">
                 <h3>{{ data.checklist.name }}</h3>
-                
+
                 <table class="data-table">
                     <thead>
                         <tr>
                             <th>Параметр</th>
                             <th>Значение</th>
                             <th>Уверенность</th>
+                            <th>Действия</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -37,15 +42,176 @@
                                         <span>{{ (item.result.confidence * 100)|int }}%</span>
                                     </div>
                                 </td>
+                                <td>
+                                    <button class="toggle-prompt-btn" onclick="togglePrompt('prompt-{{ item.result.id }}')">Показать запрос</button>
+                                </td>
+                            </tr>
+                            <tr class="prompt-row" id="prompt-{{ item.result.id }}" style="display: none;">
+                                <td colspan="4" class="prompt-container">
+                                    {% if item.result.llm_request %}
+                                        <h4>Использованный промпт:</h4>
+                                        <div class="llm-prompt">
+                                            {{ item.result.llm_request.full_prompt|nl2br }}
+                                        </div>
+
+                                        <h4>Параметры запроса:</h4>
+                                        <ul>
+                                            <li>Модель: {{ item.result.llm_request.model }}</li>
+                                            <li>Temperature: {{ item.result.llm_request.temperature }}</li>
+                                            <li>Max tokens: {{ item.result.llm_request.max_tokens }}</li>
+                                        </ul>
+
+                                        {% if item.result.llm_request.response %}
+                                            <h4>Ответ модели:</h4>
+                                            <div class="llm-response">
+                                                {{ item.result.llm_request.response|nl2br }}
+                                            </div>
+                                        {% endif %}
+                                    {% elif item.result.search_results %}
+                                        <h4>Использованный промпт:</h4>
+                                        <div class="llm-prompt">
+                                            {{ item.parameter.llm_prompt_template|replace("{query}", item.parameter.search_query)|replace("{context}", "[Контекст из результатов поиска]")|nl2br }}
+                                        </div>
+
+                                        <h4>Параметры запроса:</h4>
+                                        <ul>
+                                            <li>Модель: {{ item.parameter.llm_model }}</li>
+                                            <li>Temperature: {{ item.parameter.llm_temperature }}</li>
+                                            <li>Max tokens: {{ item.parameter.llm_max_tokens }}</li>
+                                        </ul>
+
+                                        <h4>Результаты поиска (контекст):</h4>
+                                        {% for doc in item.result.search_results %}
+                                        <div class="search-result">
+                                            <p><strong>Документ {{ loop.index }}:</strong></p>
+                                            <p><strong>Раздел:</strong> {{ doc.metadata.section }}</p>
+                                            <p><strong>Тип:</strong> {{ doc.metadata.content_type }}</p>
+                                            <div class="search-result-content">
+                                                {{ doc.text }}
+                                            </div>
+                                        </div>
+                                        {% endfor %}
+                                    {% else %}
+                                        <p>Информация о запросе недоступна</p>
+                                    {% endif %}
+                                </td>
                             </tr>
                         {% endfor %}
                     </tbody>
                 </table>
             </div>
         {% endfor %}
-        
+
         <div class="results-actions">
             <button class="button" onclick="window.print()">Распечатать отчет</button>
         </div>
     </div>
+
+    <style>
+        .prompt-row {
+            background-color: #f8f9fa !important;
+        }
+
+        .prompt-container {
+            padding: 15px;
+        }
+
+        .llm-prompt {
+            padding: 10px;
+            background-color: #fff;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            margin-bottom: 15px;
+        }
+
+        .llm-response {
+            padding: 10px;
+            background-color: #f0f8ff;
+            border: 1px solid #add8e6;
+            border-radius: 4px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            margin-top: 10px;
+        }
+
+        .search-result {
+            margin-bottom: 15px;
+            padding: 10px;
+            background-color: #fff;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+        }
+
+        .search-result-content {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #f5f5f5;
+            border-radius: 3px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .toggle-prompt-btn {
+            padding: 5px 10px;
+            background-color: #f0f0f0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .view-options {
+            margin: 20px 0;
+            display: flex;
+            gap: 10px;
+        }
+    </style>
+
+    <script>
+        function togglePrompt(id) {
+            const row = document.getElementById(id);
+            const button = event.target;
+
+            if (row.style.display === "none") {
+                row.style.display = "table-row";
+                button.textContent = "Скрыть запрос";
+            } else {
+                row.style.display = "none";
+                button.textContent = "Показать запрос";
+            }
+        }
+
+        // Функция для отображения/скрытия всех запросов
+        function toggleAllPrompts() {
+            const allPromptRows = document.querySelectorAll('.prompt-row');
+            const allButtons = document.querySelectorAll('.toggle-prompt-btn');
+            const toggleAllButton = document.querySelector('.toggle-all-prompts');
+
+            // Определяем текущее состояние (показаны ли запросы)
+            let areHidden = true;
+            for (const row of allPromptRows) {
+                if (row.style.display !== "none") {
+                    areHidden = false;
+                    break;
+                }
+            }
+
+            // Инвертируем текущее состояние
+            const shouldShow = areHidden;
+
+            // Применяем состояние
+            for (const row of allPromptRows) {
+                row.style.display = shouldShow ? "table-row" : "none";
+            }
+
+            for (const button of allButtons) {
+                button.textContent = shouldShow ? "Скрыть запрос" : "Показать запрос";
+            }
+
+            toggleAllButton.textContent = shouldShow ? "Скрыть все запросы" : "Показать все запросы";
+        }
+    </script>
 {% endblock %}
