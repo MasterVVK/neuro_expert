@@ -24,7 +24,6 @@ logger = logging.getLogger(__name__)
 try:
     # Импортируем наш новый модуль
     from ppee_analyzer.semantic_chunker import SemanticChunker
-    from ppee_analyzer.semantic_chunker.models import SemanticChunk, DocumentAnalysisResult
 except ImportError as e:
     logger.error(f"Ошибка импорта: {e}")
     logger.error("Убедитесь, что модуль ppee_analyzer.semantic_chunker установлен и доступен")
@@ -71,8 +70,17 @@ def process_document(pdf_path: str, output_dir: str = "data/md", use_gpu: bool =
         # Создаем экземпляр чанкера с GPU если доступно
         chunker = SemanticChunker(use_gpu=use_gpu)
 
-        # Анализируем документ
-        result = chunker.analyze_document(pdf_path)
+        # Шаг 1: Извлекаем смысловые блоки
+        chunks = chunker.extract_chunks(pdf_path)
+        logger.info(f"Найдено {len(chunks)} начальных блоков")
+
+        # Шаг 2: Обрабатываем таблицы
+        processed_chunks = chunker.post_process_tables(chunks)
+        logger.info(f"После обработки таблиц: {len(processed_chunks)} блоков")
+
+        # Шаг 3: Группируем короткие блоки
+        grouped_chunks = chunker.group_semantic_chunks(processed_chunks)
+        logger.info(f"После группировки: {len(grouped_chunks)} финальных блоков")
 
         end_time = time.time()
         logger.info(f"Время обработки: {end_time - start_time:.2f} секунд")
@@ -82,14 +90,13 @@ def process_document(pdf_path: str, output_dir: str = "data/md", use_gpu: bool =
         output_dir_path.mkdir(parents=True, exist_ok=True)
 
         # Сохраняем все чанки в JSON для анализа структуры
-        chunks_dict = [chunk.to_dict() for chunk in result.chunks]
         with open(output_dir_path / "all_chunks.json", "w", encoding="utf-8") as f:
-            json.dump(chunks_dict, f, ensure_ascii=False, indent=2)
+            json.dump(grouped_chunks, f, ensure_ascii=False, indent=2)
 
         # Сохраняем каждый чанк в отдельный файл
-        for i, chunk in enumerate(result.chunks):
-            chunk_type = chunk.type or 'unknown'
-            page = chunk.page or 'no_page'
+        for i, chunk in enumerate(grouped_chunks):
+            chunk_type = chunk.get('type', 'unknown')
+            page = chunk.get('page', 'no_page')
 
             # Создаем имя файла
             filename = f"chunk_{i + 1:03d}_{chunk_type}_page_{page}.md"
@@ -101,28 +108,28 @@ def process_document(pdf_path: str, output_dir: str = "data/md", use_gpu: bool =
                 f.write(f"- **Type**: {chunk_type}\n")
                 f.write(f"- **Page**: {page}\n")
 
-                if chunk.heading:
-                    f.write(f"- **Heading**: {chunk.heading}\n")
+                if chunk.get("heading"):
+                    f.write(f"- **Heading**: {chunk['heading']}\n")
 
-                if chunk_type == "table" and chunk.table_id:
-                    f.write(f"- **Table ID**: {chunk.table_id}\n")
-                    if chunk.pages:
-                        f.write(f"- **Pages**: {chunk.pages}\n")
+                if chunk_type == "table" and chunk.get("table_id"):
+                    f.write(f"- **Table ID**: {chunk['table_id']}\n")
+                    if chunk.get("pages"):
+                        f.write(f"- **Pages**: {chunk['pages']}\n")
 
                 f.write("\n## Content\n\n")
 
                 # Для таблиц используем markdown table или code block
                 if chunk_type == "table":
-                    if chunk.content.startswith("|"):
+                    if chunk["content"].startswith("|"):
                         # Уже в markdown формате
-                        f.write(chunk.content)
+                        f.write(chunk["content"])
                     else:
                         # Оборачиваем в code block
                         f.write("```\n")
-                        f.write(chunk.content)
+                        f.write(chunk["content"])
                         f.write("\n```")
                 else:
-                    f.write(chunk.content)
+                    f.write(chunk["content"])
 
                 f.write("\n")
 
@@ -132,11 +139,14 @@ def process_document(pdf_path: str, output_dir: str = "data/md", use_gpu: bool =
         with open(output_dir_path / "summary.md", "w", encoding="utf-8") as f:
             f.write(f"# Сводная информация о чанках\n\n")
             f.write(f"## Общая статистика\n\n")
-            f.write(f"- **Всего чанков**: {len(result.chunks)}\n")
+            f.write(f"- **Всего чанков**: {len(grouped_chunks)}\n")
             f.write(f"- **Время обработки**: {end_time - start_time:.2f} секунд\n\n")
 
             # Статистика по типам
-            type_counts = result.statistics.get('content_types', {})
+            type_counts = {}
+            for chunk in grouped_chunks:
+                chunk_type = chunk.get('type', 'unknown')
+                type_counts[chunk_type] = type_counts.get(chunk_type, 0) + 1
 
             f.write("## Статистика по типам\n\n")
             for chunk_type, count in type_counts.items():
@@ -144,16 +154,16 @@ def process_document(pdf_path: str, output_dir: str = "data/md", use_gpu: bool =
 
             f.write("\n## Список всех чанков\n\n")
 
-            for i, chunk in enumerate(result.chunks):
-                chunk_type = chunk.type or 'unknown'
-                page = chunk.page or 'no_page'
-                content_preview = chunk.content[:100].replace('\n', ' ')
+            for i, chunk in enumerate(grouped_chunks):
+                chunk_type = chunk.get('type', 'unknown')
+                page = chunk.get('page', 'no_page')
+                content_preview = chunk['content'][:100].replace('\n', ' ')
 
                 f.write(f"### {i + 1}. Chunk {i + 1}\n\n")
                 f.write(f"- **Тип**: {chunk_type}\n")
                 f.write(f"- **Страница**: {page}\n")
-                if chunk.heading:
-                    f.write(f"- **Заголовок**: {chunk.heading}\n")
+                if chunk.get("heading"):
+                    f.write(f"- **Заголовок**: {chunk['heading']}\n")
                 f.write(f"- **Начало содержимого**: {content_preview}...\n\n")
 
         logger.info(f"Создан файл summary.md с общей информацией о чанках")

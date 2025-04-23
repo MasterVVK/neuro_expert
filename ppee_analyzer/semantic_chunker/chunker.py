@@ -389,6 +389,143 @@ class SemanticChunker:
 
         return processed_chunks
 
+    def group_semantic_chunks(self, chunks: List[Dict], min_length: int = 200) -> List[Dict]:
+        """
+        Объединяет все чанки с одной страницы с учетом продолжения таблиц
+        """
+        grouped_chunks = []
+        current_page_chunks = []
+        current_page = None
+        last_table_caption = None
+
+        # Проверяем, является ли блок продолжением таблицы
+        def is_likely_table_continuation(content: str) -> bool:
+            # Признаки продолжения таблицы
+            table_indicators = [
+                r'\d+\.\s*\w+',  # Нумерация (29. Конструкция выпуска)
+                r'^\d+',  # Начинается с числа
+                r'Координаты:',  # Специфические слова
+                r'^\s*[А-Яа-я\s\-]+$',  # Только текст (возможно заголовок колонки)
+                r'соответствии',  # Признак продолжения текста
+                r'^[А-Я][а-я]+\s+с',  # Начинается с заглавной буквы и предлога
+                r'\|\s*$',  # Признак таблицы
+            ]
+
+            for indicator in table_indicators:
+                if re.search(indicator, content.strip()[:100]):
+                    return True
+            return False
+
+        for i, chunk in enumerate(chunks):
+            chunk_page = chunk.get("page")
+
+            # Проверяем, является ли текущий чанк заголовком таблицы
+            if chunk["type"] == "text" or chunk["type"] == "paragraph":
+                if re.match(r'^Таблица\s*\d+[:.]\s*', chunk["content"], re.IGNORECASE):
+                    last_table_caption = chunk["content"]
+                    continue  # Пропускаем этот чанк, сохраняя заголовок для следующей таблицы
+
+            # Если это таблица
+            if chunk["type"] == "table":
+                # Добавляем заголовок к таблице, если он есть
+                if last_table_caption and not chunk.get("heading"):
+                    chunk["heading"] = last_table_caption
+                last_table_caption = None
+
+            # Проверяем, не является ли текущий блок продолжением таблицы
+            if grouped_chunks and chunk["type"] in ["text", "paragraph", "merged_page"]:
+                prev_chunk = grouped_chunks[-1]
+
+                # Если предыдущий чанк - таблица, и текущий находится на следующей странице
+                if (prev_chunk["type"] == "table" and
+                        chunk_page == prev_chunk.get("page", 0) + 1 and
+                        is_likely_table_continuation(chunk["content"])):
+
+                    # Объединяем с предыдущей таблицей
+                    prev_chunk["content"] += "\n\n" + chunk["content"]
+                    if "pages" not in prev_chunk:
+                        prev_chunk["pages"] = [prev_chunk.get("page")]
+                    if chunk_page not in prev_chunk["pages"]:
+                        prev_chunk["pages"].append(chunk_page)
+                    prev_chunk["page"] = min(prev_chunk["pages"])  # Обновляем page до минимальной страницы
+                    continue
+
+            # Если страница изменилась и есть накопленные чанки
+            if chunk_page != current_page and current_page_chunks:
+                grouped_chunks.append(self._merge_page_chunks(current_page_chunks))
+                current_page_chunks = [chunk]
+                current_page = chunk_page
+
+            # Добавляем чанк к текущей странице
+            else:
+                current_page_chunks.append(chunk)
+                current_page = chunk_page
+
+        # Объединяем последнюю страницу
+        if current_page_chunks:
+            grouped_chunks.append(self._merge_page_chunks(current_page_chunks))
+
+        return grouped_chunks
+
+    def _merge_page_chunks(self, chunks: List[Dict]) -> Dict:
+        """
+        Объединяет чанки с одной страницы
+        """
+        if not chunks:
+            return {}
+
+        if len(chunks) == 1:
+            return chunks[0]
+
+        # Берем базовую информацию из первого чанка
+        merged_chunk = {
+            "content": "",
+            "type": "merged_page",
+            "page": chunks[0].get("page"),
+            "heading": None,
+            "table_id": None
+        }
+
+        sections = []
+        current_section = None
+
+        for chunk in chunks:
+            # Если это заголовок, начинаем новую секцию
+            if chunk["type"] == "heading":
+                if current_section:
+                    sections.append(current_section)
+                current_section = {
+                    "heading": chunk["content"],
+                    "content": []
+                }
+
+            # Если уже есть секция, добавляем контент
+            elif current_section:
+                current_section["content"].append(chunk["content"])
+
+            # Иначе добавляем как отдельный контент
+            else:
+                if chunk["content"].strip():
+                    sections.append({
+                        "heading": None,
+                        "content": [chunk["content"]]
+                    })
+
+        # Добавляем последнюю секцию
+        if current_section:
+            sections.append(current_section)
+
+        # Объединяем все секции
+        content_parts = []
+        for section in sections:
+            if section["heading"]:
+                content_parts.append(f"## {section['heading']}")
+            content_parts.extend(section["content"])
+
+        merged_chunk["content"] = "\n\n".join(content_parts)
+
+        return merged_chunk
+
     def analyze_document(self, pdf_path: str) -> DocumentAnalysisResult:
         """
         Анализирует PDF документ и возвращает результаты в структурированном виде.
@@ -399,17 +536,23 @@ class SemanticChunker:
         Returns:
             DocumentAnalysisResult: Результаты анализа документа
         """
-        # Извлекаем чанки
+        # Шаг 1: Извлекаем чанки
         chunks = self.extract_chunks(pdf_path)
+        logger.info(f"Найдено {len(chunks)} начальных блоков")
 
-        # Обрабатываем таблицы
+        # Шаг 2: Обрабатываем таблицы
         processed_chunks = self.post_process_tables(chunks)
+        logger.info(f"После обработки таблиц: {len(processed_chunks)} блоков")
+
+        # Шаг 3: Группируем короткие блоки
+        grouped_chunks = self.group_semantic_chunks(processed_chunks)
+        logger.info(f"После группировки: {len(grouped_chunks)} финальных блоков")
 
         # Собираем статистику
         pages = set()
         content_types = {}
 
-        for chunk in processed_chunks:
+        for chunk in grouped_chunks:
             # Добавляем страницы
             if chunk.get("page"):
                 pages.add(chunk["page"])
@@ -422,7 +565,7 @@ class SemanticChunker:
 
         # Создаем объекты SemanticChunk
         semantic_chunks = []
-        for chunk in processed_chunks:
+        for chunk in grouped_chunks:
             semantic_chunks.append(SemanticChunk(
                 content=chunk["content"],
                 type=chunk["type"],
@@ -528,33 +671,42 @@ class SemanticDocumentSplitter(PPEEDocumentSplitter):
 
             # Анализируем PDF файл с помощью семантического чанкера
             try:
-                analysis_result = self.semantic_chunker.analyze_document(pdf_path)
-                logger.info(f"Документ разделен на {len(analysis_result.chunks)} смысловых блоков")
+                # Шаг 1: Извлекаем чанки
+                chunks = self.semantic_chunker.extract_chunks(pdf_path)
+                logger.info(f"Найдено {len(chunks)} начальных блоков")
+
+                # Шаг 2: Обрабатываем таблицы
+                processed_chunks = self.semantic_chunker.post_process_tables(chunks)
+                logger.info(f"После обработки таблиц: {len(processed_chunks)} блоков")
+
+                # Шаг 3: Группируем короткие блоки
+                grouped_chunks = self.semantic_chunker.group_semantic_chunks(processed_chunks)
+                logger.info(f"После группировки: {len(grouped_chunks)} финальных блоков")
 
                 # Преобразуем чанки в формат langchain Document
                 documents = []
-                for i, chunk in enumerate(analysis_result.chunks):
+                for i, chunk in enumerate(grouped_chunks):
                     # Создаем метаданные
                     metadata = {
                         "application_id": application_id,
                         "document_id": document_id,
                         "document_name": document_name,
-                        "content_type": chunk.type,
+                        "content_type": chunk.get("type", "unknown"),
                         "chunk_index": i,
-                        "section": chunk.heading or "Не определено",
-                        "section_path": chunk.section_path,
-                        "page_number": chunk.page
+                        "section": chunk.get("heading", "Не определено"),
+                        "section_path": None,
+                        "page_number": chunk.get("page")
                     }
 
                     # Добавляем информацию о таблице
-                    if chunk.type == "table":
-                        metadata["table_id"] = chunk.table_id
-                        if chunk.pages:
-                            metadata["pages"] = chunk.pages
+                    if chunk.get("type") == "table":
+                        metadata["table_id"] = chunk.get("table_id")
+                        if chunk.get("pages"):
+                            metadata["pages"] = chunk.get("pages")
 
                     # Создаем документ
                     documents.append(Document(
-                        page_content=chunk.content,
+                        page_content=chunk.get("content", ""),
                         metadata=metadata
                     ))
 
