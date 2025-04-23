@@ -498,41 +498,6 @@ class QdrantAdapter:
                 "status": "error"
             }
 
-    def delete_application_data(self, application_id: str) -> bool:
-        """
-        Удаляет данные заявки из хранилища.
-
-        Args:
-            application_id: ID заявки
-
-        Returns:
-            bool: Успешность операции
-        """
-        try:
-            deleted_count = self.qdrant_manager.delete_application(application_id)
-            logger.info(f"Удалено {deleted_count} документов для заявки {application_id}")
-            return True
-        except Exception as e:
-            logger.error(f"Ошибка при удалении данных заявки: {str(e)}")
-            return False
-
-    def get_application_stats(self, application_id: str) -> Dict[str, Any]:
-        """
-        Получает статистику по данным заявки.
-
-        Args:
-            application_id: ID заявки
-
-        Returns:
-            Dict[str, Any]: Статистика
-        """
-        try:
-            stats = self.qdrant_manager.get_stats(application_id)
-            return stats
-        except Exception as e:
-            logger.error(f"Ошибка при получении статистики: {str(e)}")
-            return {"error": str(e)}
-
     def search(self,
                application_id: str,
                query: str,
@@ -597,6 +562,24 @@ class QdrantAdapter:
             if self.use_reranker:
                 self.cleanup()
             return []
+
+    def delete_application_data(self, application_id: str) -> bool:
+        """
+        Удаляет данные заявки из хранилища.
+
+        Args:
+            application_id: ID заявки
+
+        Returns:
+            bool: Успешность операции
+        """
+        try:
+            deleted_count = self.qdrant_manager.delete_application(application_id)
+            logger.info(f"Удалено {deleted_count} документов для заявки {application_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Ошибка при удалении данных заявки: {str(e)}")
+            return False
 
     def cleanup(self):
         """
