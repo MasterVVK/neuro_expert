@@ -333,31 +333,74 @@ class SemanticChunker:
         processed_chunks = []
         current_table = None
 
+        # Шаг 1: Создание отображения страниц и анализ нумерации
+        page_elements = {}
+        element_numbers = {}
+
         for i, chunk in enumerate(chunks):
-            if chunk["type"] == "table":
-                # Проверяем, является ли эта таблица продолжением предыдущей
+            page = chunk.get("page")
+
+            if page is not None:
+                if page not in page_elements:
+                    page_elements[page] = []
+                page_elements[page].append(i)
+
+                # Извлекаем любые числовые последовательности, похожие на нумерацию
+                import re
+                content = chunk.get("content", "")
+                # Ищем паттерны нумерации (число с точкой или число с точкой и подпунктом)
+                standard_numbers = re.findall(r'\b(\d+)\.\s', content)
+                hierarchy_numbers = re.findall(r'\b(\d+)\.(\d+)\.?\s', content)
+
+                if standard_numbers:
+                    element_numbers[i] = [int(n) for n in standard_numbers]
+
+        # Шаг 2: Обработка чанков
+        for i, chunk in enumerate(chunks):
+            chunk_type = chunk.get("type", "")
+
+            # Обработка явных таблиц
+            if chunk_type == "table":
+                # Определяем, является ли это продолжением предыдущей таблицы
                 is_continuation = False
 
                 if current_table is not None:
-                    # Проверяем условия продолжения таблицы:
-
-                    # Получаем страницы предыдущей таблицы
+                    # Проверка 1: Последовательные страницы
                     prev_pages = current_table.get("pages", [current_table.get("page")])
                     if not isinstance(prev_pages, list):
                         prev_pages = [prev_pages] if prev_pages else []
 
                     curr_page = chunk.get("page")
 
-                    # Проверяем, что текущая страница идет сразу после последней страницы таблицы
                     if prev_pages and curr_page:
                         max_prev_page = max(prev_pages)
-                        if curr_page == max_prev_page + 1:
-                            # У таблицы нет заголовка или заголовок общий
+                        if curr_page == max_prev_page + 1 or curr_page == max_prev_page:
+                            # Таблицы с одинаковым или отсутствующим заголовком вероятно связаны
                             if not chunk.get("heading") or chunk.get("heading") == current_table.get("heading"):
                                 is_continuation = True
 
+                    # Проверка 2: Структурное сходство таблиц
+                    if not is_continuation:
+                        # Анализируем структуру таблиц
+                        curr_content = chunk.get("content", "")
+                        prev_content = current_table.get("content", "")
+
+                        # Для таблиц с разделителями (|)
+                        if "|" in prev_content and "|" in curr_content:
+                            # Посчитаем среднее количество столбцов
+                            prev_lines = [line.count("|") for line in prev_content.split("\n") if "|" in line][:5]
+                            curr_lines = [line.count("|") for line in curr_content.split("\n") if "|" in line][:5]
+
+                            if prev_lines and curr_lines:
+                                prev_avg = sum(prev_lines) / len(prev_lines)
+                                curr_avg = sum(curr_lines) / len(curr_lines)
+
+                                # Если структура таблиц схожа
+                                if abs(prev_avg - curr_avg) <= 2:  # Допустимо небольшое различие
+                                    is_continuation = True
+
+                # Если это продолжение предыдущей таблицы, объединяем
                 if is_continuation:
-                    # Объединяем с текущей таблицей
                     current_table["content"] += "\n\n" + chunk["content"]
 
                     # Обновляем страницы
@@ -370,20 +413,87 @@ class SemanticChunker:
                         existing_pages.append(curr_page)
                         current_table["pages"] = sorted(existing_pages)
                 else:
-                    # Если была предыдущая таблица, добавляем её
+                    # Добавляем предыдущую таблицу и начинаем новую
                     if current_table:
                         processed_chunks.append(current_table)
 
-                    # Это новая таблица
                     current_table = chunk.copy()
+
             else:
-                # Не таблица
+                # Обработка нетабличных элементов, которые могут быть продолжением таблицы
                 if current_table:
+                    curr_page = chunk.get("page")
+                    prev_page = current_table.get("page")
+                    content = chunk.get("content", "")
+
+                    # Проверка на потенциальное продолжение таблицы
+                    table_continuation = False
+
+                    # Проверка 1: Элемент находится на следующей странице после таблицы
+                    if curr_page and prev_page and curr_page - prev_page <= 2:  # Допускаем разрыв в 1-2 страницы
+                        # Проверка на нумерацию, характерную для таблиц
+                        import re
+
+                        # Находим любые числовые пункты (например, "29.")
+                        number_points = re.findall(r'^\s*(\d+)\.\s', content, re.MULTILINE)
+
+                        if number_points:
+                            # Извлекаем номера пунктов из текущей таблицы
+                            table_numbers = []
+                            table_content = current_table.get("content", "")
+                            table_number_points = re.findall(r'^\s*(\d+)\.\s', table_content, re.MULTILINE)
+
+                            if table_number_points:
+                                table_numbers = [int(n) for n in table_number_points]
+                                current_numbers = [int(n) for n in number_points]
+
+                                # Проверяем, продолжается ли нумерация
+                                if table_numbers and current_numbers:
+                                    max_table_num = max(table_numbers)
+                                    min_current_num = min(current_numbers)
+
+                                    # Если нумерация последовательна или близка к последовательной
+                                    if min_current_num > max_table_num and min_current_num - max_table_num <= 5:
+                                        table_continuation = True
+
+                        # Проверка 2: Анализ первой строки элемента
+                        if not table_continuation:
+                            first_line = content.strip().split('\n')[0] if '\n' in content else content.strip()
+
+                            # Проверка, является ли текст продолжением предложения
+                            # 1. Нет заглавной буквы в начале (продолжение предложения)
+                            # 2. Начинается с предлога или союза (во многих языках)
+                            # 3. Нет знаков препинания в начале
+
+                            # Простая эвристика: если первая буква строчная и нет знаков препинания в начале
+                            if first_line and not first_line[0].isupper() and not first_line[0] in ',.;:!?':
+                                table_continuation = True
+
+                    # Если это продолжение таблицы
+                    if table_continuation:
+                        # Объединяем с текущей таблицей
+                        current_table["content"] += "\n\n" + content
+
+                        # Обновляем страницы
+                        existing_pages = current_table.get("pages", [])
+                        if not isinstance(existing_pages, list):
+                            existing_pages = [existing_pages] if existing_pages else []
+
+                        if curr_page and curr_page not in existing_pages:
+                            existing_pages.append(curr_page)
+                            current_table["pages"] = sorted(existing_pages)
+
+                        # Пропускаем этот чанк в обработке
+                        continue
+
+                    # Если это не продолжение, завершаем таблицу
                     processed_chunks.append(current_table)
                     current_table = None
+
+                # Добавляем обычный чанк
                 processed_chunks.append(chunk)
 
-        # Добавляем последнюю таблицу, если она есть
+        # Добавляем последнюю таблицу, если она осталась
         if current_table:
             processed_chunks.append(current_table)
 

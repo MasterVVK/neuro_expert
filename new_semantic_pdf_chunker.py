@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Скрипт для семантического разделения PDF документов с использованием библиотеки semantic_chunker.
-Повторяет функциональность оригинального semantic_pdf_chunker.py.
+Добавлен вывод структуры каждой страницы в консоль.
 """
 
 import os
@@ -12,6 +12,7 @@ import argparse
 import time
 from pathlib import Path
 from datetime import datetime
+from collections import defaultdict
 
 # Настройка логирования
 logging.basicConfig(
@@ -47,6 +48,98 @@ def check_cuda_availability():
         return False
 
 
+def print_page_structure(document, pdf_path):
+    """
+    Печатает структуру страниц документа.
+
+    Args:
+        document: Объект document из docling
+        pdf_path: Путь к PDF файлу
+    """
+    # Словарь для хранения элементов для каждой страницы
+    page_elements = defaultdict(list)
+
+    print("\n==== СТРУКТУРА ДОКУМЕНТА ====")
+    print(f"Документ: {os.path.basename(pdf_path)}")
+
+    # Собираем информацию об элементах на каждой странице
+    for element, level in document.iterate_items():
+        # Определяем страницу
+        current_page = None
+        if hasattr(element, 'prov') and element.prov and len(element.prov) > 0:
+            current_page = element.prov[0].page_no
+
+        if current_page is not None:
+            # Добавляем информацию об элементе
+            element_info = {
+                "type": element.label,
+                "level": level
+            }
+
+            # Добавляем текст, если есть
+            if hasattr(element, 'text') and element.text:
+                # Обрезаем и очищаем текст для вывода
+                text = element.text.replace('\n', ' ')
+                if len(text) > 50:
+                    text = text[:47] + "..."
+                element_info["text"] = text
+
+            # Для таблиц добавляем дополнительную информацию
+            if element.label == "table":
+                element_info["id"] = element.self_ref if hasattr(element, 'self_ref') else "unknown"
+
+                # Пытаемся получить размер таблицы
+                try:
+                    if hasattr(element, 'export_to_dataframe'):
+                        df = element.export_to_dataframe()
+                        element_info["size"] = f"{df.shape[0]}x{df.shape[1]}"
+                    elif hasattr(element, 'data') and hasattr(element.data, '__len__'):
+                        element_info["size"] = f"{len(element.data)}x?"
+                except Exception as e:
+                    element_info["size"] = f"ошибка: {str(e)}"
+
+            # Для заголовков указываем уровень
+            if element.label in ["heading", "section_header"]:
+                element_info["level"] = level
+
+            page_elements[current_page].append(element_info)
+
+    # Выводим информацию по каждой странице
+    for page_num in sorted(page_elements.keys()):
+        elements = page_elements[page_num]
+
+        print(f"\n=== Страница {page_num} ({len(elements)} элементов) ===")
+
+        # Подсчитываем типы элементов
+        element_types = defaultdict(int)
+        for elem in elements:
+            element_types[elem["type"]] += 1
+
+        # Выводим статистику по типам
+        print(f"Типы элементов: " + ", ".join([f"{count} {elem_type}" for elem_type, count in element_types.items()]))
+
+        # Выводим детали по каждому элементу
+        for i, elem in enumerate(elements):
+            elem_type = elem["type"]
+
+            # Базовая информация
+            info_str = f"Элемент {i + 1}: {elem_type}"
+
+            # Для разных типов элементов - разная информация
+            if elem_type == "table":
+                info_str += f" (ID: {elem.get('id', 'нет')}, размер: {elem.get('size', 'неизвестен')})"
+            elif elem_type in ["heading", "section_header"]:
+                info_str += f" (уровень: {elem.get('level', '?')})"
+
+            # Добавляем текст, если есть
+            if "text" in elem:
+                info_str += f" - {elem['text']}"
+
+            print(info_str)
+
+    print("\n==== КОНЕЦ СТРУКТУРЫ ДОКУМЕНТА ====\n")
+
+
 def process_document(pdf_path: str, output_dir: str = "data/md", use_gpu: bool = None):
     """
     Обрабатывает PDF документ и сохраняет результаты.
@@ -70,15 +163,59 @@ def process_document(pdf_path: str, output_dir: str = "data/md", use_gpu: bool =
         # Создаем экземпляр чанкера с GPU если доступно
         chunker = SemanticChunker(use_gpu=use_gpu)
 
+        # Получаем информацию о версии docling
+        try:
+            import docling
+            logger.info(f"Используется docling версии {docling.__version__}")
+        except:
+            logger.info("Не удалось получить версию docling")
+
+        # Выполняем конвертацию PDF для получения структуры документа
+        logger.info("Выполняется конвертация PDF для анализа структуры...")
+        docling_result = chunker.converter.convert(pdf_path)
+        document = docling_result.document
+
+        # Печатаем структуру страниц
+        print_page_structure(document, pdf_path)
+
         # Шаг 1: Извлекаем смысловые блоки
+        logger.info("Извлечение смысловых блоков...")
         chunks = chunker.extract_chunks(pdf_path)
         logger.info(f"Найдено {len(chunks)} начальных блоков")
 
         # Шаг 2: Обрабатываем таблицы
+        logger.info("Обработка и объединение таблиц...")
         processed_chunks = chunker.post_process_tables(chunks)
         logger.info(f"После обработки таблиц: {len(processed_chunks)} блоков")
 
+        # Анализ таблиц после обработки
+        tables = [chunk for chunk in processed_chunks if chunk.get("type") == "table"]
+        logger.info(f"Обнаружено {len(tables)} таблиц после post_process_tables")
+
+        # Выводим информацию о таблицах
+        print("\n==== ТАБЛИЦЫ ПОСЛЕ ОБРАБОТКИ ====")
+        for i, table in enumerate(tables):
+            page = table.get("page")
+            pages_list = table.get("pages", [page])
+            if not isinstance(pages_list, list):
+                pages_list = [pages_list]
+
+            print(f"Таблица #{i + 1}: страницы {pages_list}, заголовок: {table.get('heading', 'нет')}")
+
+            # Анализ нумерации в таблице
+            content = table.get("content", "")
+            import re
+            numbers = re.findall(r'(\d+)\.\s+', content)
+            if numbers:
+                number_list = [int(num) for num in numbers]
+                print(f"  Содержит номера: {number_list[:5]}{'...' if len(number_list) > 5 else ''}")
+                if len(number_list) > 1:
+                    is_sequential = all(number_list[i] == number_list[i - 1] + 1 for i in range(1, len(number_list)))
+                    print(f"  Последовательная нумерация: {'Да' if is_sequential else 'Нет'}")
+        print("==== КОНЕЦ ИНФОРМАЦИИ О ТАБЛИЦАХ ====\n")
+
         # Шаг 3: Группируем короткие блоки
+        logger.info("Группировка коротких блоков...")
         grouped_chunks = chunker.group_semantic_chunks(processed_chunks)
         logger.info(f"После группировки: {len(grouped_chunks)} финальных блоков")
 
