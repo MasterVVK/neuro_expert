@@ -5,20 +5,20 @@
         <h1>Результаты анализа</h1>
         <a href="{{ url_for('applications.view', id=application.id) }}" class="button button-secondary">Назад к заявке</a>
     </div>
-    
+
     <div class="results-container">
         <h2>{{ application.name }}</h2>
-        
+
         <div class="results-summary">
             <p>Статус: <span class="status-badge status-{{ application.status }}">{{ application.get_status_display() }}</span></p>
             <p>Проанализировано чек-листов: {{ checklist_results|length }}</p>
         </div>
-        
+
         <div class="view-options">
             <button class="button toggle-all-prompts" onclick="toggleAllPrompts()">Показать все запросы</button>
             <label class="display-mode-toggle">
                 <input type="checkbox" id="displayModeToggle" onchange="toggleDisplayMode()" checked>
-                <span>Режим точного отображения</span>
+                <span class="toggle-label">Режим точного отображения</span>
             </label>
         </div>
 
@@ -120,6 +120,36 @@
     </div>
 
     <style>
+        /* Исправление горизонтальной прокрутки на всей странице */
+        html, body {
+            overflow-x: hidden;
+            max-width: 100%;
+        }
+
+        .container {
+            width: 100%;
+            box-sizing: border-box;
+            overflow-x: hidden;
+        }
+
+        .results-container {
+            width: 100%;
+            box-sizing: border-box;
+            overflow-x: hidden;
+        }
+
+        /* Исправление прокрутки в таблицах */
+        .data-table {
+            width: 100%;
+            table-layout: fixed;
+            word-wrap: break-word;
+        }
+
+        .data-table td, .data-table th {
+            word-break: break-all;
+            word-wrap: break-word;
+        }
+
         .prompt-row {
             background-color: #f8f9fa !important;
         }
@@ -128,6 +158,7 @@
             padding: 15px;
             max-height: none;
             overflow: visible;
+            word-break: normal;
         }
 
         /* Исправленный контейнер для прокрутки */
@@ -139,6 +170,7 @@
             border-radius: 4px;
             margin-bottom: 15px;
             max-height: 400px;
+            position: relative; /* Для правильного позиционирования */
         }
 
         .text-container {
@@ -146,14 +178,14 @@
             font-family: monospace;
             white-space: pre-wrap;
             box-sizing: border-box;
-            width: fit-content;
+            display: inline-block; /* Вместо width: fit-content */
             min-width: 100%;
         }
 
-        /* Важное изменение для точного режима */
+        /* Исправленный режим точного отображения */
         .exact-mode {
             white-space: pre !important;
-            width: max-content !important; /* Критически важно для работы прокрутки */
+            min-width: max-content !important;
         }
 
         .llm-prompt {
@@ -190,8 +222,10 @@
             display: flex;
             gap: 10px;
             align-items: center;
+            flex-wrap: wrap; /* Позволяет переносить элементы на новую строку */
         }
 
+        /* Исправление стилей для чекбокса */
         .display-mode-toggle {
             display: flex;
             align-items: center;
@@ -201,14 +235,17 @@
             padding: 5px 10px;
             border-radius: 4px;
             border: 1px solid #ddd;
+            min-width: 200px; /* Задаем минимальную ширину */
+            white-space: nowrap; /* Запрещаем перенос текста */
         }
 
         .display-mode-toggle input {
             margin-right: 5px;
         }
 
-        .data-table {
-            width: 100%;
+        .toggle-label {
+            white-space: nowrap; /* Запрещаем перенос текста */
+            display: inline-block; /* Чтобы действовал white-space */
         }
     </style>
 
