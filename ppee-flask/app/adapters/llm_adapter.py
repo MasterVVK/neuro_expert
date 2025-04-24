@@ -30,6 +30,9 @@ class LLMProvider(ABC):
 class OllamaLLMProvider(LLMProvider):
     """Реализация провайдера LLM через Ollama API"""
 
+    # Максимальный допустимый размер контекста для Ollama
+    MAX_OLLAMA_CONTEXT = 32768
+
     def __init__(self, base_url: str = "http://localhost:11434"):
         """
         Инициализирует провайдер Ollama.
@@ -346,6 +349,15 @@ class OllamaLLMProvider(LLMProvider):
         # Если ничего не нашли, используем значение по умолчанию
         default_length = self._get_default_context_length(model_name)
         logger.info(f"Не удалось найти context_length, используем значение по умолчанию: {default_length}")
+
+        # Ограничиваем максимальный размер контекста
+        if default_length > self.MAX_OLLAMA_CONTEXT:
+            logger.warning(
+                f"Значение context_length ({default_length}) превышает максимально допустимое "
+                f"({self.MAX_OLLAMA_CONTEXT}), ограничиваем"
+            )
+            return self.MAX_OLLAMA_CONTEXT
+
         return default_length
 
     def process_query(self,
@@ -379,94 +391,31 @@ class OllamaLLMProvider(LLMProvider):
                 search_query = parameters.get("search_query", "запрос")
                 full_prompt = full_prompt.replace("{query}", search_query)
 
-            # Получаем полную информацию о модели
-            model_info = self.get_model_info(model_name, refresh=False)
+            # Получаем максимальный размер контекста для модели
+            context_length = self.get_context_length(model_name)
 
-            # Извлекаем все параметры модели по умолчанию
-            default_options = {}
-
-            # Проверяем параметры из modelfile
-            if 'modelfile' in model_info and isinstance(model_info['modelfile'], str):
-                modelfile = model_info['modelfile']
-                # Извлекаем все PARAMETER директивы
-                param_matches = re.findall(r'PARAMETER\s+(\w+)\s+(\S+)', modelfile)
-                for param_name, param_value in param_matches:
-                    try:
-                        # Пытаемся преобразовать в число, если возможно
-                        param_value = param_value.strip('"\'')
-                        if '.' in param_value:
-                            default_options[param_name] = float(param_value)
-                        else:
-                            default_options[param_name] = int(param_value)
-                    except ValueError:
-                        default_options[param_name] = param_value
-
-            # Проверяем parameters (строка или объект)
-            if 'parameters' in model_info:
-                params = model_info['parameters']
-                if isinstance(params, dict):
-                    default_options.update(params)
-                elif isinstance(params, str):
-                    # Парсим строку параметров
-                    parsed_params = self._parse_parameters_string(params)
-                    default_options.update(parsed_params)
-
-            # Проверяем model_info (наиболее подробная информация)
-            if 'model_info' in model_info and isinstance(model_info['model_info'], dict):
-                mi = model_info['model_info']
-                # Проверяем важные параметры контекста
-                for key in mi:
-                    if key.endswith('.context_length'):
-                        default_options['num_ctx'] = int(mi[key])
-                        break
-
-            # Обеспечиваем минимальные значения для контекста, если не удалось извлечь
-            if 'num_ctx' not in default_options:
-                context_length = self.get_context_length(model_name)
-                default_options['num_ctx'] = context_length
-
-            # Устанавливаем num_keep на высокое значение, чтобы предотвратить обрезку
-            if 'num_keep' not in default_options:
-                # Устанавливаем num_keep равным половине num_ctx, чтобы гарантировать сохранение большей части промпта
-                default_options['num_keep'] = default_options['num_ctx'] // 2
-
-            # Переопределяем стандартные настройки пользовательскими
-            user_options = {}
-
-            # Добавляем основные параметры
-            if "temperature" in parameters:
-                user_options["temperature"] = parameters["temperature"]
-            else:
-                user_options["temperature"] = 0.1
-
-            if "max_tokens" in parameters:
-                user_options["num_predict"] = parameters["max_tokens"]
-
-            # Добавляем остальные пользовательские параметры
-            parameter_mappings = {
-                "context_length": "num_ctx",
-                "seed": "seed",
-                "top_p": "top_p",
-                "top_k": "top_k",
-                "presence_penalty": "presence_penalty",
-                "frequency_penalty": "frequency_penalty",
-                "repeat_penalty": "repeat_penalty"
+            # Формируем параметры для запроса
+            options = {
+                # Явно указываем размер контекста, чтобы предотвратить обрезание
+                "num_ctx": context_length,
+                # Устанавливаем, сколько токенов нужно сохранить с начала промпта
+                "num_keep": context_length // 2  # Сохраняем половину контекста
             }
 
-            for param_name, option_name in parameter_mappings.items():
-                if param_name in parameters:
-                    user_options[option_name] = parameters[param_name]
+            # Добавляем температуру, если указана
+            if "temperature" in parameters:
+                options["temperature"] = float(parameters["temperature"])
 
-            # Если пользователь явно указал context_length, используем его для num_ctx
-            if "context_length" in parameters:
-                try:
-                    user_options["num_ctx"] = int(parameters["context_length"])
-                except (ValueError, TypeError):
-                    logger.warning(
-                        f"Невалидное значение context_length в параметрах: {parameters.get('context_length')}")
+            # Добавляем max_tokens, если указано
+            if "max_tokens" in parameters:
+                options["num_predict"] = int(parameters["max_tokens"])
 
-            # Объединяем опции, причем пользовательские имеют приоритет
-            options = {**default_options, **user_options}
+            # Оценка длины промпта (примерно 1 токен = 4 символа)
+            prompt_length = len(full_prompt) // 4
+            logger.info(f"Отправка запроса к модели {model_name} через Ollama API")
+            logger.info(f"Примерная длина промпта: ~{prompt_length} токенов")
+            logger.info(
+                f"Указанный в запросе размер контекста: {options['num_ctx']}, сохраняемый контекст: {options['num_keep']}")
 
             # Формируем запрос к Ollama API
             payload = {
@@ -476,20 +425,24 @@ class OllamaLLMProvider(LLMProvider):
                 "options": options
             }
 
-            # Оценка длины промпта (примерно 1 токен = 4 символа)
-            prompt_length = len(full_prompt) // 4
-            logger.info(f"Отправка запроса к модели {model_name} через Ollama API")
-            logger.info(f"Примерная длина промпта: ~{prompt_length} токенов")
-            logger.info(f"Параметры контекста: num_ctx={options.get('num_ctx')}, num_keep={options.get('num_keep')}")
-            logger.debug(f"Все параметры запроса: {json.dumps(options, indent=2, default=str)}")
-
             # Отправляем запрос
             response = requests.post(
                 f"{self.base_url}/api/generate",
                 json=payload,
                 timeout=1200  # Увеличенный таймаут для сложных запросов
             )
-            response.raise_for_status()
+
+            # Проверяем ответ
+            if response.status_code != 200:
+                error_msg = f"HTTP ошибка {response.status_code}: {response.text}"
+                logger.error(error_msg)
+                try:
+                    error_json = response.json()
+                    if "error" in error_json:
+                        error_msg += f" - {error_json['error']}"
+                except:
+                    pass
+                return f"Ошибка сети: {error_msg}"
 
             # Получаем ответ
             result = response.json()
@@ -515,12 +468,6 @@ class OllamaLLMProvider(LLMProvider):
             if total_duration > 0:
                 total_seconds = total_duration / 1e9  # Преобразуем наносекунды в секунды
                 logger.info(f"Время выполнения: {total_seconds:.2f} сек (загрузка: {load_duration / 1e9:.2f} сек)")
-
-                if eval_count > 0 and total_duration > 0:
-                    tokens_per_second = eval_count / (total_duration / 1e9)
-                    logger.info(f"Скорость генерации: {tokens_per_second:.2f} токенов/сек")
-
-            logger.debug(f"Полный ответ от модели {model_name}:\n{answer}")
 
             return answer
 
