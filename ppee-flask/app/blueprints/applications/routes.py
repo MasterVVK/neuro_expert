@@ -140,6 +140,8 @@ def upload_file(id):
     return render_template('applications/upload.html',
                            title=f'Загрузка файла - {application.name}',
                            application=application)
+
+
 @bp.route('/<int:id>/analyze')
 def analyze(id):
     """Запуск анализа заявки"""
@@ -156,11 +158,16 @@ def analyze(id):
         return redirect(url_for('applications.view', id=application.id))
 
     try:
-        # Вызываем функцию analyze_application, которая сама изменит статус
-        from app.services.llm_service import analyze_application
-        analyze_application(application.id)
+        # Запускаем задачу Celery для анализа
+        from app.tasks.llm_tasks import process_parameters_task
+        task = process_parameters_task.delay(application.id)
 
-        flash('Анализ заявки успешно запущен', 'success')
+        # Сохраняем ID задачи в базе данных
+        application.task_id = task.id
+        application.status = 'analyzing'  # Обновляем статус на 'analyzing'
+        db.session.commit()
+
+        flash('Анализ заявки успешно запущен. Это может занять некоторое время.', 'success')
     except Exception as e:
         flash(f'Ошибка при запуске анализа: {str(e)}', 'error')
         application.status = 'error'
@@ -168,7 +175,6 @@ def analyze(id):
         db.session.commit()
 
     return redirect(url_for('applications.view', id=application.id))
-
 
 @bp.route('/<int:id>/results')
 def results(id):
@@ -245,10 +251,19 @@ def status(id):
         'stage': None
     }
 
-    # Если приложение использует Celery и индексируется, получаем статус задачи
-    if application.status == 'indexing' and application.task_id:
-        from app.tasks.indexing_tasks import index_document_task
-        task = index_document_task.AsyncResult(application.task_id)
+    # Если приложение использует Celery и находится в процессе обработки
+    if application.task_id:
+        if application.status == 'indexing':
+            # Импортируем задачу индексации
+            from app.tasks.indexing_tasks import index_document_task
+            task = index_document_task.AsyncResult(application.task_id)
+        elif application.status == 'analyzing':
+            # Импортируем задачу анализа
+            from app.tasks.llm_tasks import process_parameters_task
+            task = process_parameters_task.AsyncResult(application.task_id)
+        else:
+            # Если статус не связан с асинхронной задачей, просто возвращаем базовый ответ
+            return jsonify(response_data)
 
         if task.state == 'PROGRESS' and task.info:
             # Копируем все доступные данные из информации о задаче

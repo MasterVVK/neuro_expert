@@ -16,12 +16,32 @@ def get_llm_provider():
     )
 
 
-def analyze_application(application_id):
+import logging
+from app import db
+from app.models import Application, ChecklistParameter, ParameterResult
+from app.adapters.llm_adapter import OllamaLLMProvider
+from app.services.vector_service import search
+from app.utils import format_documents_for_context, extract_value_from_response, calculate_confidence
+from flask import current_app
+
+logger = logging.getLogger(__name__)
+
+
+def get_llm_provider():
+    """Создает и возвращает провайдер LLM"""
+    return OllamaLLMProvider(
+        base_url=current_app.config['OLLAMA_URL']
+    )
+
+
+def analyze_application(application_id, progress_callback=None, skip_status_check=False):
     """
     Анализирует заявку по чек-листам.
 
     Args:
         application_id: ID заявки
+        progress_callback: Функция обратного вызова для обновления прогресса
+        skip_status_check: Пропустить проверку статуса (для Celery задачи)
 
     Returns:
         dict: Результат анализа
@@ -35,8 +55,8 @@ def analyze_application(application_id):
         logger.error(error_msg)
         raise ValueError(error_msg)
 
-    # Проверяем, что заявка готова к анализу
-    if application.status not in ["indexed", "analyzed"]:
+    # Проверяем, что заявка готова к анализу (если проверка не пропущена)
+    if not skip_status_check and application.status not in ["indexed", "analyzed"]:
         error_msg = f"Заявка в статусе {application.status} не может быть проанализирована"
         logger.error(error_msg)
         raise ValueError(error_msg)
@@ -48,9 +68,14 @@ def analyze_application(application_id):
         raise ValueError(error_msg)
 
     try:
-        # Обновляем статус заявки
-        application.status = "analyzing"
-        db.session.commit()
+        # Обновляем статус заявки (если он не 'analyzing' и проверка не пропущена)
+        if not skip_status_check:
+            application.status = "analyzing"
+            db.session.commit()
+
+        # Обновляем прогресс
+        if progress_callback:
+            progress_callback(10, 'prepare', 'Инициализация анализа...')
 
         # Получаем провайдер LLM
         llm_provider = get_llm_provider()
@@ -64,10 +89,21 @@ def analyze_application(application_id):
         for checklist in application.checklists:
             parameters.extend(checklist.parameters.all())
 
-        logger.info(f"Всего параметров для анализа: {len(parameters)}")
+        total_parameters = len(parameters)
+        logger.info(f"Всего параметров для анализа: {total_parameters}")
 
-        for parameter in parameters:
+        # Обновляем прогресс перед началом обработки параметров
+        if progress_callback:
+            progress_callback(15, 'analyze', f'Начало анализа {total_parameters} параметров...')
+
+        for i, parameter in enumerate(parameters):
             try:
+                # Обновляем прогресс для текущего параметра
+                if progress_callback:
+                    progress = 15 + int(75 * (i / total_parameters))
+                    progress_callback(progress, 'analyze',
+                                      f'Анализ параметра {i + 1}/{total_parameters}: {parameter.name}')
+
                 logger.info(f"Обработка параметра {parameter.id}: {parameter.name}")
                 logger.info(f"Поисковый запрос: {parameter.search_query}")
                 logger.info(
@@ -84,8 +120,8 @@ def analyze_application(application_id):
 
                 # Логируем результаты поиска
                 logger.info(f"Результаты поиска для параметра {parameter.name}:")
-                for i, doc in enumerate(search_results):
-                    logger.info(f"Результат {i + 1}:")
+                for j, doc in enumerate(search_results):
+                    logger.info(f"Результат {j + 1}:")
                     if 'metadata' in doc:
                         logger.info(f"  Раздел: {doc['metadata'].get('section', 'Н/Д')}")
                         logger.info(f"  Тип: {doc['metadata'].get('content_type', 'Н/Д')}")
@@ -216,9 +252,25 @@ def analyze_application(application_id):
                 processed_count += 1
                 logger.info(f"Обработан параметр {parameter.id}: {parameter.name}")
 
+                # Обновляем прогресс после обработки параметра
+                if progress_callback:
+                    progress = 15 + int(75 * ((i + 1) / total_parameters))
+                    progress_callback(progress, 'analyze',
+                                      f'Проанализировано {i + 1}/{total_parameters} параметров')
+
             except Exception as e:
                 logger.exception(f"Ошибка при обработке параметра {parameter.id}: {str(e)}")
                 error_count += 1
+
+                # Обновляем прогресс с информацией об ошибке
+                if progress_callback:
+                    progress = 15 + int(75 * ((i + 1) / total_parameters))
+                    progress_callback(progress, 'analyze',
+                                      f'Ошибка при анализе параметра {parameter.name}: {str(e)}')
+
+        # Обновляем прогресс перед завершением
+        if progress_callback:
+            progress_callback(95, 'complete', 'Завершение анализа...')
 
         # Обновляем статус заявки
         if error_count == 0:
@@ -231,6 +283,10 @@ def analyze_application(application_id):
                 f"Анализ для заявки {application_id} завершен с ошибками: {error_count} из {len(parameters)}")
 
         db.session.commit()
+
+        # Финальное обновление прогресса
+        if progress_callback:
+            progress_callback(100, 'complete', 'Анализ успешно завершен')
 
         return {
             "status": "success",
@@ -247,6 +303,8 @@ def analyze_application(application_id):
         application.status_message = str(e)
         db.session.commit()
 
+        # Обновляем прогресс с информацией об ошибке
+        if progress_callback:
+            progress_callback(0, 'error', f'Ошибка анализа: {str(e)}')
+
         raise
-
-
