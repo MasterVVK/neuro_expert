@@ -397,9 +397,9 @@ class OllamaLLMProvider(LLMProvider):
             # Формируем параметры для запроса
             options = {
                 # Явно указываем размер контекста, чтобы предотвратить обрезание
-                "num_ctx": context_length,
+                "num_ctx": 8192,
                 # Устанавливаем, сколько токенов нужно сохранить с начала промпта
-                "num_keep": context_length // 2  # Сохраняем половину контекста
+                "num_keep": 8192  # Сохраняем половину контекста
             }
 
             # Добавляем температуру, если указана
@@ -422,7 +422,8 @@ class OllamaLLMProvider(LLMProvider):
                 "model": model_name,
                 "prompt": full_prompt,
                 "stream": False,
-                "options": options
+                "options": options,
+                "keep_alive": "10s"
             }
 
             # Отправляем запрос
