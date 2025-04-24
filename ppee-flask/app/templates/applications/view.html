@@ -71,26 +71,28 @@
         </div>
         <p id="status-message">Выполняется индексация документа. Пожалуйста, подождите...</p>
 
-        <div class="indexing-stages">
-            <div class="stage" id="stage-prepare">
-                <span class="stage-dot"></span>
-                <span class="stage-label">Подготовка</span>
-            </div>
-            <div class="stage" id="stage-convert">
-                <span class="stage-dot"></span>
-                <span class="stage-label">Конвертация</span>
-            </div>
-            <div class="stage" id="stage-split">
-                <span class="stage-dot"></span>
-                <span class="stage-label">Разделение</span>
-            </div>
-            <div class="stage" id="stage-index">
-                <span class="stage-dot"></span>
-                <span class="stage-label">Индексация</span>
-            </div>
-            <div class="stage" id="stage-complete">
-                <span class="stage-dot"></span>
-                <span class="stage-label">Завершение</span>
+        <div class="horizontal-stages-container">
+            <div class="horizontal-stages">
+                <div class="stage" id="stage-prepare">
+                    <span class="stage-dot"></span>
+                    <span class="stage-label">Подготовка</span>
+                </div>
+                <div class="stage" id="stage-convert">
+                    <span class="stage-dot"></span>
+                    <span class="stage-label">Конвертация</span>
+                </div>
+                <div class="stage" id="stage-split">
+                    <span class="stage-dot"></span>
+                    <span class="stage-label">Разделение</span>
+                </div>
+                <div class="stage" id="stage-index">
+                    <span class="stage-dot"></span>
+                    <span class="stage-label">Индексация</span>
+                </div>
+                <div class="stage" id="stage-complete">
+                    <span class="stage-dot"></span>
+                    <span class="stage-label">Завершение</span>
+                </div>
             </div>
         </div>
     </div>
@@ -161,108 +163,6 @@
             });
         }
     </script>
-
-    <style>
-        /* Стили для прогресса индексации и анализа */
-        .indexing-progress-container, .analyzing-progress-container {
-            background-color: #f8f9fa;
-            border-radius: 8px;
-            padding: 20px;
-            margin-bottom: 20px;
-        }
-
-        .progress {
-            height: 20px;
-            margin: 15px 0;
-            background-color: #e9ecef;
-            border-radius: 0.25rem;
-            overflow: hidden;
-        }
-
-        .progress-bar {
-            display: flex;
-            flex-direction: row;
-            justify-content: center;
-            color: #fff;
-            text-align: center;
-            background-color: #007bff;
-            transition: width .6s ease;
-        }
-
-        .progress-bar-striped {
-            background-image: linear-gradient(45deg,rgba(255,255,255,.15) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.15) 50%,rgba(255,255,255,.15) 75%,transparent 75%,transparent);
-            background-size: 1rem 1rem;
-        }
-
-        .progress-bar-animated {
-            animation: progress-bar-stripes 1s linear infinite;
-        }
-
-        @keyframes progress-bar-stripes {
-            from { background-position: 1rem 0 }
-            to { background-position: 0 0 }
-        }
-
-        .indexing-stages, .analyzing-stages {
-            display: flex;
-            justify-content: space-between;
-            margin-top: 20px;
-            position: relative;
-        }
-
-        .indexing-stages:before, .analyzing-stages:before {
-            content: '';
-            position: absolute;
-            top: 6px;
-            left: 25px;
-            right: 25px;
-            height: 2px;
-            background: #dee2e6;
-            z-index: 0;
-        }
-
-        .stage {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            position: relative;
-            z-index: 1;
-            width: 70px;
-        }
-
-        .stage-dot {
-            width: 14px;
-            height: 14px;
-            border-radius: 50%;
-            background-color: #dee2e6;
-            border: 2px solid #fff;
-            margin-bottom: 8px;
-        }
-
-        .stage.active .stage-dot {
-            background-color: #007bff;
-            box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
-        }
-
-        .stage.completed .stage-dot {
-            background-color: #28a745;
-        }
-
-        .stage-label {
-            font-size: 12px;
-            text-align: center;
-            color: #6c757d;
-        }
-
-        .stage.active .stage-label {
-            color: #007bff;
-            font-weight: bold;
-        }
-
-        .stage.completed .stage-label {
-            color: #28a745;
-        }
-    </style>
     {% endif %}
 
     <!-- Блок индикации прогресса анализа -->
@@ -275,18 +175,20 @@
         </div>
         <p id="analyzing-status-message">Выполняется анализ документа. Пожалуйста, подождите...</p>
 
-        <div class="analyzing-stages">
-            <div class="stage" id="analyzing-stage-prepare">
-                <span class="stage-dot"></span>
-                <span class="stage-label">Подготовка</span>
-            </div>
-            <div class="stage" id="analyzing-stage-analyze">
-                <span class="stage-dot"></span>
-                <span class="stage-label">Анализ</span>
-            </div>
-            <div class="stage" id="analyzing-stage-complete">
-                <span class="stage-dot"></span>
-                <span class="stage-label">Завершение</span>
+        <div class="horizontal-stages-container">
+            <div class="horizontal-stages">
+                <div class="stage" id="analyzing-stage-prepare">
+                    <span class="stage-dot"></span>
+                    <span class="stage-label">Подготовка</span>
+                </div>
+                <div class="stage" id="analyzing-stage-analyze">
+                    <span class="stage-dot"></span>
+                    <span class="stage-label">Анализ</span>
+                </div>
+                <div class="stage" id="analyzing-stage-complete">
+                    <span class="stage-dot"></span>
+                    <span class="stage-label">Завершение</span>
+                </div>
             </div>
         </div>
     </div>
@@ -435,4 +337,112 @@
             <p class="empty-list">Нет связанных чек-листов</p>
         {% endif %}
     </div>
+
+    <style>
+        /* Стили для горизонтального статус-бара */
+        .indexing-progress-container, .analyzing-progress-container {
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .progress {
+            height: 20px;
+            margin: 15px 0;
+            background-color: #e9ecef;
+            border-radius: 0.25rem;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            color: #fff;
+            text-align: center;
+            background-color: #007bff;
+            transition: width .6s ease;
+        }
+
+        .progress-bar-striped {
+            background-image: linear-gradient(45deg,rgba(255,255,255,.15) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.15) 50%,rgba(255,255,255,.15) 75%,transparent 75%,transparent);
+            background-size: 1rem 1rem;
+        }
+
+        .progress-bar-animated {
+            animation: progress-bar-stripes 1s linear infinite;
+        }
+
+        @keyframes progress-bar-stripes {
+            from { background-position: 1rem 0 }
+            to { background-position: 0 0 }
+        }
+
+        /* Стили для горизонтальных этапов */
+        .horizontal-stages-container {
+            margin-top: 20px;
+            position: relative;
+        }
+
+        .horizontal-stages {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 15px;
+            position: relative;
+        }
+
+        .horizontal-stages:before {
+            content: '';
+            position: absolute;
+            top: 6px;
+            left: 25px;
+            right: 25px;
+            height: 2px;
+            background: #dee2e6;
+            z-index: 0;
+        }
+
+        .stage {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            position: relative;
+            z-index: 1;
+            width: 70px;
+        }
+
+        .stage-dot {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background-color: #dee2e6;
+            border: 2px solid #fff;
+            margin-bottom: 8px;
+        }
+
+        .stage.active .stage-dot {
+            background-color: #007bff;
+            box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+        }
+
+        .stage.completed .stage-dot {
+            background-color: #28a745;
+        }
+
+        .stage-label {
+            font-size: 12px;
+            text-align: center;
+            color: #6c757d;
+        }
+
+        .stage.active .stage-label {
+            color: #007bff;
+            font-weight: bold;
+        }
+
+        .stage.completed .stage-label {
+            color: #28a745;
+        }
+    </style>
 {% endblock %}
