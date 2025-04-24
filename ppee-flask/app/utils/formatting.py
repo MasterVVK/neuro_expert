@@ -1,3 +1,8 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 def format_documents_for_context(documents, max_tokens=8192, include_metadata=True):
     """
     Форматирует документы для передачи в контекст LLM с учетом ограничения размера.
@@ -76,3 +81,86 @@ def format_documents_for_context(documents, max_tokens=8192, include_metadata=Tr
         formatted_docs.append(formatted_doc)
 
     return "\n".join(formatted_docs)
+
+
+def extract_value_from_response(response, query):
+    """
+    Извлекает значение из ответа LLM.
+
+    Args:
+        response: Ответ LLM
+        query: Исходный поисковый запрос
+
+    Returns:
+        str: Извлеченное значение
+    """
+    logger.info("Извлечение значения из ответа LLM")
+
+    # Сначала ищем формат "РЕЗУЛЬТАТ: значение"
+    lines = [line.strip() for line in response.split('\n') if line.strip()]
+    logger.info(f"Обнаружено {len(lines)} строк в ответе")
+
+    for i, line in enumerate(lines):
+        # Ищем строку с РЕЗУЛЬТАТ:
+        if line.startswith("РЕЗУЛЬТАТ:"):
+            value = line.replace("РЕЗУЛЬТАТ:", "").strip()
+            logger.info(f"Найдено значение в формате 'РЕЗУЛЬТАТ: значение' - {value}")
+            return value
+
+    # Далее ищем формат "запрос: значение"
+    for i, line in enumerate(lines):
+        if ":" in line:
+            parts = line.split(":", 1)
+            if len(parts) == 2 and parts[1].strip():
+                # Проверяем, что это не строка с запросом
+                if not parts[0].strip().lower() == "запрос":
+                    logger.info(f"Найдено значение в формате 'запрос: значение' - {parts[1].strip()}")
+                    return parts[1].strip()
+
+    # Если не удалось найти по форматам, ищем строки, содержащие ключевые слова из запроса
+    query_keywords = [word.lower() for word in query.split() if len(word) > 3]
+    for line in lines:
+        line_lower = line.lower()
+        if any(keyword in line_lower for keyword in query_keywords) and ":" in line:
+            parts = line.split(":", 1)
+            if len(parts) == 2 and parts[1].strip():
+                logger.info(f"Найдено значение по ключевым словам: {parts[1].strip()}")
+                return parts[1].strip()
+
+    # Если не удалось найти по ключевым словам, берем последнюю строку
+    if lines:
+        logger.info(f"Значение не найдено по ключевым словам, возвращаем последнюю строку: {lines[-1]}")
+        return lines[-1]
+
+    logger.info("Ответ не содержит строк, возвращаем сообщение об ошибке")
+    return "Не удалось извлечь значение"
+
+
+def calculate_confidence(response):
+    """
+    Рассчитывает уровень уверенности в ответе LLM.
+
+    Args:
+        response: Ответ LLM
+
+    Returns:
+        float: Уровень уверенности (от 0.0 до 1.0)
+    """
+    # Простая эвристика: если есть выражения неуверенности, понижаем оценку
+    uncertainty_phrases = [
+        "возможно", "вероятно", "может быть", "предположительно",
+        "не ясно", "не уверен", "не определено", "информация не найдена"
+    ]
+
+    base_confidence = 0.8
+    lowered_confidence = base_confidence
+
+    for phrase in uncertainty_phrases:
+        if phrase in response.lower():
+            lowered_confidence -= 0.1
+            logger.info(f"Обнаружена фраза неуверенности: '{phrase}', понижаем оценку")
+
+    final_confidence = max(0.1, min(lowered_confidence, 1.0))  # Ограничиваем значением от 0.1 до 1.0
+    logger.info(f"Итоговая оценка уверенности: {final_confidence}")
+
+    return final_confidence
