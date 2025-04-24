@@ -78,10 +78,52 @@ class OllamaLLMProvider(LLMProvider):
             return self._models_cache[model_name]
 
         try:
+            # Вариант 1: Используем POST-запрос с JSON-телом
+            # Этот вариант более надежен для имен с спецсимволами
             url = f"{self.base_url}/api/show"
-            response = requests.get(url, params={"name": model_name})
-            response.raise_for_status()
 
+            response = requests.post(
+                url,
+                json={"name": model_name},
+                timeout=5
+            )
+
+            # Если POST не работает, попробуем другие методы
+            if response.status_code != 200:
+                logger.info(f"POST запрос не сработал, пробуем другие варианты для {model_name}")
+
+                # Вариант 2: Получаем список всех моделей и ищем нужную
+                models_response = requests.get(f"{self.base_url}/api/tags")
+                models_response.raise_for_status()
+
+                models_data = models_response.json().get("models", [])
+                found_model = None
+
+                # Ищем модель по имени (без учета регистра)
+                for model in models_data:
+                    if model.get("name", "").lower() == model_name.lower():
+                        found_model = model
+                        break
+
+                if found_model:
+                    logger.info(f"Модель {model_name} найдена в списке моделей")
+                    self._models_cache[model_name] = found_model
+                    return found_model
+                else:
+                    # Если модель не найдена, создаем базовую информацию
+                    logger.warning(f"Модель {model_name} не найдена в API Ollama")
+                    default_info = {
+                        "name": model_name,
+                        "not_found": True,
+                        # Устанавливаем значения по умолчанию
+                        "parameters": {
+                            "context_length": self._get_default_context_length(model_name)
+                        }
+                    }
+                    self._models_cache[model_name] = default_info
+                    return default_info
+
+            # Если запрос успешный, обрабатываем результат
             model_info = response.json()
             logger.info(f"Получена информация о модели {model_name}")
 
@@ -90,7 +132,48 @@ class OllamaLLMProvider(LLMProvider):
             return model_info
         except Exception as e:
             logger.error(f"Ошибка при получении информации о модели {model_name}: {str(e)}")
-            return {}
+            # Возвращаем информацию с отметкой об ошибке и значениями по умолчанию
+            default_info = {
+                "name": model_name,
+                "error": str(e),
+                "parameters": {
+                    "context_length": self._get_default_context_length(model_name)
+                }
+            }
+            self._models_cache[model_name] = default_info
+            return default_info
+
+    def _get_default_context_length(self, model_name: str) -> int:
+        """
+        Возвращает размер контекста по умолчанию для модели на основе ее названия.
+
+        Args:
+            model_name: Название модели
+
+        Returns:
+            int: Размер контекста по умолчанию
+        """
+        model_name_lower = model_name.lower()
+
+        if "gemma3:27b" in model_name_lower:
+            return 8192
+        elif "gemma3:7b" in model_name_lower:
+            return 8192
+        elif "gemma3:2b" in model_name_lower:
+            return 8192
+        elif "llama3:70b" in model_name_lower:
+            return 8192
+        elif "llama3:8b" in model_name_lower:
+            return 8192
+        elif "mistral" in model_name_lower:
+            return 8192
+        elif "mixtral" in model_name_lower:
+            return 32768
+        elif "phi3" in model_name_lower:
+            return 4096
+
+        # Значение по умолчанию
+        return 4096
 
     def get_context_length(self, model_name: str) -> int:
         """
@@ -102,42 +185,55 @@ class OllamaLLMProvider(LLMProvider):
         Returns:
             int: Максимальный размер контекста
         """
+        # Получаем информацию о модели
         model_info = self.get_model_info(model_name)
 
         # Пытаемся найти информацию о размере контекста в разных местах
         # в зависимости от версии Ollama и типа модели
         context_length = None
 
-        # Вариант 1: Прямой параметр context_length
+        # Вариант 1: Если модель не найдена, возвращаем значение по умолчанию
+        if model_info.get("not_found") or model_info.get("error"):
+            context_length = model_info.get("parameters", {}).get("context_length")
+            if context_length is not None:
+                try:
+                    return int(context_length)
+                except (ValueError, TypeError):
+                    pass
+            return self._get_default_context_length(model_name)
+
+        # Вариант 2: Прямой параметр context_length
         if 'context_length' in model_info:
             context_length = model_info['context_length']
+            if context_length is not None:
+                try:
+                    return int(context_length)
+                except (ValueError, TypeError):
+                    pass
 
-        # Вариант 2: Внутри parameters
+        # Вариант 3: Внутри parameters
         elif 'parameters' in model_info:
             params = model_info['parameters']
             context_length = params.get('context_length')
+            if context_length is not None:
+                try:
+                    return int(context_length)
+                except (ValueError, TypeError):
+                    pass
 
-        # Вариант 3: Внутри modelfile в виде строки
+        # Вариант 4: Внутри modelfile в виде строки
         elif 'modelfile' in model_info:
             modelfile = model_info['modelfile']
             match = re.search(r'PARAMETER\s+context_length\s+(\d+)', modelfile)
             if match:
-                context_length = int(match.group(1))
+                try:
+                    context_length = int(match.group(1))
+                    return context_length
+                except (ValueError, IndexError):
+                    pass
 
-        # Значение по умолчанию, если не удалось найти
-        if context_length is None:
-            # Стандартные значения для известных моделей
-            if "gemma3:27b" in model_name:
-                context_length = 8192
-            elif "llama3" in model_name:
-                context_length = 8192
-            elif "mixtral" in model_name:
-                context_length = 32768
-            else:
-                context_length = 4096  # Значение по умолчанию
-
-        logger.info(f"Определен размер контекста для модели {model_name}: {context_length}")
-        return context_length
+        # Если не удалось найти, используем значение по умолчанию
+        return self._get_default_context_length(model_name)
 
     def process_query(self,
                       model_name: str,
@@ -172,7 +268,22 @@ class OllamaLLMProvider(LLMProvider):
                 full_prompt = full_prompt.replace("{query}", search_query)
 
             # Получаем информацию о размере контекста для модели
-            context_length = parameters.get("context_length", self.get_context_length(model_name))
+            # Исправленная часть - надежная обработка context_length
+            context_length = None
+            if "context_length" in parameters:
+                try:
+                    context_length = int(parameters.get("context_length"))
+                except (ValueError, TypeError):
+                    logger.warning(
+                        f"Невалидное значение context_length в параметрах: {parameters.get('context_length')}")
+                    context_length = None
+
+            if context_length is None:
+                try:
+                    context_length = self.get_context_length(model_name)
+                except Exception as e:
+                    logger.warning(f"Ошибка при получении context_length: {str(e)}")
+                    context_length = 4096  # Значение по умолчанию
 
             # Формируем запрос к Ollama API в корректном формате
             payload = {
@@ -181,13 +292,12 @@ class OllamaLLMProvider(LLMProvider):
                 "stream": False,
                 "temperature": parameters.get("temperature", 0.1),
                 "max_tokens": parameters.get("max_tokens", 1000),
-                "context_length": context_length  # Используем определенный размер контекста
+                "context_length": context_length
             }
 
             logger.info(f"Отправка запроса к модели {model_name} через Ollama API")
             logger.debug(
                 f"Параметры запроса: контекст={context_length}, температура={parameters.get('temperature', 0.1)}, max_tokens={parameters.get('max_tokens', 1000)}")
-            logger.debug(f"Полный payload для Ollama API: {json.dumps(payload, indent=2)}")
 
             # Отправляем запрос
             response = requests.post(
