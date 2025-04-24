@@ -38,6 +38,7 @@ def format_documents_for_context(documents, max_tokens=8192, include_metadata=Tr
         if include_metadata and 'metadata' in doc:
             metadata = doc.get('metadata', {})
             formatted_doc += f"Раздел: {metadata.get('section', 'Н/Д')}\n"
+            # formatted_doc += f"Страница: {metadata.get('page_number', 'Н/Д')}\n"
             formatted_doc += f"Тип: {metadata.get('content_type', 'Н/Д')}\n"
 
             # Добавляем информацию о ререйтинге, если доступна

@@ -16,6 +16,10 @@
         
         <div class="view-options">
             <button class="button toggle-all-prompts" onclick="toggleAllPrompts()">Показать все запросы</button>
+            <label class="display-mode-toggle">
+                <input type="checkbox" id="displayModeToggle" onchange="toggleDisplayMode()" checked>
+                <span>Режим точного отображения</span>
+            </label>
         </div>
 
         {% for checklist_id, data in checklist_results.items() %}
@@ -50,8 +54,10 @@
                                 <td colspan="4" class="prompt-container">
                                     {% if item.result.llm_request %}
                                         <h4>Использованный промпт:</h4>
-                                        <div class="llm-prompt">
-                                            {{ item.result.llm_request.full_prompt|nl2br }}
+                                        <div class="text-scroll-container">
+                                            <div class="llm-prompt text-container">
+                                                {{ item.result.llm_request.full_prompt }}
+                                            </div>
                                         </div>
 
                                         <h4>Параметры запроса:</h4>
@@ -63,14 +69,18 @@
 
                                         {% if item.result.llm_request.response %}
                                             <h4>Ответ модели:</h4>
-                                            <div class="llm-response">
-                                                {{ item.result.llm_request.response|nl2br }}
+                                            <div class="text-scroll-container">
+                                                <div class="llm-response text-container">
+                                                    {{ item.result.llm_request.response }}
+                                                </div>
                                             </div>
                                         {% endif %}
                                     {% elif item.result.search_results %}
                                         <h4>Использованный промпт:</h4>
-                                        <div class="llm-prompt">
-                                            {{ item.parameter.llm_prompt_template|replace("{query}", item.parameter.search_query)|replace("{context}", "[Контекст из результатов поиска]")|nl2br }}
+                                        <div class="text-scroll-container">
+                                            <div class="llm-prompt text-container">
+                                                {{ item.parameter.llm_prompt_template|replace("{query}", item.parameter.search_query)|replace("{context}", "[Контекст из результатов поиска]") }}
+                                            </div>
                                         </div>
 
                                         <h4>Параметры запроса:</h4>
@@ -86,8 +96,10 @@
                                             <p><strong>Документ {{ loop.index }}:</strong></p>
                                             <p><strong>Раздел:</strong> {{ doc.metadata.section }}</p>
                                             <p><strong>Тип:</strong> {{ doc.metadata.content_type }}</p>
-                                            <div class="search-result-content">
-                                                {{ doc.text }}
+                                            <div class="text-scroll-container">
+                                                <div class="search-result-content text-container">
+                                                    {{ doc.text }}
+                                                </div>
                                             </div>
                                         </div>
                                         {% endfor %}
@@ -114,26 +126,43 @@
 
         .prompt-container {
             padding: 15px;
+            max-height: none;
+            overflow: visible;
+        }
+
+        /* Исправленный контейнер для прокрутки */
+        .text-scroll-container {
+            width: 100%;
+            overflow-x: auto; /* Горизонтальная прокрутка */
+            overflow-y: auto; /* Вертикальная прокрутка */
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            max-height: 400px;
+        }
+
+        .text-container {
+            padding: 10px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            box-sizing: border-box;
+            width: fit-content;
+            min-width: 100%;
+        }
+
+        /* Важное изменение для точного режима */
+        .exact-mode {
+            white-space: pre !important;
+            width: max-content !important; /* Критически важно для работы прокрутки */
         }
 
         .llm-prompt {
-            padding: 10px;
             background-color: #fff;
-            border: 1px solid #e0e0e0;
-            border-radius: 4px;
-            font-family: monospace;
-            white-space: pre-wrap;
-            margin-bottom: 15px;
         }
 
         .llm-response {
-            padding: 10px;
             background-color: #f0f8ff;
-            border: 1px solid #add8e6;
-            border-radius: 4px;
-            font-family: monospace;
-            white-space: pre-wrap;
-            margin-top: 10px;
+            border-color: #add8e6;
         }
 
         .search-result {
@@ -145,14 +174,7 @@
         }
 
         .search-result-content {
-            margin-top: 10px;
-            padding: 10px;
             background-color: #f5f5f5;
-            border-radius: 3px;
-            font-family: monospace;
-            white-space: pre-wrap;
-            max-height: 300px;
-            overflow-y: auto;
         }
 
         .toggle-prompt-btn {
@@ -167,10 +189,44 @@
             margin: 20px 0;
             display: flex;
             gap: 10px;
+            align-items: center;
+        }
+
+        .display-mode-toggle {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            user-select: none;
+            background-color: #f0f0f0;
+            padding: 5px 10px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+
+        .display-mode-toggle input {
+            margin-right: 5px;
+        }
+
+        .data-table {
+            width: 100%;
         }
     </style>
 
     <script>
+        // Функция переключения режима отображения
+        function toggleDisplayMode() {
+            const isExactMode = document.getElementById('displayModeToggle').checked;
+            const textContainers = document.querySelectorAll('.text-container');
+
+            textContainers.forEach(container => {
+                if (isExactMode) {
+                    container.classList.add('exact-mode');
+                } else {
+                    container.classList.remove('exact-mode');
+                }
+            });
+        }
+
         function togglePrompt(id) {
             const row = document.getElementById(id);
             const button = event.target;
@@ -213,5 +269,10 @@
 
             toggleAllButton.textContent = shouldShow ? "Скрыть все запросы" : "Показать все запросы";
         }
+
+        // Активируем режим точного отображения при загрузке страницы
+        document.addEventListener('DOMContentLoaded', function() {
+            toggleDisplayMode();
+        });
     </script>
 {% endblock %}
