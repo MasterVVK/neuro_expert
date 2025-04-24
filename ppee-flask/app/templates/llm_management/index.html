@@ -44,13 +44,35 @@
                                             </div>
                                         {% endif %}
                                         
-                                        {% if models_info[model_name].get('modelfile') %}
+                                        {% if 'parameters' in models_info[model_name] and 'context_length' in models_info[model_name]['parameters'] %}
                                             <div class="model-detail">
-                                                <span class="detail-label">Modelfile:</span>
-                                                <span class="detail-value">{{ models_info[model_name]['modelfile'] }}</span>
+                                                <span class="detail-label">Размер контекста:</span>
+                                                <span class="detail-value">{{ models_info[model_name]['parameters']['context_length'] }} токенов</span>
+                                            </div>
+                                        {% elif 'context_length' in models_info[model_name] %}
+                                            <div class="model-detail">
+                                                <span class="detail-label">Размер контекста:</span>
+                                                <span class="detail-value">{{ models_info[model_name]['context_length'] }} токенов</span>
                                             </div>
                                         {% endif %}
-                                        
+
+                                        {% if models_info[model_name].get('family') %}
+                                            <div class="model-detail">
+                                                <span class="detail-label">Семейство:</span>
+                                                <span class="detail-value">{{ models_info[model_name]['family'] }}</span>
+                                            </div>
+                                        {% endif %}
+
+                                        {% if models_info[model_name].get('modelfile') %}
+                                            <div class="model-detail model-file-section">
+                                                <span class="detail-label">Modelfile:</span>
+                                                <button class="toggle-modelfile" onclick="toggleModelfile('modelfile-{{ loop.index }}')">Показать/скрыть</button>
+                                                <div id="modelfile-{{ loop.index }}" class="modelfile-content" style="display: none;">
+                                                    <pre>{{ models_info[model_name]['modelfile'] }}</pre>
+                                                </div>
+                                            </div>
+                                        {% endif %}
+
                                         {% if models_info[model_name].get('size') %}
                                             <div class="model-detail">
                                                 <span class="detail-label">Размер файла:</span>
@@ -70,4 +92,47 @@
             {% endif %}
         </div>
     </div>
+
+    <script>
+        function toggleModelfile(id) {
+            const modelfileContent = document.getElementById(id);
+            if (modelfileContent.style.display === 'none') {
+                modelfileContent.style.display = 'block';
+            } else {
+                modelfileContent.style.display = 'none';
+            }
+        }
+    </script>
+
+    <style>
+        .model-file-section {
+            margin-top: 10px;
+        }
+
+        .toggle-modelfile {
+            padding: 5px 10px;
+            background-color: #f0f0f0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9em;
+        }
+
+        .modelfile-content {
+            margin-top: 10px;
+            max-height: 200px;
+            overflow-y: auto;
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+
+        .modelfile-content pre {
+            margin: 0;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 0.9em;
+        }
+    </style>
 {% endblock %}

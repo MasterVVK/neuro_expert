@@ -131,6 +131,14 @@ def analyze_application(application_id):
                 full_prompt = parameter.llm_prompt_template.replace("{query}", parameter.search_query).replace(
                     "{context}", context)
 
+                # Получаем context_length для модели
+                try:
+                    model_context_length = llm_provider.get_context_length(parameter.llm_model)
+                    logger.info(f"Получен context_length для модели {parameter.llm_model}: {model_context_length}")
+                except Exception as e:
+                    logger.warning(f"Не удалось получить context_length для модели {parameter.llm_model}: {str(e)}")
+                    model_context_length = None
+
                 # Сохраняем запрос для последующего отображения
                 llm_request = {
                     'prompt_template': parameter.llm_prompt_template,
@@ -142,22 +150,34 @@ def analyze_application(application_id):
                     'max_tokens': parameter.llm_max_tokens
                 }
 
+                # Добавляем context_length, если он был получен
+                if model_context_length:
+                    llm_request['context_length'] = model_context_length
+
                 # Логируем полный запрос к LLM
                 logger.info(f"Запрос к LLM для параметра {parameter.name}:")
                 logger.info(f"Модель: {parameter.llm_model}")
                 logger.info(f"Температура: {parameter.llm_temperature}")
                 logger.info(f"Max tokens: {parameter.llm_max_tokens}")
+                if model_context_length:
+                    logger.info(f"Context length: {model_context_length}")
 
                 # Обрабатываем параметр через LLM
+                llm_parameters = {
+                    'temperature': parameter.llm_temperature,
+                    'max_tokens': parameter.llm_max_tokens,
+                    'search_query': parameter.search_query
+                }
+
+                # Добавляем context_length, если он был получен
+                if model_context_length:
+                    llm_parameters['context_length'] = model_context_length
+
                 llm_response = llm_provider.process_query(
                     model_name=parameter.llm_model,
                     prompt=parameter.llm_prompt_template,
                     context=context,
-                    parameters={
-                        'temperature': parameter.llm_temperature,
-                        'max_tokens': parameter.llm_max_tokens,
-                        'search_query': parameter.search_query
-                    },
+                    parameters=llm_parameters,
                     query=parameter.search_query
                 )
 
@@ -229,19 +249,34 @@ def analyze_application(application_id):
         raise
 
 
-def _format_documents_for_context(documents):
+def _format_documents_for_context(documents, max_tokens=8192):
     """
-    Форматирует документы для передачи в контекст LLM.
+    Форматирует документы для передачи в контекст LLM с учетом ограничения размера.
 
     Args:
         documents: Список документов
+        max_tokens: Максимальный размер контекста в токенах
 
     Returns:
         str: Отформатированный контекст
     """
     formatted_docs = []
 
+    # Примерная оценка токенов: 1 токен ~ 4 символа
+    approx_tokens_per_char = 0.25
+    total_estimated_tokens = 0
+
+    # Резервируем токены для промпта (инструкции и вопроса)
+    reserved_tokens = 500
+    available_tokens = max_tokens - reserved_tokens
+
     for i, doc in enumerate(documents):
+        # Если мы уже приблизились к лимиту токенов, прекращаем добавление
+        if total_estimated_tokens >= available_tokens:
+            formatted_docs.append(
+                "\nПримечание: Некоторые документы не были включены из-за ограничения размера контекста.")
+            break
+
         formatted_doc = f"Документ {i + 1}:\n"
 
         # Добавляем информацию о документе
@@ -257,9 +292,31 @@ def _format_documents_for_context(documents):
             formatted_doc += f"Оценка релевантности: {doc.get('score', 0.0):.4f}\n"
 
         # Добавляем текст документа
-        formatted_doc += f"Текст:\n{doc.get('text', '')}\n"
+        text = doc.get('text', '')
+
+        # Оцениваем количество токенов в текущем документе
+        doc_chars = len(formatted_doc) + len(text)
+        doc_estimated_tokens = doc_chars * approx_tokens_per_char
+
+        # Если текущий документ слишком большой, сокращаем его
+        if doc_estimated_tokens > available_tokens - total_estimated_tokens:
+            # Вычисляем, сколько символов мы можем добавить
+            available_chars = int((available_tokens - total_estimated_tokens) / approx_tokens_per_char) - len(
+                formatted_doc) - 50
+            if available_chars > 100:  # Если осталось достаточно места
+                text = text[:available_chars] + "... [сокращено]"
+                formatted_doc += f"Текст:\n{text}\n"
+                formatted_doc += "-" * 40 + "\n"
+                formatted_docs.append(formatted_doc)
+
+            # Добавляем предупреждение и прекращаем добавление
+            formatted_docs.append("\nПримечание: Документы были сокращены из-за ограничения размера контекста.")
+            break
+
+        formatted_doc += f"Текст:\n{text}\n"
         formatted_doc += "-" * 40 + "\n"
 
+        total_estimated_tokens += doc_estimated_tokens
         formatted_docs.append(formatted_doc)
 
     return "\n".join(formatted_docs)
@@ -283,7 +340,6 @@ def _extract_value_from_response(response, query):
     logger.info(f"Обнаружено {len(lines)} строк в ответе")
 
     for i, line in enumerate(lines):
-        logger.info(f"Строка {i + 1}: {line}")
         # Ищем строку с РЕЗУЛЬТАТ:
         if line.startswith("РЕЗУЛЬТАТ:"):
             value = line.replace("РЕЗУЛЬТАТ:", "").strip()

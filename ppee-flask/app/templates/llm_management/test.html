@@ -10,35 +10,45 @@
         <form method="post">
             <div class="form-group">
                 <label for="model_name">Модель</label>
-                <select id="model_name" name="model_name" required>
+                <select id="model_name" name="model_name" required onchange="updateContextLength()">
                     {% for model in available_models %}
                         <option value="{{ model }}" {% if model_name == model %}selected{% endif %}>{{ model }}</option>
                     {% endfor %}
                 </select>
             </div>
-            
+
             <div class="form-group">
                 <label for="prompt">Запрос</label>
                 <textarea id="prompt" name="prompt" rows="5" required>{{ prompt or 'Расскажи о себе' }}</textarea>
             </div>
-            
+
             <div class="form-row">
                 <div class="form-group half-width">
                     <label for="temperature">Temperature</label>
                     <input type="number" id="temperature" name="temperature" step="0.1" min="0" max="1" value="{{ temperature or 0.1 }}">
+                    <p class="form-note">Значение от 0.0 до 1.0, влияет на креативность ответов</p>
                 </div>
-                
+
                 <div class="form-group half-width">
                     <label for="max_tokens">Max Tokens</label>
                     <input type="number" id="max_tokens" name="max_tokens" min="100" max="4000" value="{{ max_tokens or 1000 }}">
+                    <p class="form-note">Максимальная длина ответа в токенах</p>
                 </div>
             </div>
-            
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="context_length">Context Length <span id="context-info" class="context-info"></span></label>
+                    <input type="number" id="context_length" name="context_length" min="1024" max="32768" value="{{ context_length or 4096 }}">
+                    <p class="form-note">Максимальная длина контекста в токенах (влияет на объем информации, который модель может обработать)</p>
+                </div>
+            </div>
+
             <div class="form-actions">
                 <button type="submit" class="button">Отправить запрос</button>
             </div>
         </form>
-        
+
         {% if response %}
             <div class="response-container">
                 <h2>Ответ модели</h2>
@@ -48,4 +58,52 @@
             </div>
         {% endif %}
     </div>
+
+    <script>
+        // Функция для получения информации о модели и обновления context_length
+        async function updateContextLength() {
+            const modelName = document.getElementById('model_name').value;
+            const contextLengthInput = document.getElementById('context_length');
+            const contextInfo = document.getElementById('context-info');
+
+            // Отображаем индикатор загрузки
+            contextInfo.textContent = '(загрузка...)';
+
+            try {
+                // Запрашиваем информацию о модели
+                const response = await fetch(`/llm/model_info?name=${encodeURIComponent(modelName)}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                if (data && data.context_length) {
+                    // Устанавливаем значение из ответа
+                    contextLengthInput.value = data.context_length;
+                    contextInfo.textContent = `(рекомендуемое значение для ${modelName})`;
+                    contextInfo.style.color = 'green';
+                } else {
+                    // Если не получили значение, оставляем текущее
+                    contextInfo.textContent = '(не удалось получить значение)';
+                    contextInfo.style.color = 'orange';
+                }
+            } catch (error) {
+                console.error('Ошибка при получении информации о модели:', error);
+                contextInfo.textContent = '(ошибка загрузки)';
+                contextInfo.style.color = 'red';
+            }
+        }
+
+        // Вызываем функцию при загрузке страницы
+        document.addEventListener('DOMContentLoaded', updateContextLength);
+    </script>
+
+    <style>
+        .context-info {
+            font-size: 0.9em;
+            font-style: italic;
+            margin-left: 10px;
+        }
+    </style>
 {% endblock %}
