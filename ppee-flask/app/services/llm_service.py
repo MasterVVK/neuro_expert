@@ -3,6 +3,7 @@ from app import db
 from app.models import Application, ChecklistParameter, ParameterResult
 from app.adapters.llm_adapter import OllamaLLMProvider
 from app.services.vector_service import search
+from app.utils.formatting import format_documents_for_context
 from flask import current_app
 
 logger = logging.getLogger(__name__)
@@ -125,7 +126,7 @@ def analyze_application(application_id):
                     continue
 
                 # Форматируем контекст для LLM
-                context = _format_documents_for_context(search_results)
+                context = format_documents_for_context(search_results, include_metadata=False)
 
                 # Создаем полный запрос к LLM
                 full_prompt = parameter.llm_prompt_template.replace("{query}", parameter.search_query).replace(
@@ -248,84 +249,6 @@ def analyze_application(application_id):
 
         raise
 
-
-def _format_documents_for_context(documents, max_tokens=8192, include_metadata=False):
-    """
-    Форматирует документы для передачи в контекст LLM с учетом ограничения размера.
-
-    Args:
-        documents: Список документов
-        max_tokens: Максимальный размер контекста в токенах
-        include_metadata: Включать ли метаданные в форматирование (для поискового интерфейса)
-
-    Returns:
-        str: Отформатированный контекст
-    """
-    formatted_docs = []
-
-    # Примерная оценка токенов: 1 токен ~ 4 символа
-    approx_tokens_per_char = 0.25
-    total_estimated_tokens = 0
-
-    # Резервируем токены для промпта (инструкции и вопроса)
-    reserved_tokens = 500
-    available_tokens = max_tokens - reserved_tokens
-
-    for i, doc in enumerate(documents):
-        # Если мы уже приблизились к лимиту токенов, прекращаем добавление
-        if total_estimated_tokens >= available_tokens:
-            formatted_docs.append(
-                "\nПримечание: Некоторые документы не были включены из-за ограничения размера контекста.")
-            break
-
-        formatted_doc = f"Документ {i + 1}:\n"
-
-        # Добавляем информацию о документе только если include_metadata=True
-        if include_metadata and 'metadata' in doc:
-            metadata = doc.get('metadata', {})
-            formatted_doc += f"Раздел: {metadata.get('section', 'Н/Д')}\n"
-            formatted_doc += f"Тип: {metadata.get('content_type', 'Н/Д')}\n"
-
-            # Добавляем информацию о ререйтинге, если доступна
-            if 'rerank_score' in doc:
-                formatted_doc += f"Оценка релевантности (ререйтинг): {doc.get('rerank_score', 0.0):.4f}\n"
-
-            formatted_doc += f"Оценка релевантности: {doc.get('score', 0.0):.4f}\n"
-
-        # Добавляем текст документа
-        text = doc.get('text', '')
-
-        # Оцениваем количество токенов в текущем документе
-        doc_chars = len(formatted_doc) + len(text)
-        doc_estimated_tokens = doc_chars * approx_tokens_per_char
-
-        # Если текущий документ слишком большой, сокращаем его
-        if doc_estimated_tokens > available_tokens - total_estimated_tokens:
-            # Вычисляем, сколько символов мы можем добавить
-            available_chars = int((available_tokens - total_estimated_tokens) / approx_tokens_per_char) - len(
-                formatted_doc) - 50
-            if available_chars > 100:  # Если осталось достаточно места
-                text = text[:available_chars] + "... [сокращено]"
-                formatted_doc += f"Текст:\n{text}\n"
-                formatted_doc += "-" * 40 + "\n"
-                formatted_docs.append(formatted_doc)
-
-            # Добавляем предупреждение и прекращаем добавление
-            formatted_docs.append("\nПримечание: Документы были сокращены из-за ограничения размера контекста.")
-            break
-
-        # Если include_metadata=True, добавляем слово "Текст:" перед содержимым
-        if include_metadata:
-            formatted_doc += f"Текст:\n{text}\n"
-        else:
-            formatted_doc += f"{text}\n"
-
-        formatted_doc += "-" * 40 + "\n"
-
-        total_estimated_tokens += doc_estimated_tokens
-        formatted_docs.append(formatted_doc)
-
-    return "\n".join(formatted_docs)
 
 
 def _extract_value_from_response(response, query):

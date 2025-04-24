@@ -7,6 +7,7 @@ import logging
 from app import celery
 from app.adapters.qdrant_adapter import QdrantAdapter
 from app.adapters.llm_adapter import OllamaLLMProvider
+from app.utils.formatting import format_documents_for_context
 from flask import current_app
 
 logger = logging.getLogger(__name__)
@@ -124,7 +125,7 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
                 llm_provider = OllamaLLMProvider(base_url="http://localhost:11434")
 
                 # Форматируем результаты для контекста LLM
-                context = _format_documents_for_context(formatted_results)
+                context = format_documents_for_context(formatted_results, include_metadata=True)
 
                 # Выполняем обработку через LLM
                 llm_response = llm_provider.process_query(
@@ -204,39 +205,6 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
             'message': str(e)
         }
 
-
-def _format_documents_for_context(documents: list) -> str:
-    """
-    Форматирует документы для передачи в контекст LLM.
-
-    Args:
-        documents: Список документов
-
-    Returns:
-        str: Отформатированный контекст
-    """
-    formatted_docs = []
-
-    for i, doc in enumerate(documents):
-        formatted_doc = f"Документ {i + 1}:\n"
-
-        # Добавляем информацию о документе
-        formatted_doc += f"Раздел: {doc.get('section', 'Н/Д')}\n"
-        formatted_doc += f"Тип: {doc.get('content_type', 'Н/Д')}\n"
-
-        # Добавляем информацию о ререйтинге, если доступна
-        if 'rerank_score' in doc:
-            formatted_doc += f"Оценка релевантности (ререйтинг): {doc.get('rerank_score', 0.0):.4f}\n"
-
-        formatted_doc += f"Оценка релевантности: {doc.get('score', 0.0):.4f}\n"
-
-        # Добавляем текст документа
-        formatted_doc += f"Текст:\n{doc.get('text', '')}\n"
-        formatted_doc += "-" * 40 + "\n"
-
-        formatted_docs.append(formatted_doc)
-
-    return "\n".join(formatted_docs)
 
 
 def _extract_value_from_response(response: str, query: str) -> str:
