@@ -249,13 +249,14 @@ def analyze_application(application_id):
         raise
 
 
-def _format_documents_for_context(documents, max_tokens=8192):
+def _format_documents_for_context(documents, max_tokens=8192, include_metadata=False):
     """
     Форматирует документы для передачи в контекст LLM с учетом ограничения размера.
 
     Args:
         documents: Список документов
         max_tokens: Максимальный размер контекста в токенах
+        include_metadata: Включать ли метаданные в форматирование (для поискового интерфейса)
 
     Returns:
         str: Отформатированный контекст
@@ -279,8 +280,8 @@ def _format_documents_for_context(documents, max_tokens=8192):
 
         formatted_doc = f"Документ {i + 1}:\n"
 
-        # Добавляем информацию о документе
-        if 'metadata' in doc:
+        # Добавляем информацию о документе только если include_metadata=True
+        if include_metadata and 'metadata' in doc:
             metadata = doc.get('metadata', {})
             formatted_doc += f"Раздел: {metadata.get('section', 'Н/Д')}\n"
             formatted_doc += f"Тип: {metadata.get('content_type', 'Н/Д')}\n"
@@ -313,7 +314,12 @@ def _format_documents_for_context(documents, max_tokens=8192):
             formatted_docs.append("\nПримечание: Документы были сокращены из-за ограничения размера контекста.")
             break
 
-        formatted_doc += f"Текст:\n{text}\n"
+        # Если include_metadata=True, добавляем слово "Текст:" перед содержимым
+        if include_metadata:
+            formatted_doc += f"Текст:\n{text}\n"
+        else:
+            formatted_doc += f"{text}\n"
+
         formatted_doc += "-" * 40 + "\n"
 
         total_estimated_tokens += doc_estimated_tokens
