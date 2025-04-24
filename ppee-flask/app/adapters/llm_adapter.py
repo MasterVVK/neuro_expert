@@ -393,13 +393,14 @@ class OllamaLLMProvider(LLMProvider):
 
             # Получаем максимальный размер контекста для модели
             context_length = self.get_context_length(model_name)
+            if context_length > 16384: context_length=16384
 
             # Формируем параметры для запроса
             options = {
                 # Явно указываем размер контекста, чтобы предотвратить обрезание
-                "num_ctx": 8192,
+                "num_ctx": context_length,
                 # Устанавливаем, сколько токенов нужно сохранить с начала промпта
-                "num_keep": 8192  # Сохраняем половину контекста
+                "num_keep": context_length
             }
 
             # Добавляем температуру, если указана
