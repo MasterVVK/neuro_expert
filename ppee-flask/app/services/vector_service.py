@@ -23,16 +23,28 @@ def get_qdrant_adapter(use_reranker=False, use_semantic_chunking=None):
     if use_semantic_chunking is None:
         use_semantic_chunking = current_app.config.get('USE_SEMANTIC_CHUNKING', True)
 
+    # Импортируем класс для получения настроек по умолчанию
+    from ppee_analyzer.vector_store.ollama_embeddings import OllamaEmbeddings
+
+    # Получаем настройки по умолчанию
+    ollama_options = OllamaEmbeddings.get_default_options()
+
+    # Можно переопределить некоторые настройки при необходимости
+    # Например, для оптимизации производительности:
+    if current_app.config.get('OPTIMIZE_EMBEDDINGS', False):
+        ollama_options["num_thread"] = 12  # Увеличиваем число потоков
+
     return QdrantAdapter(
         host=current_app.config['QDRANT_HOST'],
         port=current_app.config['QDRANT_PORT'],
         collection_name=current_app.config['QDRANT_COLLECTION'],
-        embeddings_type='ollama',  # Можно сделать настраиваемым через конфигурацию
-        model_name='bge-m3',  # Можно сделать настраиваемым через конфигурацию
+        embeddings_type='ollama',
+        model_name='bge-m3',
         ollama_url=current_app.config['OLLAMA_URL'],
         use_reranker=use_reranker,
         reranker_model='BAAI/bge-reranker-v2-m3',
-        use_semantic_chunking=use_semantic_chunking
+        use_semantic_chunking=use_semantic_chunking,
+        ollama_options=ollama_options
     )
 
 
@@ -170,6 +182,7 @@ def search(application_id, query, limit=5, use_reranker=False, rerank_limit=None
 
     except Exception as e:
         logger.exception(f"Ошибка при выполнении поиска: {str(e)}")
+
         # Освобождаем ресурсы в случае ошибки
         if 'qdrant_adapter' in locals() and qdrant_adapter.use_reranker:
             try:

@@ -22,7 +22,9 @@ class QdrantAdapter:
                  ollama_url: str = "http://localhost:11434",
                  use_reranker: bool = False,
                  reranker_model: str = "BAAI/bge-reranker-v2-m3",
-                 use_semantic_chunking: bool = True):
+                 use_semantic_chunking: bool = True,
+                 check_ollama_availability: bool = True,
+                 ollama_options: Dict[str, Any] = None):
         """
         Инициализирует адаптер для Qdrant.
 
@@ -36,7 +38,9 @@ class QdrantAdapter:
             ollama_url: URL для Ollama API
             use_reranker: Использовать ре-ранкер для уточнения результатов
             reranker_model: Название модели ре-ранкера
-            use_semantic_chunking: Использовать семантическое разделение для PDF (если доступно)
+            use_semantic_chunking: Использовать семантическое разделение для PDF
+            check_ollama_availability: Проверять ли доступность Ollama при инициализации
+            ollama_options: Опции для Ollama API
         """
         self.host = host
         self.port = port
@@ -47,6 +51,14 @@ class QdrantAdapter:
         self.ollama_url = ollama_url
         self.use_semantic_chunking = use_semantic_chunking
 
+        # Получаем опции из OllamaEmbeddings
+        from ppee_analyzer.vector_store.ollama_embeddings import OllamaEmbeddings
+        options = OllamaEmbeddings.get_default_options()
+
+        # Обновляем опции, если они переданы
+        if ollama_options:
+            options.update(ollama_options)
+
         # Инициализируем QdrantManager
         self.qdrant_manager = QdrantManager(
             collection_name=collection_name,
@@ -55,10 +67,12 @@ class QdrantAdapter:
             embeddings_type=embeddings_type,
             model_name=model_name,
             device=device,
-            ollama_url=ollama_url
+            ollama_url=ollama_url,
+            check_availability=check_ollama_availability,
+            ollama_options=options
         )
 
-        # Инициализируем сплиттер документов
+        # Инициализация сплиттера документов
         self.splitter = PPEEDocumentSplitter()
 
         # Инициализация ре-ранкера (при необходимости)

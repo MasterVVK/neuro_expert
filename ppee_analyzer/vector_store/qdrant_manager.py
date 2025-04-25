@@ -33,7 +33,9 @@ class QdrantManager:
         vector_size: int = 1024,
         device: str = "cuda",  # использовать "cpu" если нет GPU
         ollama_url: str = "http://localhost:11434",  # URL для Ollama
-        create_collection: bool = True
+        create_collection: bool = True,
+        check_availability: bool = True,
+        ollama_options: Dict[str, Any] = None  # Опции для Ollama API
     ):
         """
         Инициализирует менеджер Qdrant.
@@ -48,6 +50,8 @@ class QdrantManager:
             device: Устройство для вычислений (cuda/cpu)
             ollama_url: URL для Ollama API
             create_collection: Создавать коллекцию, если она не существует
+            check_availability: Проверять ли доступность модели при инициализации
+            ollama_options: Опции для Ollama API
         """
         self.collection_name = collection_name
         self.host = host
@@ -64,10 +68,20 @@ class QdrantManager:
         # Инициализация модели эмбеддингов
         if embeddings_type.lower() == "ollama":
             logger.info(f"Используем эмбеддинги Ollama с моделью {model_name}")
+
+            # Получаем опции из OllamaEmbeddings
+            options = OllamaEmbeddings.get_default_options()
+
+            # Обновляем опции, если они переданы
+            if ollama_options:
+                options.update(ollama_options)
+
             self.embeddings = OllamaEmbeddings(
                 model_name=model_name,
                 base_url=ollama_url,
-                normalize_embeddings=True
+                normalize_embeddings=True,
+                check_availability=check_availability,
+                options=options
             )
         else:  # По умолчанию используем HuggingFace
             logger.info(f"Используем эмбеддинги HuggingFace с моделью {model_name}")
@@ -191,7 +205,6 @@ class QdrantManager:
             documents.append(doc)
 
         return documents
-
 
     def get_application_ids(self) -> List[str]:
         """

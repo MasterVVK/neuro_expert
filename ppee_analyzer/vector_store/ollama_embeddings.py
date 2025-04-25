@@ -16,13 +16,23 @@ logger = logging.getLogger(__name__)
 class OllamaEmbeddings(Embeddings):
     """Класс для работы с эмбеддингами через локальный сервер Ollama"""
 
+    # Статические настройки по умолчанию
+    DEFAULT_OPTIONS = {
+        "num_ctx": 8192,      # Максимальный размер контекста
+        "num_keep": 8192,     # Сколько токенов сохранять
+        "num_thread": 2      # Для многопоточной обработки
+        #"use_gpu": True       # Использовать GPU если доступно
+    }
+
     def __init__(
             self,
             model_name: str = "nomic-embed-text",
             base_url: str = "http://localhost:11434",
             embed_batch_size: int = 10,
             timeout: int = 60,
-            normalize_embeddings: bool = True
+            normalize_embeddings: bool = True,
+            check_availability: bool = True,
+            options: Dict[str, Any] = None  # Переопределение настроек
     ):
         """
         Инициализирует класс для работы с эмбеддингами Ollama.
@@ -33,6 +43,8 @@ class OllamaEmbeddings(Embeddings):
             embed_batch_size: Размер пакета для обработки текстов
             timeout: Таймаут запроса в секундах
             normalize_embeddings: Нормализовать ли векторы эмбеддингов
+            check_availability: Проверять ли доступность модели при инициализации
+            options: Дополнительные опции для запросов к Ollama API
         """
         self.model_name = model_name
         self.base_url = base_url.rstrip('/')
@@ -40,8 +52,26 @@ class OllamaEmbeddings(Embeddings):
         self.timeout = timeout
         self.normalize_embeddings = normalize_embeddings
 
-        # Проверка доступности сервера и модели
-        self._check_model_availability()
+        # Создаем копию настроек по умолчанию и обновляем их переданными параметрами
+        self.options = self.DEFAULT_OPTIONS.copy()
+        if options:
+            self.options.update(options)
+
+        logger.info(f"Инициализация OllamaEmbeddings с опциями: {self.options}")
+
+        # Проверка доступности сервера и модели только если это требуется
+        if check_availability:
+            self._check_model_availability()
+
+    @classmethod
+    def get_default_options(cls) -> Dict[str, Any]:
+        """
+        Возвращает копию настроек по умолчанию.
+
+        Returns:
+            Dict[str, Any]: Копия настроек по умолчанию
+        """
+        return cls.DEFAULT_OPTIONS.copy()
 
     def _check_model_availability(self) -> None:
         """
@@ -76,7 +106,10 @@ class OllamaEmbeddings(Embeddings):
         try:
             response = requests.post(
                 f"{self.base_url}/api/pull",
-                json={"name": self.model_name},
+                json={
+                    "name": self.model_name,
+                    "options": self.options  # Используем единые опции
+                },
                 timeout=None  # Убираем таймаут для загрузки модели
             )
             response.raise_for_status()
@@ -102,20 +135,13 @@ class OllamaEmbeddings(Embeddings):
         # Формируем запрос к API Ollama
         url = f"{self.base_url}/api/embed"  # Используем /api/embed вместо /api/embeddings
 
-        # Задаем оптимальные опции для контекста
-        options = {
-            "num_ctx": 8192,  # Максимальный размер контекста для bge-m3
-            "num_keep": 8192,  # Сколько токенов сохранять
-            "num_thread": 8  # Для многопоточной обработки
-        }
-
         payload = {
             "model": self.model_name,
             "input": text,  # Для /api/embed используется "input" вместо "prompt"
-            "options": options  # Добавляем опции в запрос
+            "options": self.options  # Используем единые опции
         }
 
-        logger.info(f"Отправка запроса для эмбеддинга с опциями: {options}")
+        logger.info(f"Отправка запроса для эмбеддинга с опциями: {self.options}")
 
         try:
             response = requests.post(
@@ -196,11 +222,5 @@ class OllamaEmbeddings(Embeddings):
         Returns:
             List[float]: Вектор эмбеддинга
         """
-        # Добавляем префикс "query:" для моделей BGE
-        if "bge" in self.model_name.lower():
-            logger.debug(f"Добавление префикса 'query:' для модели BGE: {self.model_name}")
-            text = f"query: {text}"
-
-        # Используем тот же метод _get_embedding с модифицированным запросом
+        # Используем тот же метод _get_embedding
         return self._get_embedding(text)
-
