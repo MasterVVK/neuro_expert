@@ -95,12 +95,27 @@ class OllamaEmbeddings(Embeddings):
         Returns:
             List[float]: Вектор эмбеддинга
         """
+        # Добавляем префикс "query:" для моделей BGE
+        if "bge" in self.model_name.lower():
+            text = f"query: {text}"
+
         # Формируем запрос к API Ollama
-        url = f"{self.base_url}/api/embeddings"
+        url = f"{self.base_url}/api/embed"  # Используем /api/embed вместо /api/embeddings
+
+        # Задаем оптимальные опции для контекста
+        options = {
+            "num_ctx": 8192,  # Максимальный размер контекста для bge-m3
+            "num_keep": 8192,  # Сколько токенов сохранять
+            "num_thread": 8  # Для многопоточной обработки
+        }
+
         payload = {
             "model": self.model_name,
-            "prompt": text
+            "input": text,  # Для /api/embed используется "input" вместо "prompt"
+            "options": options  # Добавляем опции в запрос
         }
+
+        logger.info(f"Отправка запроса для эмбеддинга с опциями: {options}")
 
         try:
             response = requests.post(
@@ -110,7 +125,16 @@ class OllamaEmbeddings(Embeddings):
             )
             response.raise_for_status()
 
-            embedding = response.json().get("embedding", [])
+            # Получаем эмбеддинг
+            result = response.json()
+            embeddings = result.get("embeddings", [])
+
+            if embeddings and len(embeddings) > 0:
+                embedding = embeddings[0]  # Берем первый эмбеддинг
+                logger.info(f"Получен эмбеддинг длиной {len(embedding)}")
+            else:
+                logger.error("Ollama API не вернул эмбеддинг")
+                return [0.0] * 1024  # Возвращаем нулевой вектор для bge-m3
 
             # Нормализация вектора, если требуется
             if self.normalize_embeddings and embedding:
@@ -120,9 +144,8 @@ class OllamaEmbeddings(Embeddings):
 
         except requests.exceptions.RequestException as e:
             logger.error(f"Ошибка при получении эмбеддинга: {str(e)}")
-            # В случае ошибки возвращаем нулевой вектор
-            # Размерность вектора зависит от модели, по умолчанию используем 1536
-            return [0.0] * 1536
+            # В случае ошибки возвращаем нулевой вектор для bge-m3
+            return [0.0] * 1024
 
     def _normalize_vector(self, vector: List[float]) -> List[float]:
         """
