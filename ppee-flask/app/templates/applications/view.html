@@ -270,6 +270,7 @@
             {% elif application.status in ['indexed', 'analyzed'] %}
                 <a href="{{ url_for('applications.analyze', id=application.id) }}" class="button button-success">Анализировать</a>
                 <a href="{{ url_for('applications.upload_file', id=application.id) }}" class="button button-primary">Загрузить еще документы</a>
+                <a href="{{ url_for('applications.view_chunks', id=application.id) }}" class="button button-primary">Просмотр чанков</a>
             {% elif application.status == 'analyzing' %}
                 <button class="button" disabled>Выполняется анализ...</button>
             {% elif application.status == 'indexing' %}

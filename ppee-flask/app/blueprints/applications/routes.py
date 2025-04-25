@@ -7,6 +7,7 @@ from app import db
 from app.models import Application, File, Checklist
 from app.blueprints.applications import bp
 from app.tasks.indexing_tasks import index_document_task
+from qdrant_client.http import models  # Добавляем импорт для создания фильтров в Qdrant
 
 
 @bp.route('/')
@@ -271,3 +272,65 @@ def status(id):
                 response_data[key] = value
 
     return jsonify(response_data)
+
+
+@bp.route('/<int:id>/chunks')
+def view_chunks(id):
+    """Просмотр чанков документов заявки"""
+    application = Application.query.get_or_404(id)
+
+    # Получаем адаптер Qdrant и статистику
+    from app.services.vector_service import get_qdrant_adapter
+    from qdrant_client.http import models
+
+    qdrant_adapter = get_qdrant_adapter()
+
+    # Получаем статистику по заявке
+    stats = qdrant_adapter.qdrant_manager.get_stats(str(application.id))
+
+    # Получаем все чанки заявки (ограничиваем 500 для производительности)
+    response = qdrant_adapter.qdrant_manager.client.scroll(
+        collection_name=qdrant_adapter.qdrant_manager.collection_name,
+        scroll_filter=models.Filter(
+            must=[
+                models.FieldCondition(
+                    key="metadata.application_id",
+                    match=models.MatchValue(value=str(application.id))
+                )
+            ]
+        ),
+        limit=500,
+        with_payload=True,
+        with_vectors=False
+    )
+
+    # Преобразуем результаты в более удобный формат
+    chunks = []
+    for point in response[0]:
+        if "payload" in point.__dict__:
+            # Получаем текст
+            text = ""
+            if "page_content" in point.payload:
+                text = point.payload["page_content"]
+
+            # Получаем метаданные
+            metadata = {}
+            if "metadata" in point.payload:
+                metadata = point.payload["metadata"]
+
+            # Добавляем в список
+            chunk = {
+                "id": point.id,
+                "text": text,
+                "metadata": metadata
+            }
+            chunks.append(chunk)
+
+    # Сортируем чанки по порядку (если есть chunk_index в метаданных)
+    chunks.sort(key=lambda x: x["metadata"].get("chunk_index", 0) if x["metadata"] else 0)
+
+    return render_template('applications/chunks.html',
+                           title=f'Чанки заявки {application.name}',
+                           application=application,
+                           chunks=chunks,
+                           stats=stats)

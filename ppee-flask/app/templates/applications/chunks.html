@@ -1,0 +1,301 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <div class="page-header">
+        <h1>Чанки заявки: {{ application.name }}</h1>
+        <a href="{{ url_for('applications.view', id=application.id) }}" class="button button-secondary">Назад к заявке</a>
+    </div>
+
+    <div class="chunks-container">
+        <div class="info-card">
+            <h2>Статистика</h2>
+            <div class="info-row">
+                <div class="info-label">Всего чанков:</div>
+                <div class="info-value">{{ stats.total_points }}</div>
+            </div>
+            {% if stats.content_types %}
+                <div class="info-row">
+                    <div class="info-label">Типы контента:</div>
+                    <div class="info-value">
+                        <ul class="content-types-list">
+                            {% for type, count in stats.content_types.items() %}
+                                <li><span class="content-type-name">{{ type }}</span>: {{ count }}</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </div>
+            {% endif %}
+        </div>
+
+        <div class="filter-container">
+            <h2>Фильтрация</h2>
+            <div class="filter-controls">
+                <div class="filter-group">
+                    <label for="content-type-filter">Тип контента:</label>
+                    <select id="content-type-filter">
+                        <option value="all">Все типы</option>
+                        {% for type in stats.content_types %}
+                            <option value="{{ type }}">{{ type }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label for="section-filter">Раздел:</label>
+                    <select id="section-filter">
+                        <option value="all">Все разделы</option>
+                        {% set sections = [] %}
+                        {% for chunk in chunks %}
+                            {% if chunk.metadata.section and chunk.metadata.section not in sections %}
+                                {% set _ = sections.append(chunk.metadata.section) %}
+                                <option value="{{ chunk.metadata.section }}">{{ chunk.metadata.section }}</option>
+                            {% endif %}
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label for="text-search">Поиск текста:</label>
+                    <input type="text" id="text-search" placeholder="Введите текст для поиска">
+                </div>
+
+                <button id="apply-filters" class="button">Применить фильтры</button>
+                <button id="reset-filters" class="button button-secondary">Сбросить</button>
+            </div>
+        </div>
+
+        <div class="chunks-list">
+            <h2>Список чанков ({{ chunks|length }})</h2>
+            {% if chunks %}
+                {% for chunk in chunks %}
+                    <div class="chunk-item" data-content-type="{{ chunk.metadata.content_type }}" data-section="{{ chunk.metadata.section }}">
+                        <div class="chunk-header">
+                            <span class="chunk-id">ID: {{ chunk.id }}</span>
+                            <span class="chunk-type badge">{{ chunk.metadata.content_type }}</span>
+                            {% if chunk.metadata.page_number %}
+                                <span class="chunk-page-number">Страница: {{ chunk.metadata.page_number }}</span>
+                            {% endif %}
+                        </div>
+
+                        <div class="chunk-section">
+                            <strong>Раздел:</strong> {{ chunk.metadata.section or 'Не определено' }}
+                        </div>
+
+                        <div class="chunk-content">
+                            <div class="text-scroll-container">
+                                <pre class="chunk-text">{{ chunk.text }}</pre>
+                            </div>
+                        </div>
+
+                        {% if chunk.metadata %}
+                            <div class="chunk-metadata">
+                                <button class="toggle-metadata-btn" onclick="toggleMetadata('metadata-{{ loop.index }}')">Показать метаданные</button>
+                                <div id="metadata-{{ loop.index }}" class="metadata-container" style="display: none;">
+                                    <pre>{{ chunk.metadata|tojson(indent=2) }}</pre>
+                                </div>
+                            </div>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            {% else %}
+                <p class="empty-list">Чанки не найдены</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <style>
+        .chunks-container {
+            margin-bottom: 30px;
+        }
+
+        .filter-container {
+            background-color: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        .filter-controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            align-items: center;
+        }
+
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            min-width: 200px;
+        }
+
+        .filter-group label {
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        .content-types-list {
+            margin: 0;
+            padding-left: 20px;
+        }
+
+        .content-type-name {
+            font-weight: bold;
+        }
+
+        .chunks-list {
+            background-color: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        .chunk-item {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            background-color: #f9f9f9;
+        }
+
+        .chunk-header {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 10px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .chunk-id {
+            font-family: monospace;
+            background-color: #e0e0e0;
+            padding: 2px 5px;
+            border-radius: 3px;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            color: white;
+            background-color: #007bff;
+        }
+
+        .chunk-section {
+            margin-bottom: 10px;
+        }
+
+        .chunk-content {
+            margin-bottom: 10px;
+        }
+
+        .text-scroll-container {
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            padding: 10px;
+            background-color: white;
+        }
+
+        .chunk-text {
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 0.9em;
+            margin: 0;
+        }
+
+        .chunk-metadata {
+            margin-top: 10px;
+        }
+
+        .toggle-metadata-btn {
+            padding: 5px 10px;
+            background-color: #f0f0f0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .metadata-container {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #f0f0f0;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.9em;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+    </style>
+
+    <script>
+        function toggleMetadata(id) {
+            const container = document.getElementById(id);
+            const button = event.target;
+
+            if (container.style.display === 'none') {
+                container.style.display = 'block';
+                button.textContent = 'Скрыть метаданные';
+            } else {
+                container.style.display = 'none';
+                button.textContent = 'Показать метаданные';
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const contentTypeFilter = document.getElementById('content-type-filter');
+            const sectionFilter = document.getElementById('section-filter');
+            const textSearch = document.getElementById('text-search');
+            const applyFiltersBtn = document.getElementById('apply-filters');
+            const resetFiltersBtn = document.getElementById('reset-filters');
+            const chunkItems = document.querySelectorAll('.chunk-item');
+
+            // Применение фильтров
+            applyFiltersBtn.addEventListener('click', function() {
+                const contentType = contentTypeFilter.value;
+                const section = sectionFilter.value;
+                const searchText = textSearch.value.toLowerCase();
+
+                chunkItems.forEach(item => {
+                    const itemContentType = item.getAttribute('data-content-type');
+                    const itemSection = item.getAttribute('data-section');
+                    const itemText = item.querySelector('.chunk-text').textContent.toLowerCase();
+
+                    let showItem = true;
+
+                    // Проверка фильтра типа контента
+                    if (contentType !== 'all' && itemContentType !== contentType) {
+                        showItem = false;
+                    }
+
+                    // Проверка фильтра раздела
+                    if (section !== 'all' && itemSection !== section) {
+                        showItem = false;
+                    }
+
+                    // Проверка текстового поиска
+                    if (searchText && !itemText.includes(searchText)) {
+                        showItem = false;
+                    }
+
+                    item.style.display = showItem ? 'block' : 'none';
+                });
+            });
+
+            // Сброс фильтров
+            resetFiltersBtn.addEventListener('click', function() {
+                contentTypeFilter.value = 'all';
+                sectionFilter.value = 'all';
+                textSearch.value = '';
+
+                chunkItems.forEach(item => {
+                    item.style.display = 'block';
+                });
+            });
+        });
+    </script>
+{% endblock %}
