@@ -17,7 +17,7 @@ class BGEReranker:
         model_name: str = "BAAI/bge-reranker-v2-m3",
         device: str = "cuda",
         batch_size: int = 8,
-        max_length: int = 512
+        max_length: int = 4096
     ):
         """
         Инициализирует ре-ранкер на базе BGE.

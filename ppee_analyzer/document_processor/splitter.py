@@ -32,6 +32,18 @@ class PPEEDocumentSplitter:
         self.table_chunk_size = table_chunk_size
         self.chunk_overlap = chunk_overlap
 
+    def split_by_sections(self, text: str) -> List[str]:
+        """
+        Возвращает весь текст как одну секцию без разделения.
+
+        Args:
+            text: Текст документа
+
+        Returns:
+            List[str]: Список, содержащий весь текст как одну секцию
+        """
+        return [text]
+
     def identify_content_type(self, text: str) -> str:
         """
         Определяет тип содержимого фрагмента.
@@ -367,7 +379,7 @@ class PPEEDocumentSplitter:
 
         return chunks
 
-    
+
     def load_and_process_file(self, file_path: str, application_id: str) -> List[Document]:
         """
         Загружает файл и обрабатывает его.
