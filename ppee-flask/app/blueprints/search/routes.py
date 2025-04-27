@@ -111,6 +111,8 @@ def check_status(task_id):
     """Проверяет статус выполнения задачи поиска"""
     task = semantic_search_task.AsyncResult(task_id)
 
+    current_app.logger.debug(f"Проверка статуса задачи поиска {task_id}: {task.state}")
+
     if task.state == 'PENDING':
         response = {
             'status': 'pending',
@@ -126,16 +128,19 @@ def check_status(task_id):
             'stage': task.info.get('stage', '')  # Используем ключ 'stage' вместо 'substatus'
         }
     elif task.state == 'FAILURE':
+        error_msg = str(task.result) if task.result else "Неизвестная ошибка при выполнении задачи"
         response = {
             'status': 'error',
-            'message': str(task.info)
+            'message': error_msg
         }
+        current_app.logger.error(f"Ошибка выполнения задачи поиска {task_id}: {error_msg}")
     elif task.state == 'SUCCESS':
         response = task.info
     else:
         response = {
             'status': 'unknown',
-            'message': 'Неизвестный статус задачи'
+            'message': f'Неизвестный статус задачи: {task.state}'
         }
 
+    current_app.logger.info(f"Статус задачи поиска {task_id}: {response.get('status')}, прогресс: {response.get('progress', 0)}%")
     return jsonify(response)

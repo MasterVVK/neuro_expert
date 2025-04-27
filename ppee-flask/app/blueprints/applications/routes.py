@@ -59,8 +59,8 @@ def view(id):
     try:
         application = Application.query.get_or_404(id)
         return render_template('applications/view.html',
-                            title=f'Заявка {application.name}',
-                            application=application)
+                               title=f'Заявка {application.name}',
+                               application=application)
     except Exception as e:
         current_app.logger.error(f"Ошибка при просмотре заявки {id}: {str(e)}")
         flash(f"Ошибка при просмотре заявки: {str(e)}", "error")
@@ -215,9 +215,9 @@ def results(id):
             }
 
         return render_template('applications/results.html',
-                            title=f'Результаты анализа - {application.name}',
-                            application=application,
-                            checklist_results=checklist_results)
+                               title=f'Результаты анализа - {application.name}',
+                               application=application,
+                               checklist_results=checklist_results)
     except Exception as e:
         current_app.logger.error(f"Ошибка при просмотре результатов заявки {id}: {str(e)}")
         flash(f"Ошибка при просмотре результатов: {str(e)}", "error")
@@ -250,18 +250,27 @@ def delete(id):
     return redirect(url_for('applications.index'))
 
 
-@bp.route('/<int:id>/status')
-def status(id):
-    """Возвращает текущий статус заявки в формате JSON"""
-    application = Application.query.get_or_404(id)
-#    application = Application.query.filter_by(task_id=task_id).first_or_404()
+# НОВЫЙ МАРШРУТ: Статус по ID задачи Celery
+@bp.route('/status/<task_id>')
+def task_status(task_id):
+    """Возвращает текущий статус задачи Celery по ID задачи"""
+    # Находим заявку по task_id
+    application = Application.query.filter_by(task_id=task_id).first()
+
+    # Если заявка не найдена по task_id, возвращаем ошибку
+    if not application:
+        current_app.logger.error(f"Заявка с task_id={task_id} не найдена")
+        return jsonify({
+            'status': 'error',
+            'message': f'Задача с ID {task_id} не найдена'
+        }), 404
 
     # Базовый ответ
     response_data = {
         'status': application.status,
-        'progress': None,
+        'progress': 0,
         'message': application.status_message or 'Выполняется обработка...',
-        'stage': None
+        'stage': 'starting'
     }
 
     # Если приложение использует Celery и находится в процессе обработки
@@ -278,10 +287,55 @@ def status(id):
             # Если статус не связан с асинхронной задачей, просто возвращаем базовый ответ
             return jsonify(response_data)
 
-        if task.state == 'PROGRESS' and task.info:
+        # Обновляем данные ответа на основе информации о задаче
+        if task.state == 'PENDING':
+            response_data['status'] = 'pending'
+            response_data['message'] = 'Задача в очереди на выполнение'
+        elif task.state == 'STARTED':
+            response_data['status'] = 'progress'
+            response_data['progress'] = 5
+            response_data['message'] = 'Задача начала выполнение'
+        elif task.state == 'PROGRESS' and task.info:
             # Копируем все доступные данные из информации о задаче
+            response_data['status'] = 'progress'
             for key, value in task.info.items():
                 response_data[key] = value
+        elif task.state == 'SUCCESS':
+            response_data['status'] = 'success'
+            response_data['progress'] = 100
+            response_data['message'] = 'Задача успешно завершена'
+            response_data['stage'] = 'complete'
+        elif task.state == 'FAILURE':
+            response_data['status'] = 'error'
+            response_data['message'] = f'Ошибка выполнения задачи: {str(task.result)}'
+
+    current_app.logger.info(f"Статус задачи {task_id}: {response_data['status']} ({response_data.get('progress', 0)}%)")
+    return jsonify(response_data)
+
+
+# ОБРАТНАЯ СОВМЕСТИМОСТЬ: Сохраняем старый маршрут, перенаправляя на новый
+@bp.route('/<int:id>/status')
+def status(id):
+    """Возвращает текущий статус заявки по ID заявки"""
+    application = Application.query.get_or_404(id)
+
+    # Если у заявки есть task_id, перенаправляем на новый маршрут
+    if application.task_id:
+        return task_status(application.task_id)
+
+    # Иначе формируем базовый ответ
+    response_data = {
+        'status': application.status,
+        'progress': None,
+        'message': application.status_message or 'Неизвестный статус',
+        'stage': None
+    }
+
+    # Устанавливаем stage в зависимости от статуса
+    if application.status == 'indexing':
+        response_data['stage'] = 'prepare'
+    elif application.status == 'analyzing':
+        response_data['stage'] = 'prepare'
 
     return jsonify(response_data)
 
@@ -343,10 +397,10 @@ def view_chunks(id):
         chunks.sort(key=lambda x: x["metadata"].get("chunk_index", 0) if x["metadata"] else 0)
 
         return render_template('applications/chunks.html',
-                            title=f'Чанки заявки {application.name}',
-                            application=application,
-                            chunks=chunks,
-                            stats=stats)
+                               title=f'Чанки заявки {application.name}',
+                               application=application,
+                               chunks=chunks,
+                               stats=stats)
     except Exception as e:
         current_app.logger.error(f"Ошибка при просмотре чанков заявки {id}: {str(e)}")
         flash(f"Ошибка при просмотре чанков: {str(e)}", "error")

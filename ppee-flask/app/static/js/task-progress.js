@@ -30,6 +30,8 @@ class TaskProgressTracker {
         this.stages = options.stages || [];
         this.checkIntervalId = null;
         this.taskId = null;
+        this._errorCount = 0; // Счетчик ошибок
+        this._maxErrorRetries = 5; // Максимальное количество повторных попыток при ошибках
     }
 
     /**
@@ -56,6 +58,9 @@ class TaskProgressTracker {
         if (this.checkIntervalId) {
             clearInterval(this.checkIntervalId);
         }
+
+        // Сбрасываем счетчик ошибок
+        this._errorCount = 0;
 
         // Показываем прогресс-бар, скрываем результаты
         if (this.progressContainer) {
@@ -93,35 +98,55 @@ class TaskProgressTracker {
             return;
         }
 
-        // Формируем правильный URL для запроса
-        let url;
-
-        // Если URL заканчивается на слеш, просто добавляем ID задачи
-        if (this.statusUrl.endsWith('/')) {
-            url = `${this.statusUrl}${this.taskId}`;
-        } else {
-            // Иначе добавляем слеш и ID задачи
-            url = `${this.statusUrl}/${this.taskId}`;
-        }
+        // Формируем URL для запроса статуса - НЕ ИЗМЕНЯЕМ URL
+        const url = `${this.statusUrl}/${this.taskId}`;
 
         console.log(`Запрос статуса задачи: ${url}`);
 
         fetch(url)
             .then(response => {
                 if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
+                    const errorMessage = `HTTP error! status: ${response.status} ${response.statusText}`;
+                    console.error(errorMessage);
+                    this._handleNetworkError(errorMessage);
+                    return null;
                 }
                 return response.json();
             })
             .then(data => {
-                console.log("Получен ответ о статусе:", data);
-                this._handleStatusUpdate(data);
+                if (data) {
+                    // Сбрасываем счетчик ошибок при успешном ответе
+                    this._errorCount = 0;
+                    this._handleStatusUpdate(data);
+                }
             })
             .catch(error => {
                 console.error('Ошибка при проверке статуса задачи:', error);
-                this._stopTracking();
-                this.onError({ message: 'Ошибка сети при проверке статуса задачи' });
+                this._handleNetworkError(`Ошибка сети: ${error.message}`);
             });
+    }
+
+    /**
+     * Обрабатывает ошибки сети
+     *
+     * @param {string} errorMessage - Сообщение об ошибке
+     */
+    _handleNetworkError(errorMessage) {
+        this._errorCount++;
+        console.warn(`Ошибка при запросе статуса (попытка ${this._errorCount}/${this._maxErrorRetries}): ${errorMessage}`);
+
+        // Обновляем сообщение о статусе
+        if (this.statusMessage) {
+            this.statusMessage.textContent = `Ошибка связи... повторная попытка ${this._errorCount}/${this._maxErrorRetries}`;
+        }
+
+        // Если превышено максимальное число попыток, останавливаем отслеживание
+        if (this._errorCount >= this._maxErrorRetries) {
+            this._stopTracking();
+            this.onError({
+                message: `Не удалось получить статус задачи после ${this._maxErrorRetries} попыток. Попробуйте обновить страницу.`
+            });
+        }
     }
 
     /**
@@ -130,6 +155,9 @@ class TaskProgressTracker {
      * @param {Object} data - Данные о статусе задачи
      */
     _handleStatusUpdate(data) {
+        // Выводим отладочную информацию
+        console.log("Получен ответ о статусе:", data);
+
         // Обработка различных статусов задачи
         if (data.status === 'pending') {
             this._updateProgress(5, data.message || 'Задача ожидает выполнения...');
@@ -282,16 +310,22 @@ class TaskProgressTracker {
             this.progressContainer.style.display = 'none';
         }
 
-        if (this.resultsContainer) {
-            this.resultsContainer.style.display = 'block';
+        // Создаем и показываем сообщение об ошибке
+        const errorContainer = document.createElement('div');
+        errorContainer.className = 'error-container';
+        errorContainer.innerHTML = `
+            <div class="error-message">
+                <h3>Ошибка при выполнении задачи</h3>
+                <p>${data.message || 'Неизвестная ошибка'}</p>
+                <button onclick="window.location.reload()" class="button">Обновить страницу</button>
+            </div>
+        `;
+
+        // Добавляем контейнер после прогресс-контейнера
+        if (this.progressContainer && this.progressContainer.parentNode) {
+            this.progressContainer.parentNode.insertBefore(errorContainer, this.progressContainer.nextSibling);
         }
 
-        const errorMessage = data.message || 'Произошла ошибка при выполнении задачи';
-
-        if (this.resultsContainer) {
-            this.resultsContainer.innerHTML = `<div class="error-message">${errorMessage}</div>`;
-        }
-
-        console.error('Ошибка выполнения задачи:', errorMessage);
+        console.error('Ошибка выполнения задачи:', data.message);
     }
 }

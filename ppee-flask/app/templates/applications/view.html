@@ -99,7 +99,7 @@
         document.addEventListener('DOMContentLoaded', function() {
             // Создаем экземпляр трекера прогресса для индексации
             const indexingTracker = new TaskProgressTracker({
-                statusUrl: "/applications/status", // Без ID заявки, будет добавлен в методе checkStatus
+                statusUrl: "/applications/status",  // Используем URL без ID заявки
                 progressBarId: "indexing-progress",
                 statusMessageId: "status-message",
                 progressContainerId: "indexing-progress-container",
@@ -112,8 +112,8 @@
                 checkInterval: 2000
             });
 
-            // Начинаем отслеживание - передаем ID заявки
-            indexingTracker.startTracking("{{ application.id }}");
+            // Начинаем отслеживание - передаем task_id, а не ID заявки
+            indexingTracker.startTracking("{{ application.task_id }}");
         });
     </script>
     {% endif %}
@@ -148,7 +148,7 @@
         document.addEventListener('DOMContentLoaded', function() {
             // Создаем экземпляр трекера прогресса для анализа
             const analyzingTracker = new TaskProgressTracker({
-                statusUrl: "/applications/status", // Без ID заявки, будет добавлен в методе checkStatus
+                statusUrl: "/applications/status",  // Используем URL без ID заявки
                 progressBarId: "analyzing-progress",
                 statusMessageId: "analyzing-status-message",
                 progressContainerId: "analyzing-progress-container",
@@ -162,8 +162,8 @@
                 checkInterval: 2000
             });
 
-            // Начинаем отслеживание - передаем ID заявки
-            analyzingTracker.startTracking("{{ application.id }}");
+            // Начинаем отслеживание - передаем task_id заявки
+            analyzingTracker.startTracking("{{ application.task_id }}");
         });
     </script>
     {% endif %}
@@ -347,6 +347,28 @@
 
         .stage.completed .stage-label {
             color: #28a745;
+        }
+
+        /* Стили для контейнера ошибок */
+        .error-container {
+            margin: 20px 0;
+        }
+
+        .error-message {
+            background-color: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 5px;
+            border: 1px solid #f5c6cb;
+        }
+
+        .error-message h3 {
+            margin-top: 0;
+            margin-bottom: 10px;
+        }
+
+        .error-message button {
+            margin-top: 10px;
         }
     </style>
 {% endblock %}

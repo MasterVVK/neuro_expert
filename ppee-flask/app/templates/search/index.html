@@ -330,7 +330,7 @@
 
                 // Создаем новый трекер прогресса для поиска
                 searchTracker = new TaskProgressTracker({
-                    statusUrl: "/search/status",
+                    statusUrl: "/search/status",  // URL для статуса задачи
                     progressBarId: "progress-bar",
                     statusMessageId: "status-message",
                     progressContainerId: "search-progress",
@@ -351,7 +351,7 @@
                     if (data.status === 'pending') {
                         // Получен ID задачи - начинаем отслеживать прогресс
                         console.log("Начинаем отслеживание задачи", data.task_id);
-                        searchTracker.startTracking(data.task_id);
+                        searchTracker.startTracking(data.task_id);  // Используем task_id для отслеживания
                     } else if (data.status === 'error') {
                         // Показываем ошибку
                         console.error("Ошибка запуска задачи:", data);
@@ -441,6 +441,28 @@
             border: 1px solid #dee2e6;
             max-height: 300px;
             overflow-y: auto;
+        }
+
+        /* Стили для контейнера ошибок */
+        .error-container {
+            margin: 20px 0;
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            border-radius: 8px;
+            padding: 20px;
+        }
+
+        .error-message {
+            color: #721c24;
+        }
+
+        .error-message h3 {
+            margin-top: 0;
+            margin-bottom: 10px;
+        }
+
+        .error-message button {
+            margin-top: 10px;
         }
     </style>
 {% endblock %}
