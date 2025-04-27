@@ -1,115 +1,359 @@
-<!-- Блок индикации прогресса индексации -->
-{% if application.status == 'indexing' %}
-<div class="indexing-progress-container" id="indexing-progress-container">
-    <h3>Индексация документа</h3>
-    <div class="progress">
-        <div id="indexing-progress" class="progress-bar progress-bar-striped progress-bar-animated"
-             role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" style="width: 0%"></div>
-    </div>
-    <p id="status-message">Выполняется индексация документа. Пожалуйста, подождите...</p>
+{% extends "base.html" %}
 
-    <div class="horizontal-stages-container">
-        <div class="horizontal-stages">
-            <div class="stage" id="stage-prepare">
-                <span class="stage-dot"></span>
-                <span class="stage-label">Подготовка</span>
+{% block content %}
+    <div class="page-header">
+        <h1>Заявка: {{ application.name }}</h1>
+        <div class="button-group">
+            <a href="{{ url_for('applications.index') }}" class="button button-secondary">Назад к списку</a>
+            <form action="{{ url_for('applications.delete', id=application.id) }}" method="post" class="inline-form">
+                <button type="submit" class="button button-danger" onclick="return confirm('Вы уверены? Это действие нельзя отменить.')">
+                    Удалить заявку
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Основная информация о заявке -->
+    <div class="application-details">
+        <div class="info-card">
+            <h2>Основная информация</h2>
+
+            <div class="info-row">
+                <div class="info-label">Идентификатор:</div>
+                <div class="info-value">{{ application.id }}</div>
             </div>
-            <div class="stage" id="stage-convert">
-                <span class="stage-dot"></span>
-                <span class="stage-label">Конвертация</span>
+
+            <div class="info-row">
+                <div class="info-label">Название:</div>
+                <div class="info-value">{{ application.name }}</div>
             </div>
-            <div class="stage" id="stage-split">
-                <span class="stage-dot"></span>
-                <span class="stage-label">Разделение</span>
+
+            <div class="info-row">
+                <div class="info-label">Статус:</div>
+                <div class="info-value">
+                    <span class="status-badge status-{{ application.status }}">
+                        {{ application.get_status_display() }}
+                    </span>
+                </div>
             </div>
-            <div class="stage" id="stage-index">
-                <span class="stage-dot"></span>
-                <span class="stage-label">Индексация</span>
+
+            {% if application.status_message %}
+            <div class="info-row">
+                <div class="info-label">Сообщение:</div>
+                <div class="info-value">{{ application.status_message }}</div>
             </div>
-            <div class="stage" id="stage-complete">
-                <span class="stage-dot"></span>
-                <span class="stage-label">Завершение</span>
+            {% endif %}
+
+            <div class="info-row">
+                <div class="info-label">Описание:</div>
+                <div class="info-value">{{ application.description or 'Нет описания' }}</div>
+            </div>
+
+            <div class="info-row">
+                <div class="info-label">Создана:</div>
+                <div class="info-value">{{ application.created_at.strftime('%d.%m.%Y %H:%M') }}</div>
+            </div>
+
+            <div class="info-row">
+                <div class="info-label">Обновлена:</div>
+                <div class="info-value">{{ application.updated_at.strftime('%d.%m.%Y %H:%M') }}</div>
             </div>
         </div>
     </div>
-</div>
 
-<script>
-    document.addEventListener('DOMContentLoaded', function() {
-        console.log("Инициализация трекера индексации для заявки {{ application.id }}");
+    <!-- Блок индикации прогресса индексации -->
+    {% if application.status == 'indexing' %}
+    <div class="indexing-progress-container" id="indexing-progress-container">
+        <h3>Индексация документа</h3>
+        <div class="progress">
+            <div id="indexing-progress" class="progress-bar progress-bar-striped progress-bar-animated"
+                 role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" style="width: 0%"></div>
+        </div>
+        <p id="status-message">Выполняется индексация документа. Пожалуйста, подождите...</p>
 
-        // Создаем экземпляр трекера прогресса для индексации
-        const indexingTracker = new TaskProgressTracker({
-            statusUrl: "/applications/{{ application.id }}/status",
-            progressBarId: "indexing-progress",
-            statusMessageId: "status-message",
-            progressContainerId: "indexing-progress-container",
-            stagePrefix: "stage-",
-            stages: ["prepare", "convert", "split", "index", "complete"],
-            onComplete: function(data) {
-                // При завершении просто перезагружаем страницу
-                console.log("Индексация завершена, перезагрузка страницы...");
-                window.location.reload();
-            },
-            checkInterval: 2000
-        });
-
-        // Начинаем отслеживание
-        indexingTracker.startTracking("{{ application.id }}");
-    });
-</script>
-{% endif %}
-
-<!-- Блок индикации прогресса анализа -->
-{% if application.status == 'analyzing' %}
-<div class="analyzing-progress-container" id="analyzing-progress-container">
-    <h3>Анализ документа</h3>
-    <div class="progress">
-        <div id="analyzing-progress" class="progress-bar progress-bar-striped progress-bar-animated"
-             role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" style="width: 0%"></div>
-    </div>
-    <p id="analyzing-status-message">Выполняется анализ документа. Пожалуйста, подождите...</p>
-
-    <div class="horizontal-stages-container">
-        <div class="horizontal-stages">
-            <div class="stage" id="analyzing-stage-prepare">
-                <span class="stage-dot"></span>
-                <span class="stage-label">Подготовка</span>
-            </div>
-            <div class="stage" id="analyzing-stage-analyze">
-                <span class="stage-dot"></span>
-                <span class="stage-label">Анализ</span>
-            </div>
-            <div class="stage" id="analyzing-stage-complete">
-                <span class="stage-dot"></span>
-                <span class="stage-label">Завершение</span>
+        <div class="horizontal-stages-container">
+            <div class="horizontal-stages">
+                <div class="stage" id="stage-prepare">
+                    <span class="stage-dot"></span>
+                    <span class="stage-label">Подготовка</span>
+                </div>
+                <div class="stage" id="stage-convert">
+                    <span class="stage-dot"></span>
+                    <span class="stage-label">Конвертация</span>
+                </div>
+                <div class="stage" id="stage-split">
+                    <span class="stage-dot"></span>
+                    <span class="stage-label">Разделение</span>
+                </div>
+                <div class="stage" id="stage-index">
+                    <span class="stage-dot"></span>
+                    <span class="stage-label">Индексация</span>
+                </div>
+                <div class="stage" id="stage-complete">
+                    <span class="stage-dot"></span>
+                    <span class="stage-label">Завершение</span>
+                </div>
             </div>
         </div>
     </div>
-</div>
 
-<script>
-    document.addEventListener('DOMContentLoaded', function() {
-        console.log("Инициализация трекера анализа для заявки {{ application.id }}");
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Создаем экземпляр трекера прогресса для индексации
+            const indexingTracker = new TaskProgressTracker({
+                statusUrl: "/applications/{{ application.id }}/status",
+                progressBarId: "indexing-progress",
+                statusMessageId: "status-message",
+                progressContainerId: "indexing-progress-container",
+                stagePrefix: "stage-",
+                stages: ["prepare", "convert", "split", "index", "complete"],
+                onComplete: function(data) {
+                    // При завершении просто перезагружаем страницу
+                    window.location.reload();
+                },
+                checkInterval: 2000
+            });
 
-        // Создаем экземпляр трекера прогресса для анализа
-        const analyzingTracker = new TaskProgressTracker({
-            statusUrl: "/applications/{{ application.id }}/status",
-            progressBarId: "analyzing-progress",
-            statusMessageId: "analyzing-status-message",
-            progressContainerId: "analyzing-progress-container",
-            stagePrefix: "analyzing-stage-",
-            stages: ["prepare", "analyze", "complete"],
-            onComplete: function(data) {
-                // При завершении просто перезагружаем страницу
-                console.log("Анализ завершен, перезагрузка страницы...");
-                window.location.reload();
-            },
-            checkInterval: 2000
+            // Начинаем отслеживание
+            indexingTracker.startTracking("{{ application.id }}");
         });
+    </script>
+    {% endif %}
 
-        // Начинаем отслеживание
-        analyzingTracker.startTracking("{{ application.id }}");
-    });
-</script>
-{% endif %}
+    <!-- Блок индикации прогресса анализа -->
+    {% if application.status == 'analyzing' %}
+    <div class="analyzing-progress-container" id="analyzing-progress-container">
+        <h3>Анализ документа</h3>
+        <div class="progress">
+            <div id="analyzing-progress" class="progress-bar progress-bar-striped progress-bar-animated"
+                 role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" style="width: 0%"></div>
+        </div>
+        <p id="analyzing-status-message">Выполняется анализ документа. Пожалуйста, подождите...</p>
+
+        <div class="horizontal-stages-container">
+            <div class="horizontal-stages">
+                <div class="stage" id="analyzing-stage-prepare">
+                    <span class="stage-dot"></span>
+                    <span class="stage-label">Подготовка</span>
+                </div>
+                <div class="stage" id="analyzing-stage-analyze">
+                    <span class="stage-dot"></span>
+                    <span class="stage-label">Анализ</span>
+                </div>
+                <div class="stage" id="analyzing-stage-complete">
+                    <span class="stage-dot"></span>
+                    <span class="stage-label">Завершение</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Создаем экземпляр трекера прогресса для анализа
+            const analyzingTracker = new TaskProgressTracker({
+                statusUrl: "/applications/{{ application.id }}/status",
+                progressBarId: "analyzing-progress",
+                statusMessageId: "analyzing-status-message",
+                progressContainerId: "analyzing-progress-container",
+                stagePrefix: "analyzing-stage-",
+                stages: ["prepare", "analyze", "complete"],
+                onComplete: function(data) {
+                    // При завершении просто перезагружаем страницу
+                    window.location.reload();
+                },
+                checkInterval: 2000
+            });
+
+            // Начинаем отслеживание
+            analyzingTracker.startTracking("{{ application.id }}");
+        });
+    </script>
+    {% endif %}
+
+    <!-- Панель действий -->
+    <div class="action-panel">
+        <h2>Действия</h2>
+        <div class="button-group">
+            {% if application.status == 'created' %}
+                <a href="{{ url_for('applications.upload_file', id=application.id) }}" class="button button-primary">Загрузить документ</a>
+            {% elif application.status in ['indexed', 'analyzed'] %}
+                <a href="{{ url_for('applications.analyze', id=application.id) }}" class="button button-success">Анализировать</a>
+                <a href="{{ url_for('applications.upload_file', id=application.id) }}" class="button button-primary">Загрузить еще документы</a>
+                <a href="{{ url_for('applications.view_chunks', id=application.id) }}" class="button button-primary">Просмотр чанков</a>
+            {% elif application.status == 'analyzing' %}
+                <button class="button" disabled>Выполняется анализ...</button>
+            {% elif application.status == 'indexing' %}
+                <button class="button" disabled>Выполняется индексация...</button>
+            {% elif application.status == 'error' %}
+                <a href="{{ url_for('applications.upload_file', id=application.id) }}" class="button button-primary">Попробовать снова</a>
+            {% endif %}
+
+            {% if application.status == 'analyzed' %}
+                <a href="{{ url_for('applications.results', id=application.id) }}" class="button button-success">Смотреть результаты</a>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Файлы заявки -->
+    <div class="file-section">
+        <h2>Файлы</h2>
+
+        {% if application.files.all() %}
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Имя файла</th>
+                        <th>Размер</th>
+                        <th>Дата загрузки</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for file in application.files.all() %}
+                        <tr>
+                            <td>{{ file.original_filename }}</td>
+                            <td>
+                                {% if file.file_size < 1024 %}
+                                    {{ file.file_size }} байт
+                                {% elif file.file_size < 1024 * 1024 %}
+                                    {{ (file.file_size / 1024) | round(1) }} Кб
+                                {% else %}
+                                    {{ (file.file_size / (1024 * 1024)) | round(1) }} Мб
+                                {% endif %}
+                            </td>
+                            <td>{{ file.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p class="empty-list">Нет загруженных файлов. <a href="{{ url_for('applications.upload_file', id=application.id) }}">Загрузить файл</a></p>
+        {% endif %}
+    </div>
+
+    <!-- Связанные чек-листы -->
+    <div class="checklist-section">
+        <h2>Чек-листы</h2>
+
+        {% if application.checklists %}
+            <div class="checklist-list">
+                {% for checklist in application.checklists %}
+                    <div class="checklist-item">
+                        <span class="checklist-name">{{ checklist.name }}</span>
+                        <span class="checklist-info">Параметров: {{ checklist.parameters.count() }}</span>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p class="empty-list">Нет связанных чек-листов</p>
+        {% endif %}
+    </div>
+
+    <style>
+        /* Стили для горизонтального статус-бара */
+        .indexing-progress-container, .analyzing-progress-container {
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .progress {
+            height: 20px;
+            margin: 15px 0;
+            background-color: #e9ecef;
+            border-radius: 0.25rem;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            color: #fff;
+            text-align: center;
+            background-color: #007bff;
+            transition: width .6s ease;
+        }
+
+        .progress-bar-striped {
+            background-image: linear-gradient(45deg,rgba(255,255,255,.15) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.15) 50%,rgba(255,255,255,.15) 75%,transparent 75%,transparent);
+            background-size: 1rem 1rem;
+        }
+
+        .progress-bar-animated {
+            animation: progress-bar-stripes 1s linear infinite;
+        }
+
+        @keyframes progress-bar-stripes {
+            from { background-position: 1rem 0 }
+            to { background-position: 0 0 }
+        }
+
+        /* Стили для горизонтальных этапов */
+        .horizontal-stages-container {
+            margin-top: 20px;
+            position: relative;
+        }
+
+        .horizontal-stages {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 15px;
+            position: relative;
+        }
+
+        .horizontal-stages:before {
+            content: '';
+            position: absolute;
+            top: 6px;
+            left: 25px;
+            right: 25px;
+            height: 2px;
+            background: #dee2e6;
+            z-index: 0;
+        }
+
+        .stage {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            position: relative;
+            z-index: 1;
+            width: 70px;
+        }
+
+        .stage-dot {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background-color: #dee2e6;
+            border: 2px solid #fff;
+            margin-bottom: 8px;
+        }
+
+        .stage.active .stage-dot {
+            background-color: #007bff;
+            box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+        }
+
+        .stage.completed .stage-dot {
+            background-color: #28a745;
+        }
+
+        .stage-label {
+            font-size: 12px;
+            text-align: center;
+            color: #6c757d;
+        }
+
+        .stage.active .stage-label {
+            color: #007bff;
+            font-weight: bold;
+        }
+
+        .stage.completed .stage-label {
+            color: #28a745;
+        }
+    </style>
+{% endblock %}
