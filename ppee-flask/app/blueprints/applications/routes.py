@@ -265,13 +265,26 @@ def task_status(task_id):
             'message': f'Задача с ID {task_id} не найдена'
         }), 404
 
-    # Базовый ответ
+    # Базовый ответ, добавляем статус заявки для дополнительной проверки на клиенте
     response_data = {
         'status': application.status,
+        'application_status': application.status,  # Явно добавляем статус заявки
         'progress': 0,
         'message': application.status_message or 'Выполняется обработка...',
         'stage': 'starting'
     }
+
+    # Если заявка уже в завершенном состоянии, отражаем это в ответе
+    if application.status in ['indexed', 'analyzed']:
+        response_data['status'] = 'success'
+        response_data['progress'] = 100
+        response_data['stage'] = 'complete'
+        response_data['message'] = f'Задача успешно завершена ({application.status})'
+        return jsonify(response_data)
+    elif application.status == 'error':
+        response_data['status'] = 'error'
+        response_data['message'] = application.status_message or 'Произошла ошибка при выполнении задачи'
+        return jsonify(response_data)
 
     # Если приложение использует Celery и находится в процессе обработки
     if application.task_id:
@@ -301,15 +314,28 @@ def task_status(task_id):
             for key, value in task.info.items():
                 response_data[key] = value
         elif task.state == 'SUCCESS':
+            # Если задача успешно завершена
             response_data['status'] = 'success'
             response_data['progress'] = 100
-            response_data['message'] = 'Задача успешно завершена'
             response_data['stage'] = 'complete'
+
+            # Если есть дополнительная информация в результате, добавляем ее
+            if task.result and isinstance(task.result, dict):
+                for key, value in task.result.items():
+                    if key not in response_data:
+                        response_data[key] = value
+
+            # Обязательно указываем сообщение о завершении
+            response_data['message'] = 'Задача успешно завершена'
+
+            # Логируем успешное завершение для отладки
+            logger.info(f"Задача {task_id} успешно завершена, статус заявки: {application.status}")
         elif task.state == 'FAILURE':
             response_data['status'] = 'error'
             response_data['message'] = f'Ошибка выполнения задачи: {str(task.result)}'
 
-    current_app.logger.info(f"Статус задачи {task_id}: {response_data['status']} ({response_data.get('progress', 0)}%)")
+    current_app.logger.info(
+        f"Статус задачи {task_id}: {response_data['status']} ({response_data.get('progress', 0)}%), заявка: {application.status}")
     return jsonify(response_data)
 
 

@@ -1,77 +1,49 @@
 from app import celery, db
 from app.models import Application
 from app.services.llm_service import analyze_application
+from app.tasks.base_task import BaseTask
 import logging
 
+# Настройка логирования
 logger = logging.getLogger(__name__)
 
 
 @celery.task(bind=True)
+@BaseTask.task_wrapper
 def process_parameters_task(self, application_id):
     """
     Асинхронная задача для обработки параметров чек-листа.
 
     Args:
         application_id: ID заявки
+
+    Returns:
+        dict: Результат анализа
     """
-    try:
-        # Начальное состояние
-        self.update_state(state='PROGRESS',
-                          meta={'progress': 5,
-                                'stage': 'prepare',
-                                'message': 'Подготовка к анализу...'})
+    # Получаем данные из БД и меняем статус
+    application = Application.query.get(application_id)
+    if not application:
+        return {'status': 'error', 'message': f"Заявка с ID {application_id} не найдена"}
 
-        # Получаем данные из БД и меняем статус
-        application = Application.query.get(application_id)
-        if not application:
-            error_msg = f"Заявка с ID {application_id} не найдена"
-            self.update_state(state='FAILURE',
-                              meta={'progress': 0,
-                                    'stage': 'error',
-                                    'message': error_msg})
-            return {'status': 'error', 'message': error_msg}
+    # Обновляем статус заявки на analyzing
+    application.status = "analyzing"
+    application.task_id = self.request.id
+    db.session.commit()
 
-        # Обновляем статус заявки на analyzing
-        application.status = "analyzing"
-        db.session.commit()
+    # Начальное состояние
+    BaseTask.update_progress(self, 5, 'prepare', 'Подготовка к анализу...')
 
-        # Вызываем функцию analyze_application с колбэком для обновления прогресса
-        result = analyze_application(
-            application_id=application_id,
-            skip_status_check=True,  # Пропускаем проверку статуса
-            progress_callback=lambda progress, stage, message:
-            self.update_state(state='PROGRESS',
-                              meta={'progress': progress,
-                                    'stage': stage,
-                                    'message': message})
-        )
+    # Обновляем прогресс
+    BaseTask.update_progress(self, 15, 'analyze', 'Инициализация анализа...')
 
-        # Финальное обновление
-        self.update_state(state='SUCCESS',
-                          meta={'progress': 100,
-                                'stage': 'complete',
-                                'message': 'Анализ успешно завершен'})
+    # Вызываем функцию analyze_application с колбэком для обновления прогресса
+    result = analyze_application(
+        application_id=application_id,
+        skip_status_check=True,  # Пропускаем проверку статуса
+        progress_callback=lambda progress, stage, message:
+        BaseTask.update_progress(self, progress, stage, message)
+    )
 
-        return result
+    # Финальное обновление будет выполнено автоматически через декоратор
 
-    except Exception as e:
-        logger.exception(f"Ошибка в задаче анализа: {str(e)}")
-
-        # Обрабатываем исключение
-        error_msg = str(e)
-        self.update_state(state='FAILURE',
-                          meta={'progress': 0,
-                                'stage': 'error',
-                                'message': f'Ошибка анализа: {error_msg}'})
-
-        # Обновляем статус заявки в БД
-        try:
-            application = Application.query.get(application_id)
-            if application:
-                application.status = "error"
-                application.status_message = error_msg
-                db.session.commit()
-        except Exception as db_error:
-            logger.error(f"Не удалось обновить статус заявки: {str(db_error)}")
-
-        return {'status': 'error', 'message': error_msg}
+    return result
