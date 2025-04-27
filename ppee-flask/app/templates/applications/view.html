@@ -71,28 +71,26 @@
         </div>
         <p id="status-message">Выполняется индексация документа. Пожалуйста, подождите...</p>
 
-        <div class="horizontal-stages-container">
-            <div class="horizontal-stages">
-                <div class="stage" id="stage-prepare">
-                    <span class="stage-dot"></span>
-                    <span class="stage-label">Подготовка</span>
-                </div>
-                <div class="stage" id="stage-convert">
-                    <span class="stage-dot"></span>
-                    <span class="stage-label">Конвертация</span>
-                </div>
-                <div class="stage" id="stage-split">
-                    <span class="stage-dot"></span>
-                    <span class="stage-label">Разделение</span>
-                </div>
-                <div class="stage" id="stage-index">
-                    <span class="stage-dot"></span>
-                    <span class="stage-label">Индексация</span>
-                </div>
-                <div class="stage" id="stage-complete">
-                    <span class="stage-dot"></span>
-                    <span class="stage-label">Завершение</span>
-                </div>
+        <div class="indexing-stages">
+            <div class="stage" id="stage-prepare">
+                <span class="stage-dot"></span>
+                <span class="stage-label">Подготовка</span>
+            </div>
+            <div class="stage" id="stage-convert">
+                <span class="stage-dot"></span>
+                <span class="stage-label">Конвертация</span>
+            </div>
+            <div class="stage" id="stage-split">
+                <span class="stage-dot"></span>
+                <span class="stage-label">Разделение</span>
+            </div>
+            <div class="stage" id="stage-index">
+                <span class="stage-dot"></span>
+                <span class="stage-label">Индексация</span>
+            </div>
+            <div class="stage" id="stage-complete">
+                <span class="stage-dot"></span>
+                <span class="stage-label">Завершение</span>
             </div>
         </div>
     </div>
@@ -101,7 +99,7 @@
         document.addEventListener('DOMContentLoaded', function() {
             // Создаем экземпляр трекера прогресса для индексации
             const indexingTracker = new TaskProgressTracker({
-                statusUrl: "/applications/{{ application.id }}/status",
+                statusUrl: "/applications/status", // Без ID заявки, будет добавлен в методе checkStatus
                 progressBarId: "indexing-progress",
                 statusMessageId: "status-message",
                 progressContainerId: "indexing-progress-container",
@@ -114,7 +112,7 @@
                 checkInterval: 2000
             });
 
-            // Начинаем отслеживание
+            // Начинаем отслеживание - передаем ID заявки
             indexingTracker.startTracking("{{ application.id }}");
         });
     </script>
@@ -130,20 +128,18 @@
         </div>
         <p id="analyzing-status-message">Выполняется анализ документа. Пожалуйста, подождите...</p>
 
-        <div class="horizontal-stages-container">
-            <div class="horizontal-stages">
-                <div class="stage" id="analyzing-stage-prepare">
-                    <span class="stage-dot"></span>
-                    <span class="stage-label">Подготовка</span>
-                </div>
-                <div class="stage" id="analyzing-stage-analyze">
-                    <span class="stage-dot"></span>
-                    <span class="stage-label">Анализ</span>
-                </div>
-                <div class="stage" id="analyzing-stage-complete">
-                    <span class="stage-dot"></span>
-                    <span class="stage-label">Завершение</span>
-                </div>
+        <div class="indexing-stages">
+            <div class="stage" id="analyzing-stage-prepare">
+                <span class="stage-dot"></span>
+                <span class="stage-label">Подготовка</span>
+            </div>
+            <div class="stage" id="analyzing-stage-analyze">
+                <span class="stage-dot"></span>
+                <span class="stage-label">Анализ</span>
+            </div>
+            <div class="stage" id="analyzing-stage-complete">
+                <span class="stage-dot"></span>
+                <span class="stage-label">Завершение</span>
             </div>
         </div>
     </div>
@@ -152,10 +148,11 @@
         document.addEventListener('DOMContentLoaded', function() {
             // Создаем экземпляр трекера прогресса для анализа
             const analyzingTracker = new TaskProgressTracker({
-                statusUrl: "/applications/{{ application.id }}/status",
+                statusUrl: "/applications/status", // Без ID заявки, будет добавлен в методе checkStatus
                 progressBarId: "analyzing-progress",
                 statusMessageId: "analyzing-status-message",
                 progressContainerId: "analyzing-progress-container",
+                resultsContainerId: null,
                 stagePrefix: "analyzing-stage-",
                 stages: ["prepare", "analyze", "complete"],
                 onComplete: function(data) {
@@ -165,7 +162,7 @@
                 checkInterval: 2000
             });
 
-            // Начинаем отслеживание
+            // Начинаем отслеживание - передаем ID заявки
             analyzingTracker.startTracking("{{ application.id }}");
         });
     </script>
@@ -256,6 +253,7 @@
             border-radius: 8px;
             padding: 20px;
             margin-bottom: 20px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
         }
 
         .progress {
@@ -290,20 +288,15 @@
             to { background-position: 0 0 }
         }
 
-        /* Стили для горизонтальных этапов */
-        .horizontal-stages-container {
+        /* Стили для этапов */
+        .indexing-stages {
+            display: flex;
+            justify-content: space-between;
             margin-top: 20px;
             position: relative;
         }
 
-        .horizontal-stages {
-            display: flex;
-            justify-content: space-between;
-            margin-top: 15px;
-            position: relative;
-        }
-
-        .horizontal-stages:before {
+        .indexing-stages:before {
             content: '';
             position: absolute;
             top: 6px;

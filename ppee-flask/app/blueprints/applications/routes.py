@@ -254,6 +254,7 @@ def delete(id):
 def status(id):
     """Возвращает текущий статус заявки в формате JSON"""
     application = Application.query.get_or_404(id)
+#    application = Application.query.filter_by(task_id=task_id).first_or_404()
 
     # Базовый ответ
     response_data = {
