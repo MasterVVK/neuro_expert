@@ -217,6 +217,9 @@
 
             // Функция для отображения результатов
             function showResults(data) {
+                // Явно скрываем индикатор прогресса
+                document.getElementById('search-progress').style.display = 'none';
+
                 // Показываем результаты
                 resultsContainer.style.display = 'block';
 
@@ -306,6 +309,9 @@
                 // Формируем данные для отправки
                 const formData = new FormData(searchForm);
 
+                // Показываем прогресс-контейнер
+                document.getElementById('search-progress').style.display = 'block';
+
                 // Определяем, какие этапы будут отображаться
                 const stages = ["starting", "initializing", "vector_search"];
 
@@ -318,6 +324,9 @@
                 }
 
                 stages.push("finishing");
+
+                // Выводим информацию о выбранных этапах в консоль для отладки
+                console.log("Выбранные этапы:", stages);
 
                 // Создаем новый трекер прогресса для поиска
                 searchTracker = new TaskProgressTracker({
@@ -341,9 +350,11 @@
                 .then(data => {
                     if (data.status === 'pending') {
                         // Получен ID задачи - начинаем отслеживать прогресс
+                        console.log("Начинаем отслеживание задачи", data.task_id);
                         searchTracker.startTracking(data.task_id);
                     } else if (data.status === 'error') {
                         // Показываем ошибку
+                        console.error("Ошибка запуска задачи:", data);
                         searchTracker.onError(data);
                     }
                 })

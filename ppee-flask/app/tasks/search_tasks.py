@@ -38,7 +38,7 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
     # Начальное состояние
     self.update_state(state='PROGRESS',
                       meta={'progress': 5,
-                            'status': 'starting',
+                            'stage': 'starting',  # Изменен ключ с 'status' на 'stage'
                             'message': 'Инициализация поиска...'})
 
     start_time = time.time()
@@ -47,13 +47,13 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
         # Обновляем статус - инициализация
         self.update_state(state='PROGRESS',
                           meta={'progress': 10,
-                                'status': 'initializing',
+                                'stage': 'initializing',  # Изменен ключ с 'status' на 'stage'
                                 'message': 'Подготовка к поиску...'})
 
         # Обновляем статус - начинаем векторный поиск
         self.update_state(state='PROGRESS',
                           meta={'progress': 30,
-                                'status': 'vector_search',
+                                'stage': 'vector_search',  # Изменен ключ с 'status' на 'stage'
                                 'message': 'Выполнение векторного поиска...'})
 
         # Выполняем поиск с использованием того же сервиса, что и при анализе документов
@@ -72,7 +72,7 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
         if use_reranker:
             self.update_state(state='PROGRESS',
                               meta={'progress': 60,
-                                    'status': 'reranking',
+                                    'stage': 'reranking',  # Изменен ключ с 'status' на 'stage'
                                     'message': 'Выполнение ререйтинга...'})
 
         # Время выполнения поиска
@@ -101,7 +101,7 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
         if use_llm and llm_params and formatted_results:
             self.update_state(state='PROGRESS',
                               meta={'progress': 75,
-                                    'status': 'llm_processing',
+                                    'stage': 'llm_processing',  # Изменен ключ с 'status' на 'stage'
                                     'message': 'Обработка результатов через LLM...'})
 
             llm_start_time = time.time()
@@ -151,7 +151,7 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
         # Обновляем статус - завершение
         self.update_state(state='PROGRESS',
                           meta={'progress': 90,
-                                'status': 'finishing',
+                                'stage': 'finishing',  # Изменен ключ с 'status' на 'stage'
                                 'message': 'Завершение поиска...'})
 
         # Общее время выполнения

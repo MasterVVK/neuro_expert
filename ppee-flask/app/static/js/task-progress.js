@@ -138,13 +138,27 @@ class TaskProgressTracker {
             this._updateProgress(data.progress || 0, data.message || 'Выполняется...');
 
             // Обновляем этап, если указан
-            if (data.stage || data.substatus) {
-                this.updateStages(data.stage || data.substatus);
+            // Проверяем наличие информации об этапе в разных полях ответа
+            const stageInfo = data.stage || data.substatus || data.status;
+            if (stageInfo) {
+                this.updateStages(stageInfo);
             }
         } else if (data.status === 'error') {
             this._stopTracking();
             this.onError(data);
         } else if (data.status === 'success') {
+            // Устанавливаем финальный прогресс
+            this._updateProgress(100, data.message || 'Задача успешно завершена');
+
+            // Обновляем отображение этапов - показываем последний этап как завершенный
+            if (this.stages && this.stages.length > 0) {
+                // Используем последний этап в списке
+                this.updateStages(this.stages[this.stages.length - 1]);
+                // Дополнительно помечаем все этапы как завершенные
+                this._markAllStagesCompleted();
+            }
+
+            // Останавливаем отслеживание и вызываем обработчик завершения
             this._stopTracking();
             this.onComplete(data);
         } else {
@@ -191,6 +205,8 @@ class TaskProgressTracker {
             return;
         }
 
+        console.log(`Обновление этапа: '${currentStage}'`);
+
         let reachedCurrentStage = false;
 
         this.stages.forEach(stage => {
@@ -205,12 +221,35 @@ class TaskProgressTracker {
                 stageElement.classList.add('active');
                 stageElement.classList.remove('completed');
                 reachedCurrentStage = true;
+                console.log(`- Этап '${stage}' помечен как активный`);
             } else if (!reachedCurrentStage) {
                 stageElement.classList.remove('active');
                 stageElement.classList.add('completed');
+                console.log(`- Этап '${stage}' помечен как завершенный`);
             } else {
                 stageElement.classList.remove('active');
                 stageElement.classList.remove('completed');
+                console.log(`- Этап '${stage}' помечен как ожидающий`);
+            }
+        });
+    }
+
+    /**
+     * Пометка всех этапов как завершенных
+     */
+    _markAllStagesCompleted() {
+        if (!this.stages || this.stages.length === 0) {
+            return;
+        }
+
+        console.log('Пометка всех этапов как завершенных');
+
+        this.stages.forEach(stage => {
+            const stageElement = document.getElementById(`${this.stagePrefix}${stage}`);
+            if (stageElement && stageElement.style.display !== 'none') {
+                stageElement.classList.remove('active');
+                stageElement.classList.add('completed');
+                console.log(`- Этап '${stage}' помечен как завершенный`);
             }
         });
     }
@@ -219,13 +258,17 @@ class TaskProgressTracker {
      * Обработчик по умолчанию для успешного завершения задачи
      */
     _defaultOnComplete(data) {
-        if (this.progressContainer) {
-            this.progressContainer.style.display = 'none';
-        }
+        // После небольшой задержки скрываем прогресс-контейнер
+        setTimeout(() => {
+            if (this.progressContainer) {
+                this.progressContainer.style.display = 'none';
+            }
 
-        if (this.resultsContainer) {
-            this.resultsContainer.style.display = 'block';
-        }
+            // Показываем контейнер с результатами
+            if (this.resultsContainer) {
+                this.resultsContainer.style.display = 'block';
+            }
+        }, 500); // Задержка в 500мс, чтобы пользователь увидел завершение всех этапов
 
         console.log('Задача успешно завершена:', data);
     }
@@ -234,6 +277,7 @@ class TaskProgressTracker {
      * Обработчик по умолчанию для ошибки задачи
      */
     _defaultOnError(data) {
+        // Сразу скрываем прогресс-контейнер в случае ошибки
         if (this.progressContainer) {
             this.progressContainer.style.display = 'none';
         }

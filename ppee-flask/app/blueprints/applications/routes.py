@@ -1,5 +1,5 @@
 import os
-from flask import render_template, redirect, url_for, flash, request, current_app ,jsonify
+from flask import render_template, redirect, url_for, flash, request, current_app, jsonify
 from werkzeug.utils import secure_filename
 import uuid
 
@@ -56,10 +56,15 @@ def create():
 @bp.route('/<int:id>')
 def view(id):
     """Просмотр заявки"""
-    application = Application.query.get_or_404(id)
-    return render_template('applications/view.html',
-                           title=f'Заявка {application.name}',
-                           application=application)
+    try:
+        application = Application.query.get_or_404(id)
+        return render_template('applications/view.html',
+                            title=f'Заявка {application.name}',
+                            application=application)
+    except Exception as e:
+        current_app.logger.error(f"Ошибка при просмотре заявки {id}: {str(e)}")
+        flash(f"Ошибка при просмотре заявки: {str(e)}", "error")
+        return redirect(url_for('applications.index'))
 
 
 @bp.route('/<int:id>/upload', methods=['GET', 'POST'])
@@ -177,48 +182,54 @@ def analyze(id):
 
     return redirect(url_for('applications.view', id=application.id))
 
+
 @bp.route('/<int:id>/results')
 def results(id):
     """Просмотр результатов анализа заявки"""
-    application = Application.query.get_or_404(id)
+    try:
+        application = Application.query.get_or_404(id)
 
-    # Проверяем, что у заявки есть результаты
-    if application.status != 'analyzed':
-        flash('Результаты анализа еще не готовы', 'info')
-        return redirect(url_for('applications.view', id=application.id))
+        # Проверяем, что у заявки есть результаты
+        if application.status != 'analyzed':
+            flash('Результаты анализа еще не готовы', 'info')
+            return redirect(url_for('applications.view', id=application.id))
 
-    # Получаем результаты по чек-листам
-    checklist_results = {}
+        # Получаем результаты по чек-листам
+        checklist_results = {}
 
-    for checklist in application.checklists:
-        parameters = checklist.parameters.all()
-        parameter_results = []
+        for checklist in application.checklists:
+            parameters = checklist.parameters.all()
+            parameter_results = []
 
-        for parameter in parameters:
-            result = parameter.results.filter_by(application_id=application.id).first()
-            if result:
-                parameter_results.append({
-                    'parameter': parameter,
-                    'result': result
-                })
+            for parameter in parameters:
+                result = parameter.results.filter_by(application_id=application.id).first()
+                if result:
+                    parameter_results.append({
+                        'parameter': parameter,
+                        'result': result
+                    })
 
-        checklist_results[checklist.id] = {
-            'checklist': checklist,
-            'results': parameter_results
-        }
+            checklist_results[checklist.id] = {
+                'checklist': checklist,
+                'results': parameter_results
+            }
 
-    return render_template('applications/results.html',
-                           title=f'Результаты анализа - {application.name}',
-                           application=application,
-                           checklist_results=checklist_results)
+        return render_template('applications/results.html',
+                            title=f'Результаты анализа - {application.name}',
+                            application=application,
+                            checklist_results=checklist_results)
+    except Exception as e:
+        current_app.logger.error(f"Ошибка при просмотре результатов заявки {id}: {str(e)}")
+        flash(f"Ошибка при просмотре результатов: {str(e)}", "error")
+        return redirect(url_for('applications.index'))
 
 
 @bp.route('/<int:id>/delete', methods=['POST'])
 def delete(id):
     """Удаление заявки"""
-    application = Application.query.get_or_404(id)
-
     try:
+        application = Application.query.get_or_404(id)
+
         # Удаляем файлы заявки
         for file in application.files:
             if os.path.exists(file.file_path):
@@ -277,60 +288,65 @@ def status(id):
 @bp.route('/<int:id>/chunks')
 def view_chunks(id):
     """Просмотр чанков документов заявки"""
-    application = Application.query.get_or_404(id)
+    try:
+        application = Application.query.get_or_404(id)
 
-    # Получаем адаптер Qdrant и статистику
-    from app.services.vector_service import get_qdrant_adapter
-    from qdrant_client.http import models
+        # Получаем адаптер Qdrant и статистику
+        from app.services.vector_service import get_qdrant_adapter
+        from qdrant_client.http import models
 
-    qdrant_adapter = get_qdrant_adapter()
+        qdrant_adapter = get_qdrant_adapter()
 
-    # Получаем статистику по заявке
-    stats = qdrant_adapter.qdrant_manager.get_stats(str(application.id))
+        # Получаем статистику по заявке
+        stats = qdrant_adapter.qdrant_manager.get_stats(str(application.id))
 
-    # Получаем все чанки заявки (ограничиваем 500 для производительности)
-    response = qdrant_adapter.qdrant_manager.client.scroll(
-        collection_name=qdrant_adapter.qdrant_manager.collection_name,
-        scroll_filter=models.Filter(
-            must=[
-                models.FieldCondition(
-                    key="metadata.application_id",
-                    match=models.MatchValue(value=str(application.id))
-                )
-            ]
-        ),
-        limit=500,
-        with_payload=True,
-        with_vectors=False
-    )
+        # Получаем все чанки заявки (ограничиваем 500 для производительности)
+        response = qdrant_adapter.qdrant_manager.client.scroll(
+            collection_name=qdrant_adapter.qdrant_manager.collection_name,
+            scroll_filter=models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="metadata.application_id",
+                        match=models.MatchValue(value=str(application.id))
+                    )
+                ]
+            ),
+            limit=500,
+            with_payload=True,
+            with_vectors=False
+        )
 
-    # Преобразуем результаты в более удобный формат
-    chunks = []
-    for point in response[0]:
-        if "payload" in point.__dict__:
-            # Получаем текст
-            text = ""
-            if "page_content" in point.payload:
-                text = point.payload["page_content"]
+        # Преобразуем результаты в более удобный формат
+        chunks = []
+        for point in response[0]:
+            if "payload" in point.__dict__:
+                # Получаем текст
+                text = ""
+                if "page_content" in point.payload:
+                    text = point.payload["page_content"]
 
-            # Получаем метаданные
-            metadata = {}
-            if "metadata" in point.payload:
-                metadata = point.payload["metadata"]
+                # Получаем метаданные
+                metadata = {}
+                if "metadata" in point.payload:
+                    metadata = point.payload["metadata"]
 
-            # Добавляем в список
-            chunk = {
-                "id": point.id,
-                "text": text,
-                "metadata": metadata
-            }
-            chunks.append(chunk)
+                # Добавляем в список
+                chunk = {
+                    "id": point.id,
+                    "text": text,
+                    "metadata": metadata
+                }
+                chunks.append(chunk)
 
-    # Сортируем чанки по порядку (если есть chunk_index в метаданных)
-    chunks.sort(key=lambda x: x["metadata"].get("chunk_index", 0) if x["metadata"] else 0)
+        # Сортируем чанки по порядку (если есть chunk_index в метаданных)
+        chunks.sort(key=lambda x: x["metadata"].get("chunk_index", 0) if x["metadata"] else 0)
 
-    return render_template('applications/chunks.html',
-                           title=f'Чанки заявки {application.name}',
-                           application=application,
-                           chunks=chunks,
-                           stats=stats)
+        return render_template('applications/chunks.html',
+                            title=f'Чанки заявки {application.name}',
+                            application=application,
+                            chunks=chunks,
+                            stats=stats)
+    except Exception as e:
+        current_app.logger.error(f"Ошибка при просмотре чанков заявки {id}: {str(e)}")
+        flash(f"Ошибка при просмотре чанков: {str(e)}", "error")
+        return redirect(url_for('applications.index'))

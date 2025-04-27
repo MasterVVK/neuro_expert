@@ -118,11 +118,12 @@ def check_status(task_id):
             'message': 'Задача ожидает выполнения...'
         }
     elif task.state == 'PROGRESS':
+        # Сохраняем структуру исходного ответа задачи и добавляем общий статус
         response = {
             'status': 'progress',
             'progress': task.info.get('progress', 0),
             'message': task.info.get('message', ''),
-            'substatus': task.info.get('status', '')
+            'stage': task.info.get('stage', '')  # Используем ключ 'stage' вместо 'substatus'
         }
     elif task.state == 'FAILURE':
         response = {
