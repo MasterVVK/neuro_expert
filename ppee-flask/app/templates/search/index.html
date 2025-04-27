@@ -83,24 +83,7 @@
 
                 <div class="form-group">
                     <label for="llm_prompt_template">Шаблон промпта</label>
-                    <textarea id="llm_prompt_template" name="llm_prompt_template" rows="10">Ты эксперт по поиску информации в документах.
-
-Нужно найти значение для параметра: "{query}"
-
-Найденные результаты:
-{context}
-
-Твоя задача - извлечь точное значение для параметра "{query}" из предоставленных документов.
-
-Правила:
-1. Если значение найдено в нескольких местах, выбери наиболее полное и точное.
-2. Если значение в таблице, внимательно определи соответствие между строкой и нужным столбцом.
-3. Не добавляй никаких комментариев или пояснений - только параметр и его значение.
-4. Значение должно содержать данные, которые есть в документах.
-5. Если параметр не найден, укажи: "Информация не найдена".
-
-Ответь одной строкой в указанном формате:
-{query}: [значение]</textarea>
+                    <textarea id="llm_prompt_template" name="llm_prompt_template" rows="10" placeholder="Введите шаблон промпта...">{{ default_prompt }}</textarea>
                     <p class="form-note">Используйте {query} для вставки поискового запроса и {context} для вставки контекста из найденных документов</p>
                 </div>
 
@@ -199,9 +182,6 @@
 
             // Элементы формы и результатов
             const searchForm = document.getElementById('search-form');
-            const searchProgress = document.getElementById('search-progress');
-            const progressBar = document.getElementById('progress-bar');
-            const statusMessage = document.getElementById('status-message');
             const resultsContainer = document.getElementById('results-container');
             const resultsStats = document.getElementById('results-stats');
             const searchResults = document.getElementById('search-results');
@@ -211,8 +191,7 @@
             const confidenceText = document.getElementById('confidence-text');
 
             // Переменные для отслеживания задачи
-            let taskId = null;
-            let statusCheckInterval = null;
+            let searchTracker = null;
 
             // Функция для обновления отображения настроек ререйтинга
             function updateRerankSettings() {
@@ -234,64 +213,6 @@
                     llmSettings.style.display = 'none';
                     llmProcessingStage.style.display = 'none';
                 }
-            }
-
-            // Функция для обновления отображения этапов
-            function updateStages(stage) {
-                const stages = ['starting', 'initializing', 'vector_search', 'reranking', 'llm_processing', 'finishing'];
-                let reachedCurrentStage = false;
-
-                stages.forEach(s => {
-                    const stageElement = document.getElementById(`stage-${s}`);
-                    if (stageElement && stageElement.style.display !== 'none') {
-                        if (s === stage) {
-                            stageElement.classList.add('active');
-                            stageElement.classList.remove('completed');
-                            reachedCurrentStage = true;
-                        } else if (!reachedCurrentStage) {
-                            stageElement.classList.remove('active');
-                            stageElement.classList.add('completed');
-                        } else {
-                            stageElement.classList.remove('active');
-                            stageElement.classList.remove('completed');
-                        }
-                    }
-                });
-            }
-
-            // Функция для проверки статуса задачи
-            function checkTaskStatus() {
-                fetch(`/search/status/${taskId}`)
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.status === 'pending') {
-                            // Задача ожидает выполнения
-                            statusMessage.textContent = data.message;
-                            progressBar.style.width = '5%';
-                            updateStages('starting');
-                        } else if (data.status === 'progress') {
-                            // Задача выполняется
-                            statusMessage.textContent = data.message;
-                            progressBar.style.width = `${data.progress}%`;
-                            updateStages(data.substatus);
-                        } else if (data.status === 'error') {
-                            // Произошла ошибка
-                            clearInterval(statusCheckInterval);
-                            searchProgress.style.display = 'none';
-                            resultsContainer.style.display = 'block';
-                            resultsStats.innerHTML = '';
-                            searchResults.innerHTML = `<p class="error-message">Ошибка: ${data.message}</p>`;
-                            llmResult.style.display = 'none';
-                        } else if (data.status === 'success') {
-                            // Задача выполнена успешно
-                            clearInterval(statusCheckInterval);
-                            searchProgress.style.display = 'none';
-                            showResults(data);
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Ошибка при проверке статуса задачи:', error);
-                    });
             }
 
             // Функция для отображения результатов
@@ -373,23 +294,43 @@
             searchForm.addEventListener('submit', function(e) {
                 e.preventDefault();
 
-                // Сбрасываем предыдущий интервал
-                if (statusCheckInterval) {
-                    clearInterval(statusCheckInterval);
+                // Сбрасываем предыдущий трекер
+                if (searchTracker) {
+                    searchTracker._stopTracking();
                 }
 
                 // Скрываем предыдущие результаты
                 resultsContainer.style.display = 'none';
                 llmResult.style.display = 'none';
 
-                // Показываем прогресс для поиска
-                searchProgress.style.display = 'block';
-                progressBar.style.width = '0%';
-                statusMessage.textContent = 'Запуск задачи поиска...';
-                updateStages('starting');
-
                 // Формируем данные для отправки
                 const formData = new FormData(searchForm);
+
+                // Определяем, какие этапы будут отображаться
+                const stages = ["starting", "initializing", "vector_search"];
+
+                if (useRerankerCheckbox.checked) {
+                    stages.push("reranking");
+                }
+
+                if (useLlmCheckbox.checked) {
+                    stages.push("llm_processing");
+                }
+
+                stages.push("finishing");
+
+                // Создаем новый трекер прогресса для поиска
+                searchTracker = new TaskProgressTracker({
+                    statusUrl: "/search/status",
+                    progressBarId: "progress-bar",
+                    statusMessageId: "status-message",
+                    progressContainerId: "search-progress",
+                    resultsContainerId: "results-container",
+                    stagePrefix: "stage-",
+                    stages: stages,
+                    onComplete: showResults,
+                    checkInterval: 500
+                });
 
                 // Отправляем запрос на поиск
                 fetch('/search/execute', {
@@ -400,26 +341,17 @@
                 .then(data => {
                     if (data.status === 'pending') {
                         // Получен ID задачи - начинаем отслеживать прогресс
-                        taskId = data.task_id;
-
-                        // Запускаем проверку статуса каждые 500 мс
-                        statusCheckInterval = setInterval(checkTaskStatus, 500);
+                        searchTracker.startTracking(data.task_id);
                     } else if (data.status === 'error') {
                         // Показываем ошибку
-                        searchProgress.style.display = 'none';
-                        resultsContainer.style.display = 'block';
-                        resultsStats.innerHTML = '';
-                        searchResults.innerHTML = `<p class="error-message">Ошибка: ${data.message}</p>`;
-                        llmResult.style.display = 'none';
+                        searchTracker.onError(data);
                     }
                 })
                 .catch(error => {
                     console.error('Ошибка при запуске задачи поиска:', error);
-                    searchProgress.style.display = 'none';
-                    resultsContainer.style.display = 'block';
-                    resultsStats.innerHTML = '';
-                    searchResults.innerHTML = `<p class="error-message">Ошибка при запуске задачи: ${error.message}</p>`;
-                    llmResult.style.display = 'none';
+                    searchTracker.onError({
+                        message: `Ошибка при запуске задачи: ${error.message}`
+                    });
                 });
             });
 

@@ -12,7 +12,7 @@
             <ul>
                 <li><a href="{{ url_for('applications.index') }}">Заявки</a></li>
                 <li><a href="{{ url_for('checklists.index') }}">Чек-листы</a></li>
-                <li><a href="{{ url_for('search.index') }}">Поиск</a></li>  <!-- Добавлено -->
+                <li><a href="{{ url_for('search.index') }}">Поиск</a></li>
                 <li><a href="{{ url_for('llm_management.index') }}">Управление LLM</a></li>
             </ul>
         </nav>
@@ -22,11 +22,14 @@
             {% block content %}{% endblock %}
         </div>
     </main>
-    
+
     <footer>
         <p>&copy; 2025 PPEE Analyzer</p>
     </footer>
-    
+
+    <!-- Подключаем общую библиотеку для отслеживания прогресса -->
+    <script src="{{ url_for('static', filename='js/task-progress.js') }}"></script>
+    <!-- Подключаем основной JS-файл -->
     <script src="{{ url_for('static', filename='js/script.js') }}"></script>
 </body>
 </html>

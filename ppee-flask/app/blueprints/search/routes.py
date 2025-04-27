@@ -1,6 +1,6 @@
 from flask import render_template, redirect, url_for, flash, request, jsonify, current_app
 from app.blueprints.search import bp
-from app.models import Application
+from app.models import Application, Checklist, ChecklistParameter
 from app.tasks.search_tasks import semantic_search_task
 from app.adapters.llm_adapter import OllamaLLMProvider
 
@@ -19,10 +19,33 @@ def index():
     if not available_models:
         available_models = ['gemma3:27b', 'llama3:8b', 'mistral:7b']
 
+    # Получаем шаблон промпта из базы данных
+    default_prompt = None
+
+    try:
+        # Пытаемся найти шаблон промпта в базе данных
+        # Для примера берем первый параметр первого чек-листа
+        checklist = Checklist.query.first()
+        if checklist:
+            parameter = ChecklistParameter.query.filter_by(checklist_id=checklist.id).first()
+            if parameter and parameter.llm_prompt_template:
+                default_prompt = parameter.llm_prompt_template
+    except Exception as e:
+        current_app.logger.error(f"Ошибка при получении шаблона промпта: {str(e)}")
+
+    # Если не удалось получить промпт из базы данных
+    if not default_prompt:
+        flash(
+            'Не удалось загрузить шаблон промпта из базы данных. Пожалуйста, введите его вручную или создайте параметры чек-листа.',
+            'warning')
+        # Оставляем пустое значение вместо шаблона по умолчанию
+        default_prompt = ""
+
     return render_template('search/index.html',
                            title='Семантический поиск',
                            applications=applications,
-                           available_models=available_models)
+                           available_models=available_models,
+                           default_prompt=default_prompt)  # Передаем промпт в шаблон
 
 
 @bp.route('/execute', methods=['POST'])
@@ -54,7 +77,8 @@ def execute_search():
 
     try:
         # Логируем запрос
-        current_app.logger.info(f"Поиск: '{query}', Заявка: {application_id}, Ререйтинг: {use_reranker}, LLM: {use_llm}")
+        current_app.logger.info(
+            f"Поиск: '{query}', Заявка: {application_id}, Ререйтинг: {use_reranker}, LLM: {use_llm}")
 
         # Вызываем асинхронную задачу Celery для выполнения поиска
         task = semantic_search_task.delay(
