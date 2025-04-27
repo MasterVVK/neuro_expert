@@ -8,6 +8,7 @@ from app import celery
 from app.adapters.qdrant_adapter import QdrantAdapter
 from app.adapters.llm_adapter import OllamaLLMProvider
 from app.utils import format_documents_for_context, extract_value_from_response, calculate_confidence
+from app.services.vector_service import search
 from flask import current_app
 
 logger = logging.getLogger(__name__)
@@ -40,27 +41,14 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
                             'status': 'starting',
                             'message': 'Инициализация поиска...'})
 
-    qdrant_adapter = None
     start_time = time.time()
 
     try:
-        # Инициализируем QdrantAdapter с поддержкой ререйтинга
+        # Обновляем статус - инициализация
         self.update_state(state='PROGRESS',
                           meta={'progress': 10,
                                 'status': 'initializing',
-                                'message': 'Инициализация адаптера Qdrant...'})
-
-        # Получаем настройки из конфигурации
-        qdrant_adapter = QdrantAdapter(
-            host="localhost",
-            port=6333,
-            collection_name="ppee_applications",
-            embeddings_type='ollama',
-            model_name='bge-m3',
-            ollama_url="http://localhost:11434",
-            use_reranker=use_reranker,
-            reranker_model='BAAI/bge-reranker-v2-m3'
-        )
+                                'message': 'Подготовка к поиску...'})
 
         # Обновляем статус - начинаем векторный поиск
         self.update_state(state='PROGRESS',
@@ -68,17 +56,15 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
                                 'status': 'vector_search',
                                 'message': 'Выполнение векторного поиска...'})
 
-        # Выполняем поиск
+        # Выполняем поиск с использованием того же сервиса, что и при анализе документов
+        # Это гарантирует идентичность результатов
         search_start_time = time.time()
 
-        # Для ререйтинга нужно получить больше первичных результатов
-        if rerank_limit is None and use_reranker:
-            rerank_limit = limit * 4  # Получаем в 4 раза больше результатов для ререйтинга
-
-        results = qdrant_adapter.search(
+        results = search(
             application_id=application_id,
             query=query_text,
-            limit=limit if not use_reranker else rerank_limit,
+            limit=limit,
+            use_reranker=use_reranker,
             rerank_limit=rerank_limit
         )
 
@@ -122,7 +108,7 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
 
             try:
                 # Инициализируем LLM провайдер
-                llm_provider = OllamaLLMProvider(base_url="http://localhost:11434")
+                llm_provider = OllamaLLMProvider(base_url=current_app.config['OLLAMA_URL'])
 
                 # Форматируем результаты для контекста LLM
                 context = format_documents_for_context(formatted_results, include_metadata=True)
@@ -168,14 +154,6 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
                                 'status': 'finishing',
                                 'message': 'Завершение поиска...'})
 
-        # Освобождаем ресурсы
-        if qdrant_adapter and qdrant_adapter.use_reranker:
-            try:
-                qdrant_adapter.cleanup()
-                logger.info("Ресурсы ререйтинга освобождены")
-            except Exception as cleanup_error:
-                logger.error(f"Ошибка при освобождении ресурсов: {str(cleanup_error)}")
-
         # Общее время выполнения
         total_time = time.time() - start_time
 
@@ -193,18 +171,7 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
     except Exception as e:
         logger.exception(f"Ошибка при выполнении поиска: {str(e)}")
 
-        # Освобождаем ресурсы в случае ошибки
-        if qdrant_adapter and hasattr(qdrant_adapter, 'use_reranker') and qdrant_adapter.use_reranker:
-            try:
-                qdrant_adapter.cleanup()
-            except:
-                pass
-
         return {
             'status': 'error',
             'message': str(e)
         }
-
-
-
-
