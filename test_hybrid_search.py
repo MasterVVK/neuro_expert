@@ -94,19 +94,21 @@ class HybridSearchTester:
     def _ensure_text_index(self):
         """Проверяет и при необходимости создает полнотекстовый индекс для page_content"""
         try:
-            # Пробуем создать полнотекстовый индекс
-            logger.info("Создание полнотекстового индекса для page_content...")
-
             # Проверяем, существует ли уже индекс
             collection_info = self.client.get_collection(collection_name=self.collection_name)
 
             # Проверяем текущие индексы
-            if hasattr(collection_info, 'payload_schema') and 'page_content' in getattr(collection_info, 'payload_schema', {}):
+            if hasattr(collection_info,
+                       'payload_schema') and collection_info.payload_schema and 'page_content' in collection_info.payload_schema:
                 logger.info("Полнотекстовый индекс уже существует")
                 return True
 
+            # Если индекса нет, создаем его
+            logger.info("Создание полнотекстового индекса для page_content...")
+
             # Используем правильный API для создания текстового индекса
             try:
+                # Пытаемся использовать текстовые параметры, если доступны
                 self.client.create_payload_index(
                     collection_name=self.collection_name,
                     field_name="page_content",
@@ -118,7 +120,8 @@ class HybridSearchTester:
                         lowercase=True
                     )
                 )
-            except AttributeError:
+            except Exception as e1:
+                logger.warning(f"Не удалось создать индекс с TextIndexParams: {e1}")
                 # Более простой вариант, если предыдущий не работает
                 self.client.create_payload_index(
                     collection_name=self.collection_name,
@@ -231,71 +234,90 @@ class HybridSearchTester:
         """
         logger.info(f"Выполнение текстового поиска: '{query}' для заявки {application_id}")
 
+        # Создаем фильтр для заявки
+        filter_obj = models.Filter(
+            must=[
+                models.FieldCondition(
+                    key="metadata.application_id",
+                    match=models.MatchValue(value=application_id)
+                )
+            ]
+        )
+
         try:
             start_time = time.time()
 
-            # Создаем фильтр для заявки
-            filter_obj = models.Filter(
-                must=[
-                    models.FieldCondition(
-                        key="metadata.application_id",
-                        match=models.MatchValue(value=application_id)
-                    )
-                ]
-            )
-
-            # Используем правильный API для текстового поиска
+            # Пробуем использовать MatchText в фильтре
             try:
-                # Попытка 1: Используем с search_params
-                text_result = self.client.search(
-                    collection_name=self.collection_name,
-                    query_filter=filter_obj,
-                    limit=k,
-                    search_params=models.SearchParams(
-                        text=query
-                    )
+                keyword_filter = models.FieldCondition(
+                    key="page_content",
+                    match=models.MatchText(text=query)
                 )
-            except Exception as e1:
-                logger.warning(f"Первый метод текстового поиска не сработал: {str(e1)}")
-                try:
-                    # Попытка 2: Используем с параметрами
-                    text_result = self.client.search(
-                        collection_name=self.collection_name,
-                        query_filter=filter_obj,
-                        limit=k,
-                        with_payload=True,
-                        with_vectors=False,
-                        query_text=query
-                    )
-                except Exception as e2:
-                    logger.warning(f"Второй метод текстового поиска не сработал: {str(e2)}")
-                    # Попытка 3: Используем scroll с полнотекстовым поиском
-                    text_result = self.client.scroll(
-                        collection_name=self.collection_name,
-                        scroll_filter=filter_obj,
-                        limit=k,
-                        with_payload=True,
-                        with_vectors=False
-                    )[0]  # Берем только первый элемент (points)
+
+                # Добавляем фильтр по ключевому слову к основному фильтру
+                combined_filter = models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="metadata.application_id",
+                            match=models.MatchValue(value=application_id)
+                        ),
+                        keyword_filter
+                    ]
+                )
+
+                results = self.client.scroll(
+                    collection_name=self.collection_name,
+                    scroll_filter=combined_filter,
+                    limit=k,
+                    with_payload=True,
+                    with_vectors=False
+                )[0]
+                search_mode = "scroll с MatchText"
+            except Exception as e:
+                logger.warning(f"Метод scroll с MatchText не сработал: {str(e)}")
+
+                # Запасной вариант: Получаем все документы и фильтруем программно
+                all_docs = self.client.scroll(
+                    collection_name=self.collection_name,
+                    scroll_filter=filter_obj,
+                    limit=1000,  # Получаем больше документов для фильтрации
+                    with_payload=True,
+                    with_vectors=False
+                )[0]
+
+                # Фильтруем программно
+                results = []
+                for doc in all_docs:
+                    if (doc.payload and
+                            "page_content" in doc.payload and
+                            query.lower() in doc.payload["page_content"].lower()):
+                        results.append(doc)
+
+                # Ограничиваем количество результатов
+                results = results[:k]
+                search_mode = "ручная фильтрация"
 
             elapsed_time = time.time() - start_time
-            logger.info(f"Текстовый поиск выполнен за {elapsed_time:.2f} сек., найдено {len(text_result)} результатов")
+            logger.info(
+                f"Текстовый поиск ({search_mode}) выполнен за {elapsed_time:.2f} сек., найдено {len(results)} результатов")
 
-            # Преобразуем результаты
+            # Преобразуем результаты в формат Document
             documents = []
-            for scored_point in text_result:
-                metadata = scored_point.payload.get("metadata", {})
-                text = scored_point.payload.get("page_content", "")
+            for i, point in enumerate(results):
+                metadata = point.payload.get("metadata", {})
+                text = point.payload.get("page_content", "")
 
-                # В случае scroll score не будет, используем 1.0 по умолчанию
-                if hasattr(scored_point, 'score'):
-                    score = float(scored_point.score)
-                else:
-                    score = 1.0
+                # Для результатов scroll нет score, добавляем искусственную оценку
+                # (более ранние результаты имеют более высокую оценку)
+                score = 1.0 - (i * 0.05)
+                if score < 0.1:
+                    score = 0.1
 
+                # Добавляем информацию о поиске в метаданные
                 metadata['score'] = score
                 metadata['search_type'] = 'text'
 
+                # Создаем Document
                 doc = Document(page_content=text, metadata=metadata)
                 documents.append(doc)
 
@@ -575,6 +597,9 @@ class HybridSearchTester:
             # Выполняем стандартный поиск
             vector_results = self.perform_standard_search(application_id, query, k)
 
+            # Выполняем текстовый поиск
+            text_results = self.perform_text_search(application_id, query, k)
+
             # Выполняем гибридный поиск
             hybrid_results = self.perform_hybrid_search(application_id, query, k)
 
@@ -582,6 +607,18 @@ class HybridSearchTester:
             logger.info("-" * 80)
             logger.info(f"Результаты стандартного (векторного) поиска ({len(vector_results)}):")
             for i, doc in enumerate(vector_results):
+                score = doc.metadata.get('score', 0.0)
+                content_type = doc.metadata.get('content_type', 'unknown')
+                section = doc.metadata.get('section', 'unknown')
+                logger.info(f"{i+1}. Оценка: {score:.4f}, Раздел: {section}, Тип: {content_type}")
+                # Ограничиваем длину текста для вывода
+                display_text = doc.page_content[:200] + "..." if len(doc.page_content) > 200 else doc.page_content
+                logger.info(f"   Текст: {display_text}")
+
+            # Вывод результатов текстового поиска
+            logger.info("-" * 80)
+            logger.info(f"Результаты текстового поиска ({len(text_results)}):")
+            for i, doc in enumerate(text_results):
                 score = doc.metadata.get('score', 0.0)
                 content_type = doc.metadata.get('content_type', 'unknown')
                 section = doc.metadata.get('section', 'unknown')
@@ -605,11 +642,13 @@ class HybridSearchTester:
 
             # Сравнение результатов
             logger.info("-" * 80)
-            common_results = self._compare_result_sets(vector_results, hybrid_results)
-            if common_results > 0:
-                logger.info(f"Общих результатов: {common_results} из {k}")
-            else:
-                logger.info("Общих результатов нет")
+            vector_text_common = self._compare_result_sets(vector_results, text_results)
+            vector_hybrid_common = self._compare_result_sets(vector_results, hybrid_results)
+            text_hybrid_common = self._compare_result_sets(text_results, hybrid_results)
+
+            logger.info(f"Общих результатов векторного и текстового поиска: {vector_text_common} из {k}")
+            logger.info(f"Общих результатов векторного и гибридного поиска: {vector_hybrid_common} из {k}")
+            logger.info(f"Общих результатов текстового и гибридного поиска: {text_hybrid_common} из {k}")
 
             logger.info("=" * 80)
             logger.info("")  # Пустая строка для разделения запросов
@@ -658,6 +697,10 @@ if __name__ == "__main__":
                         help='URL для Ollama API (по умолчанию: http://localhost:11434)')
     parser.add_argument('--limit', type=int, default=5,
                         help='Количество результатов поиска (по умолчанию: 5)')
+    parser.add_argument('--vector_weight', type=float, default=0.5,
+                        help='Вес векторного поиска (по умолчанию: 0.5)')
+    parser.add_argument('--text_weight', type=float, default=0.5,
+                        help='Вес текстового поиска (по умолчанию: 0.5)')
 
     args = parser.parse_args()
 
@@ -682,7 +725,6 @@ if __name__ == "__main__":
         sys.exit(0)
 
     # Список запросов для тестирования
-    # Оставляем только один запрос для отладки
     test_queries = [
         {"query": "ИНН", "description": "Короткий запрос (ИНН)"}
     ]
