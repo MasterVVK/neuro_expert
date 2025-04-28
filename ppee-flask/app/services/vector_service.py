@@ -178,7 +178,7 @@ def search(application_id, query, limit=5, use_reranker=False, rerank_limit=None
                 application_id=str(application_id),
                 query=query,
                 limit=limit,
-                use_reranker=use_reranker,
+                use_reranker=use_reranker,  # Явно передаем параметр use_reranker
                 rerank_limit=rerank_limit,
                 vector_weight=vector_weight,
                 text_weight=text_weight,
@@ -189,7 +189,8 @@ def search(application_id, query, limit=5, use_reranker=False, rerank_limit=None
                 application_id=str(application_id),
                 query=query,
                 limit=limit,
-                rerank_limit=rerank_limit
+                rerank_limit=rerank_limit,
+                use_reranker=use_reranker  # Явно передаем параметр use_reranker
             )
 
         # Освобождаем ресурсы, если использовался ререйтинг

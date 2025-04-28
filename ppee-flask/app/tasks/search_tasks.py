@@ -42,7 +42,8 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
     """
     logger.info(f"Запуск задачи поиска: запрос='{query_text}', заявка={application_id}, " +
                 f"ререйтинг={use_reranker}, использование LLM={use_llm}, " +
-                f"умный поиск={use_smart_search}")
+                f"умный поиск={use_smart_search}, вес вектора={vector_weight}, " +
+                f"вес текста={text_weight}, порог={hybrid_threshold}")
 
     start_time = time.time()
 
@@ -54,6 +55,8 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
     search_start_time = time.time()
 
     # Определяем метод поиска и обновляем соответствующий статус
+    search_method = "vector"  # Значение по умолчанию
+
     if use_smart_search:
         # Для коротких запросов - гибридный поиск
         if len(query_text) < hybrid_threshold:
@@ -67,17 +70,26 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
         search_method = "vector"
 
     # Выполняем поиск с учетом заданных параметров
-    results = search(
-        application_id=application_id,
-        query=query_text,
-        limit=limit,
-        use_reranker=use_reranker,
-        rerank_limit=rerank_limit,
-        use_smart_search=use_smart_search,
-        vector_weight=vector_weight,
-        text_weight=text_weight,
-        hybrid_threshold=hybrid_threshold
-    )
+    try:
+        results = search(
+            application_id=application_id,
+            query=query_text,
+            limit=limit,
+            use_reranker=use_reranker,  # Явно передаем параметр ререйтинга
+            rerank_limit=rerank_limit,
+            use_smart_search=use_smart_search,
+            vector_weight=vector_weight,
+            text_weight=text_weight,
+            hybrid_threshold=hybrid_threshold
+        )
+
+        # Если результатов нет, логируем это
+        if not results:
+            logger.warning(f"Поиск не вернул результатов для запроса '{query_text}'")
+
+    except Exception as e:
+        logger.error(f"Ошибка при выполнении поиска: {str(e)}")
+        results = []
 
     # Если включен ререйтинг, обновляем статус
     if use_reranker:

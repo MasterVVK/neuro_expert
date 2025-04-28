@@ -563,7 +563,8 @@ class QdrantAdapter:
                application_id: str,
                query: str,
                limit: int = 5,
-               rerank_limit: int = None) -> List[Dict[str, Any]]:
+               rerank_limit: int = None,
+               use_reranker: bool = None) -> List[Dict[str, Any]]:
         """
         Выполняет семантический поиск с опциональным ре-ранкингом.
 
@@ -572,16 +573,20 @@ class QdrantAdapter:
             query: Поисковый запрос
             limit: Количество результатов
             rerank_limit: Количество документов для ре-ранкинга (None - все найденные)
+            use_reranker: Переопределение параметра self.use_reranker
 
         Returns:
             List[Dict[str, Any]]: Результаты поиска
         """
         try:
-            logger.info(f"Выполнение поиска '{query}' для заявки {application_id}")
+            # Определяем, использовать ли ререйтинг (приоритет у переданного параметра)
+            apply_reranker = use_reranker if use_reranker is not None else self.use_reranker
+
+            logger.info(f"Выполнение поиска '{query}' для заявки {application_id} (ререйтинг: {apply_reranker})")
 
             # Увеличиваем limit для ре-ранкинга
             search_limit = limit
-            if self.use_reranker and rerank_limit is None:
+            if apply_reranker and rerank_limit is None:
                 # Получаем больше результатов, чтобы ре-ранкер мог выбрать лучшие
                 search_limit = max(limit * 3, 20)
             elif rerank_limit is not None:
@@ -605,17 +610,21 @@ class QdrantAdapter:
                 })
 
             # Применяем ре-ранкинг, если он включен
-            if self.use_reranker and results:
+            if apply_reranker and hasattr(self, 'reranker') and results:
                 logger.info(f"Применение ре-ранкинга к {len(results)} результатам")
-                reranked_results = self.reranker.rerank(
-                    query=query,
-                    documents=results,
-                    top_k=limit,
-                    text_key="text"
-                )
-                # Очищаем ресурсы после использования ререйтинга
-                self.cleanup()
-                return reranked_results[:limit]
+                try:
+                    reranked_results = self.reranker.rerank(
+                        query=query,
+                        documents=results,
+                        top_k=limit,
+                        text_key="text"
+                    )
+                    # Очищаем ресурсы после использования ререйтинга
+                    self.cleanup()
+                    return reranked_results[:limit]
+                except Exception as e:
+                    logger.error(f"Ошибка при ререйтинге: {str(e)}, возвращаем исходные результаты")
+                    return results[:limit]
             else:
                 return results[:limit]
         except Exception as e:
@@ -715,13 +724,16 @@ class QdrantAdapter:
         """
         try:
             logger.info(f"Выполнение гибридного поиска '{query}' для заявки {application_id}")
+            logger.info(
+                f"Параметры: vector_weight={vector_weight}, text_weight={text_weight}, use_reranker={use_reranker}")
 
             # Получаем результаты векторного поиска (без ререйтинга)
             vector_results = self.search(
                 application_id=application_id,
                 query=query,
                 limit=limit * 2,  # Запрашиваем больше результатов для объединения
-                rerank_limit=None
+                rerank_limit=None,
+                use_reranker=False  # Важно: отключаем ререйтинг для векторного поиска
             )
 
             # Получаем результаты текстового поиска
@@ -735,18 +747,28 @@ class QdrantAdapter:
             combined_results = self._combine_results(vector_results, text_results,
                                                      vector_weight, text_weight, limit)
 
+            # Проверка результатов перед ререйтингом
+            for i, doc in enumerate(combined_results[:3]):  # Логируем первые 3 для примера
+                logger.info(f"Документ {i}: наличие поля 'text': {'text' in doc}, "
+                            f"длина текста: {len(doc.get('text', ''))}")
+
             # Применяем ререйтинг к объединенным результатам, если нужно
             if use_reranker and self.use_reranker and combined_results:
                 logger.info(f"Применение ререйтинга к результатам гибридного поиска")
-                reranked_results = self.reranker.rerank(
-                    query=query,
-                    documents=combined_results,
-                    top_k=limit,
-                    text_key="text"
-                )
-                # Очищаем ресурсы после использования ререйтинга
-                self.cleanup()
-                return reranked_results[:limit]
+                try:
+                    reranked_results = self.reranker.rerank(
+                        query=query,
+                        documents=combined_results,
+                        top_k=limit,
+                        text_key="text"
+                    )
+                    # Очищаем ресурсы после использования ререйтинга
+                    self.cleanup()
+                    return reranked_results[:limit]
+                except Exception as e:
+                    logger.error(
+                        f"Ошибка при ререйтинге гибридных результатов: {str(e)}, возвращаем исходные результаты")
+                    return combined_results[:limit]
 
             return combined_results
 
@@ -815,12 +837,22 @@ class QdrantAdapter:
         sorted_results = sorted(results_dict.values(),
                                 key=lambda x: x["score"], reverse=True)[:limit]
 
+        # Логируем количество результатов
+        logger.info(f"Объединенные результаты: найдено {len(sorted_results)} элементов после объединения и сортировки")
+
         # Конвертируем обратно в список результатов
         combined_results = []
         for item in sorted_results:
             doc = item["doc"].copy()
             doc["score"] = item["score"]
             doc["search_type"] = "hybrid"
+
+            # ВАЖНО: Убедимся, что есть поле text для ререйтинга
+            if "text" not in doc and "content" in doc:
+                doc["text"] = doc["content"]
+            elif "text" not in doc and "page_content" in doc:
+                doc["text"] = doc["page_content"]
+
             combined_results.append(doc)
 
         return combined_results
@@ -884,7 +916,8 @@ class QdrantAdapter:
         """
         # Выбираем метод поиска в зависимости от длины запроса
         if len(query) < hybrid_threshold:
-            logger.info(f"Запрос '{query}' короткий (<{hybrid_threshold} символов), используем гибридный поиск")
+            logger.info(f"Запрос '{query}' короткий (<{hybrid_threshold} символов), "
+                        f"используем гибридный поиск с ререйтингом={use_reranker}")
             results = self.hybrid_search(
                 application_id=application_id,
                 query=query,
@@ -894,13 +927,15 @@ class QdrantAdapter:
                 use_reranker=use_reranker
             )
         else:
-            logger.info(f"Запрос '{query}' длинный (>={hybrid_threshold} символов), используем векторный поиск")
-            # Для длинных запросов используем обычный векторный поиск с ререйтингом
+            logger.info(f"Запрос '{query}' длинный (>={hybrid_threshold} символов), "
+                        f"используем векторный поиск с ререйтингом={use_reranker}")
+            # ИСПРАВЛЕНИЕ: Явно передаем use_reranker!
             results = self.search(
                 application_id=application_id,
                 query=query,
                 limit=limit,
-                rerank_limit=rerank_limit
+                rerank_limit=rerank_limit,
+                use_reranker=use_reranker  # ВАЖНО: Явная передача параметра use_reranker
             )
 
         return results
