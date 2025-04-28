@@ -61,6 +61,36 @@
                 <p class="form-note">Количество документов, извлекаемых для применения ререйтинга</p>
             </div>
 
+            <!-- Добавляем настройки для умного/гибридного поиска -->
+            <div class="form-group">
+                <div class="checkbox-item">
+                    <input type="checkbox" id="use_smart_search" name="use_smart_search" value="true" checked>
+                    <label for="use_smart_search">Использовать умный поиск</label>
+                </div>
+                <p class="form-note">Автоматически выбирает метод поиска в зависимости от длины запроса</p>
+            </div>
+
+            <div id="hybrid-settings" style="display: none;">
+                <h3>Настройки гибридного поиска</h3>
+                <div class="form-row">
+                    <div class="form-group half-width">
+                        <label for="vector_weight">Вес векторного поиска</label>
+                        <input type="number" id="vector_weight" name="vector_weight" min="0" max="1" step="0.1" value="0.5">
+                        <p class="form-note">Значение от 0.0 до 1.0, влияет на важность семантического поиска</p>
+                    </div>
+                    <div class="form-group half-width">
+                        <label for="text_weight">Вес текстового поиска</label>
+                        <input type="number" id="text_weight" name="text_weight" min="0" max="1" step="0.1" value="0.5">
+                        <p class="form-note">Значение от 0.0 до 1.0, влияет на важность полнотекстового поиска</p>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="hybrid_threshold">Порог для гибридного поиска</label>
+                    <input type="number" id="hybrid_threshold" name="hybrid_threshold" min="1" max="100" value="10">
+                    <p class="form-note">Длина запроса в символах, при которой используется гибридный поиск</p>
+                </div>
+            </div>
+
             <h3>Настройки LLM для обработки результатов (опционально)</h3>
 
             <div class="form-group">
@@ -130,6 +160,10 @@
                     <span class="stage-dot"></span>
                     <span class="stage-label">Векторный<br>поиск</span>
                 </div>
+                <div class="stage" id="stage-hybrid_search" style="display: none;">
+                    <span class="stage-dot"></span>
+                    <span class="stage-label">Гибридный<br>поиск</span>
+                </div>
                 <div class="stage" id="stage-reranking" style="display: none;">
                     <span class="stage-dot"></span>
                     <span class="stage-label">Ререйтинг</span>
@@ -180,6 +214,11 @@
             const rerankingStage = document.getElementById('stage-reranking');
             const llmProcessingStage = document.getElementById('stage-llm_processing');
 
+            // Элементы для гибридного поиска
+            const useSmartSearchCheckbox = document.getElementById('use_smart_search');
+            const hybridSettings = document.getElementById('hybrid-settings');
+            const hybridSearchStage = document.getElementById('stage-hybrid_search');
+
             // Элементы формы и результатов
             const searchForm = document.getElementById('search-form');
             const resultsContainer = document.getElementById('results-container');
@@ -215,6 +254,17 @@
                 }
             }
 
+            // Функция для обновления отображения настроек гибридного поиска
+            function updateHybridSettings() {
+                if (useSmartSearchCheckbox.checked) {
+                    hybridSettings.style.display = 'block';
+                    hybridSearchStage.style.display = '';
+                } else {
+                    hybridSettings.style.display = 'none';
+                    hybridSearchStage.style.display = 'none';
+                }
+            }
+
             // Функция для отображения результатов
             function showResults(data) {
                 // Явно скрываем индикатор прогресса
@@ -223,10 +273,21 @@
                 // Показываем результаты
                 resultsContainer.style.display = 'block';
 
-                // Отображаем статистику
-                const statsText = data.use_reranker
-                    ? `Найдено результатов: <strong>${data.count}</strong> (с применением ререйтинга)`
-                    : `Найдено результатов: <strong>${data.count}</strong>`;
+                // Отображаем статистику и информацию о методе поиска
+                let searchMethodText = "";
+                if (data.use_smart_search) {
+                    if (data.search_method === "hybrid") {
+                        searchMethodText = "Использован <strong>гибридный поиск</strong> (короткий запрос)";
+                    } else {
+                        searchMethodText = "Использован <strong>векторный поиск</strong> (длинный запрос)";
+                    }
+                } else if (data.use_reranker) {
+                    searchMethodText = "Использован <strong>векторный поиск с ререйтингом</strong>";
+                } else {
+                    searchMethodText = "Использован <strong>векторный поиск</strong>";
+                }
+
+                const statsText = `Найдено результатов: <strong>${data.count}</strong>. ${searchMethodText}`;
 
                 resultsStats.innerHTML = `<p>${statsText}</p>`;
                 if (data.execution_time) {
@@ -264,8 +325,17 @@
                         const resultItem = document.createElement('div');
                         resultItem.className = 'result-item';
 
-                        // Подготавливаем информацию о релевантности
+                        // Подготавливаем информацию о релевантности и методе поиска
                         let scoreHtml = `<span class="result-score">Релевантность: ${result.score}</span>`;
+                        let searchTypeDisplay = "";
+
+                        if (result.search_type === "hybrid") {
+                            searchTypeDisplay = `<span class="result-search-type result-hybrid">Гибридный поиск</span>`;
+                        } else if (result.search_type === "text") {
+                            searchTypeDisplay = `<span class="result-search-type result-text">Текстовый поиск</span>`;
+                        } else {
+                            searchTypeDisplay = `<span class="result-search-type result-vector">Векторный поиск</span>`;
+                        }
 
                         if (data.use_reranker && result.rerank_score) {
                             scoreHtml = `
@@ -280,6 +350,7 @@
                                 <div class="result-meta">
                                     <span class="result-section">Раздел: ${result.section}</span>
                                     <span class="result-type">Тип: ${result.content_type}</span>
+                                    ${searchTypeDisplay}
                                     ${scoreHtml}
                                 </div>
                             </div>
@@ -313,7 +384,23 @@
                 document.getElementById('search-progress').style.display = 'block';
 
                 // Определяем, какие этапы будут отображаться
-                const stages = ["starting", "initializing", "vector_search"];
+                const stages = ["starting", "initializing"];
+
+                // Определяем этап поиска в зависимости от настроек
+                if (useSmartSearchCheckbox.checked) {
+                    // Для умного поиска добавляем этапы в зависимости от длины запроса
+                    const query = formData.get('query');
+                    const threshold = parseInt(formData.get('hybrid_threshold') || 10);
+
+                    if (query.length < threshold) {
+                        stages.push("hybrid_search");
+                    } else {
+                        stages.push("vector_search");
+                    }
+                } else {
+                    // Иначе всегда векторный поиск
+                    stages.push("vector_search");
+                }
 
                 if (useRerankerCheckbox.checked) {
                     stages.push("reranking");
@@ -369,8 +456,10 @@
             // Инициализация и установка обработчиков событий
             updateRerankSettings();
             updateLlmSettings();
+            updateHybridSettings();
             useRerankerCheckbox.addEventListener('change', updateRerankSettings);
             useLlmCheckbox.addEventListener('change', updateLlmSettings);
+            useSmartSearchCheckbox.addEventListener('change', updateHybridSettings);
         });
     </script>
 
@@ -421,7 +510,7 @@
             flex-direction: column;
         }
 
-        .result-section, .result-type, .result-score, .result-score-rerank {
+        .result-section, .result-type, .result-score, .result-score-rerank, .result-search-type {
             font-size: 0.9rem;
             color: #6c757d;
             margin-bottom: 3px;
@@ -430,6 +519,29 @@
         .result-score-rerank {
             color: #28a745;
             font-weight: bold;
+        }
+
+        .result-search-type {
+            font-weight: bold;
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 3px;
+            margin-bottom: 5px;
+        }
+
+        .result-hybrid {
+            background-color: #e6f3ff;
+            color: #0066cc;
+        }
+
+        .result-text {
+            background-color: #f0fff0;
+            color: #006600;
+        }
+
+        .result-vector {
+            background-color: #fff0f0;
+            color: #cc0000;
         }
 
         .result-content {

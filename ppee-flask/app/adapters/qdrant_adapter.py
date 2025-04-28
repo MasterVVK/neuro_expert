@@ -5,6 +5,7 @@ from typing import List, Dict, Any, Optional
 from ppee_analyzer.vector_store import QdrantManager, BGEReranker
 from ppee_analyzer.document_processor import PPEEDocumentSplitter, DoclingPDFConverter
 from langchain_core.documents import Document
+from qdrant_client.http import models
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +99,66 @@ class QdrantAdapter:
             except ImportError:
                 logger.warning("Модуль semantic_chunker не найден. Будет использоваться стандартное разделение.")
                 self.use_semantic_chunking = False
+
+    def _ensure_collection_exists(self):
+        """Проверяет существование коллекции и создает при необходимости"""
+        collections = self.qdrant_manager.client.get_collections().collections
+        collection_names = [collection.name for collection in collections]
+
+        if self.collection_name not in collection_names:
+            logger.info(f"Создание коллекции {self.collection_name}")
+            self.qdrant_manager.client.create_collection(
+                collection_name=self.collection_name,
+                vectors_config=models.VectorParams(
+                    size=self.qdrant_manager.vector_size,
+                    distance=models.Distance.COSINE
+                )
+            )
+            logger.info(f"Коллекция {self.collection_name} успешно создана")
+
+            # Создаем индексы для ускорения фильтрации
+            self.qdrant_manager.client.create_payload_index(
+                collection_name=self.collection_name,
+                field_name="metadata.application_id",
+                field_schema="keyword"
+            )
+            self.qdrant_manager.client.create_payload_index(
+                collection_name=self.collection_name,
+                field_name="metadata.content_type",
+                field_schema="keyword"
+            )
+
+            # Создаем полнотекстовый индекс для поддержки текстового поиска
+            self.qdrant_manager.client.create_payload_index(
+                collection_name=self.collection_name,
+                field_name="page_content",
+                field_schema="text"
+            )
+
+            logger.info(f"Индексы созданы успешно")
+        else:
+            logger.info(f"Коллекция {self.collection_name} уже существует")
+
+            # Проверяем, существует ли полнотекстовый индекс
+            try:
+                collection_info = self.qdrant_manager.client.get_collection(collection_name=self.collection_name)
+
+                # Проверяем, есть ли индекс для page_content
+                text_index_exists = False
+                if hasattr(collection_info, 'payload_schema') and collection_info.payload_schema:
+                    text_index_exists = 'page_content' in collection_info.payload_schema
+
+                # Если индекса нет, создаем его
+                if not text_index_exists:
+                    logger.info(f"Создание полнотекстового индекса для page_content")
+                    self.qdrant_manager.client.create_payload_index(
+                        collection_name=self.collection_name,
+                        field_name="page_content",
+                        field_schema="text"
+                    )
+                    logger.info(f"Полнотекстовый индекс создан успешно")
+            except Exception as e:
+                logger.warning(f"Ошибка при проверке индексов: {str(e)}")
 
     def _convert_pdf_with_semantic_chunking(self, pdf_path: str, application_id: str) -> List[Document]:
         """
@@ -239,7 +300,6 @@ class QdrantAdapter:
         except Exception as e:
             logger.exception(f"Ошибка при конвертации PDF в Markdown: {str(e)}")
             raise
-
 
     def index_document(self,
                        application_id: str,
@@ -540,7 +600,8 @@ class QdrantAdapter:
                 results.append({
                     "text": doc.page_content,
                     "metadata": doc.metadata,
-                    "score": doc.metadata.get('score', 0.0)  # Оценка векторного поиска
+                    "score": doc.metadata.get('score', 0.0),  # Оценка векторного поиска
+                    "search_type": "vector"
                 })
 
             # Применяем ре-ранкинг, если он включен
@@ -563,6 +624,286 @@ class QdrantAdapter:
             if self.use_reranker:
                 self.cleanup()
             return []
+
+    def text_search(self,
+                    application_id: str,
+                    query: str,
+                    limit: int = 5) -> List[Dict[str, Any]]:
+        """
+        Выполняет полнотекстовый поиск.
+
+        Args:
+            application_id: ID заявки
+            query: Поисковый запрос
+            limit: Количество результатов
+
+        Returns:
+            List[Dict[str, Any]]: Результаты поиска
+        """
+        try:
+            logger.info(f"Выполнение текстового поиска '{query}' для заявки {application_id}")
+
+            # Создаем комбинированный фильтр для заявки и текстового поиска
+            combined_filter = models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="metadata.application_id",
+                        match=models.MatchValue(value=application_id)
+                    ),
+                    models.FieldCondition(
+                        key="page_content",
+                        match=models.MatchText(text=query)
+                    )
+                ]
+            )
+
+            # Получаем результаты через scroll
+            results = self.qdrant_manager.client.scroll(
+                collection_name=self.qdrant_manager.collection_name,
+                scroll_filter=combined_filter,
+                limit=limit,
+                with_payload=True,
+                with_vectors=False
+            )[0]
+
+            # Преобразуем результаты
+            formatted_results = []
+            for i, point in enumerate(results):
+                if "payload" in point.__dict__:
+                    # Получаем текст и метаданные
+                    text = point.payload.get("page_content", "")
+                    metadata = point.payload.get("metadata", {})
+
+                    # Добавляем искусственную оценку для текстового поиска
+                    score = 1.0 - (i * 0.05)
+                    if score < 0.1:
+                        score = 0.1
+
+                    formatted_results.append({
+                        "text": text,
+                        "metadata": metadata,
+                        "score": score,
+                        "search_type": "text"
+                    })
+
+            return formatted_results[:limit]
+
+        except Exception as e:
+            logger.error(f"Ошибка при текстовом поиске: {str(e)}")
+            return []
+
+    def hybrid_search(self,
+                      application_id: str,
+                      query: str,
+                      limit: int = 5,
+                      vector_weight: float = 0.5,
+                      text_weight: float = 0.5,
+                      use_reranker: bool = False) -> List[Dict[str, Any]]:
+        """
+        Выполняет гибридный поиск (комбинация векторного и текстового).
+
+        Args:
+            application_id: ID заявки
+            query: Поисковый запрос
+            limit: Количество результатов
+            vector_weight: Вес векторного поиска (от 0 до 1)
+            text_weight: Вес текстового поиска (от 0 до 1)
+            use_reranker: Применять ререйтинг к результатам поиска
+
+        Returns:
+            List[Dict[str, Any]]: Результаты поиска
+        """
+        try:
+            logger.info(f"Выполнение гибридного поиска '{query}' для заявки {application_id}")
+
+            # Получаем результаты векторного поиска (без ререйтинга)
+            vector_results = self.search(
+                application_id=application_id,
+                query=query,
+                limit=limit * 2,  # Запрашиваем больше результатов для объединения
+                rerank_limit=None
+            )
+
+            # Получаем результаты текстового поиска
+            text_results = self.text_search(
+                application_id=application_id,
+                query=query,
+                limit=limit * 2
+            )
+
+            # Объединяем результаты
+            combined_results = self._combine_results(vector_results, text_results,
+                                                     vector_weight, text_weight, limit)
+
+            # Применяем ререйтинг к объединенным результатам, если нужно
+            if use_reranker and self.use_reranker and combined_results:
+                logger.info(f"Применение ререйтинга к результатам гибридного поиска")
+                reranked_results = self.reranker.rerank(
+                    query=query,
+                    documents=combined_results,
+                    top_k=limit,
+                    text_key="text"
+                )
+                # Очищаем ресурсы после использования ререйтинга
+                self.cleanup()
+                return reranked_results[:limit]
+
+            return combined_results
+
+        except Exception as e:
+            logger.error(f"Ошибка при гибридном поиске: {str(e)}")
+            # В случае ошибки тоже освобождаем ресурсы
+            if use_reranker and self.use_reranker:
+                self.cleanup()
+            return []
+
+    def _combine_results(self,
+                         vector_results: List[Dict],
+                         text_results: List[Dict],
+                         vector_weight: float,
+                         text_weight: float,
+                         limit: int) -> List[Dict[str, Any]]:
+        """
+        Объединяет результаты векторного и текстового поиска.
+
+        Args:
+            vector_results: Результаты векторного поиска
+            text_results: Результаты текстового поиска
+            vector_weight: Вес векторного поиска
+            text_weight: Вес текстового поиска
+            limit: Максимальное количество результатов
+
+        Returns:
+            List[Dict[str, Any]]: Объединенные результаты
+        """
+        # Нормализуем веса
+        total_weight = vector_weight + text_weight
+        vector_weight = vector_weight / total_weight
+        text_weight = text_weight / total_weight
+
+        # Создаем словарь для объединения результатов
+        results_dict = {}
+
+        # Добавляем векторные результаты
+        for doc in vector_results:
+            doc_key = self._get_document_key(doc)
+            score = doc.get("score", 0.0) * vector_weight
+
+            results_dict[doc_key] = {
+                "doc": doc,
+                "score": score,
+                "search_type": "hybrid"
+            }
+
+        # Добавляем текстовые результаты
+        for doc in text_results:
+            doc_key = self._get_document_key(doc)
+            text_score = doc.get("score", 0.0) * text_weight
+
+            if doc_key in results_dict:
+                # Если документ уже есть, обновляем оценку
+                results_dict[doc_key]["score"] += text_score
+            else:
+                # Иначе добавляем новый документ
+                results_dict[doc_key] = {
+                    "doc": doc,
+                    "score": text_score,
+                    "search_type": "hybrid"
+                }
+
+        # Сортируем и ограничиваем количество
+        sorted_results = sorted(results_dict.values(),
+                                key=lambda x: x["score"], reverse=True)[:limit]
+
+        # Конвертируем обратно в список результатов
+        combined_results = []
+        for item in sorted_results:
+            doc = item["doc"].copy()
+            doc["score"] = item["score"]
+            doc["search_type"] = "hybrid"
+            combined_results.append(doc)
+
+        return combined_results
+
+    def _get_document_key(self, doc: Dict) -> str:
+        """
+        Создает уникальный ключ для документа.
+
+        Args:
+            doc: Документ
+
+        Returns:
+            str: Уникальный ключ
+        """
+        metadata = doc.get("metadata", {})
+
+        # Создаем составной ключ из доступных метаданных
+        key_parts = []
+
+        if "document_id" in metadata:
+            key_parts.append(f"doc:{metadata['document_id']}")
+
+        if "chunk_index" in metadata:
+            key_parts.append(f"chunk:{metadata['chunk_index']}")
+
+        if "page_number" in metadata:
+            key_parts.append(f"page:{metadata['page_number']}")
+
+        if key_parts:
+            return "|".join(key_parts)
+
+        # Запасной вариант - хеш текста
+        return str(hash(doc.get("text", "")))
+
+    def smart_search(self,
+                     application_id: str,
+                     query: str,
+                     limit: int = 5,
+                     use_reranker: bool = False,
+                     rerank_limit: int = None,
+                     vector_weight: float = 0.5,
+                     text_weight: float = 0.5,
+                     hybrid_threshold: int = 10) -> List[Dict[str, Any]]:
+        """
+        Умный поиск, выбирающий метод в зависимости от длины запроса:
+        - Для коротких запросов (< hybrid_threshold) - гибридный поиск
+        - Для длинных запросов - векторный поиск
+
+        Args:
+            application_id: ID заявки
+            query: Поисковый запрос
+            limit: Количество результатов
+            use_reranker: Использовать ли ререйтинг
+            rerank_limit: Количество документов для ререйтинга
+            vector_weight: Вес векторного поиска для гибридного поиска
+            text_weight: Вес текстового поиска для гибридного поиска
+            hybrid_threshold: Порог длины запроса для гибридного поиска
+
+        Returns:
+            List[Dict[str, Any]]: Результаты поиска
+        """
+        # Выбираем метод поиска в зависимости от длины запроса
+        if len(query) < hybrid_threshold:
+            logger.info(f"Запрос '{query}' короткий (<{hybrid_threshold} символов), используем гибридный поиск")
+            results = self.hybrid_search(
+                application_id=application_id,
+                query=query,
+                limit=limit,
+                vector_weight=vector_weight,
+                text_weight=text_weight,
+                use_reranker=use_reranker
+            )
+        else:
+            logger.info(f"Запрос '{query}' длинный (>={hybrid_threshold} символов), используем векторный поиск")
+            # Для длинных запросов используем обычный векторный поиск с ререйтингом
+            results = self.search(
+                application_id=application_id,
+                query=query,
+                limit=limit,
+                rerank_limit=rerank_limit
+            )
+
+        return results
 
     def delete_application_data(self, application_id: str) -> bool:
         """

@@ -57,6 +57,12 @@ def execute_search():
     use_reranker = request.form.get('use_reranker') == 'true'
     rerank_limit = int(request.form.get('rerank_limit', 10)) if use_reranker else None
 
+    # Параметры для умного/гибридного поиска
+    use_smart_search = request.form.get('use_smart_search') == 'true'
+    vector_weight = float(request.form.get('vector_weight', 0.5))
+    text_weight = float(request.form.get('text_weight', 0.5))
+    hybrid_threshold = int(request.form.get('hybrid_threshold', 10))
+
     # Параметры LLM
     use_llm = request.form.get('use_llm') == 'true'
     llm_params = None
@@ -78,7 +84,8 @@ def execute_search():
     try:
         # Логируем запрос
         current_app.logger.info(
-            f"Поиск: '{query}', Заявка: {application_id}, Ререйтинг: {use_reranker}, LLM: {use_llm}")
+            f"Поиск: '{query}', Заявка: {application_id}, "
+            f"Ререйтинг: {use_reranker}, Умный поиск: {use_smart_search}, LLM: {use_llm}")
 
         # Вызываем асинхронную задачу Celery для выполнения поиска
         task = semantic_search_task.delay(
@@ -88,7 +95,11 @@ def execute_search():
             use_reranker=use_reranker,
             rerank_limit=rerank_limit,
             use_llm=use_llm,
-            llm_params=llm_params
+            llm_params=llm_params,
+            use_smart_search=use_smart_search,
+            vector_weight=vector_weight,
+            text_weight=text_weight,
+            hybrid_threshold=hybrid_threshold
         )
 
         # Возвращаем ID задачи для последующего отслеживания

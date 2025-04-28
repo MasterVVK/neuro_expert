@@ -18,7 +18,9 @@ logger = logging.getLogger(__name__)
 @celery.task(bind=True)
 @BaseTask.task_wrapper
 def semantic_search_task(self, application_id, query_text, limit=5, use_reranker=False,
-                         rerank_limit=None, use_llm=False, llm_params=None):
+                         rerank_limit=None, use_llm=False, llm_params=None,
+                         use_smart_search=False, vector_weight=0.5, text_weight=0.5,
+                         hybrid_threshold=10):
     """
     Асинхронная задача для выполнения семантического поиска с ререйтингом и обработкой LLM.
 
@@ -30,27 +32,51 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
         rerank_limit: Количество документов для ререйтинга
         use_llm: Использовать ли LLM для обработки результатов
         llm_params: Параметры для LLM
+        use_smart_search: Использовать ли умный выбор метода поиска
+        vector_weight: Вес векторного поиска (для гибридного)
+        text_weight: Вес текстового поиска (для гибридного)
+        hybrid_threshold: Порог длины запроса для гибридного поиска
 
     Returns:
         dict: Результаты поиска
     """
     logger.info(f"Запуск задачи поиска: запрос='{query_text}', заявка={application_id}, " +
-                f"ререйтинг={use_reranker}, использование LLM={use_llm}")
+                f"ререйтинг={use_reranker}, использование LLM={use_llm}, " +
+                f"умный поиск={use_smart_search}")
 
     start_time = time.time()
 
-    # Обновляем статус - начинаем векторный поиск
-    BaseTask.update_progress(self, 30, 'vector_search', 'Выполнение векторного поиска...')
+    # Обновляем статус - начинаем поиск
+    search_type = "smart_search" if use_smart_search else "vector_search"
+    BaseTask.update_progress(self, 30, search_type, 'Выполнение поиска...')
 
     # Выполняем поиск
     search_start_time = time.time()
 
+    # Определяем метод поиска и обновляем соответствующий статус
+    if use_smart_search:
+        # Для коротких запросов - гибридный поиск
+        if len(query_text) < hybrid_threshold:
+            BaseTask.update_progress(self, 40, 'hybrid_search', 'Выполнение гибридного поиска...')
+            search_method = "hybrid"
+        else:
+            BaseTask.update_progress(self, 40, 'vector_search', 'Выполнение векторного поиска...')
+            search_method = "vector"
+    else:
+        BaseTask.update_progress(self, 40, 'vector_search', 'Выполнение векторного поиска...')
+        search_method = "vector"
+
+    # Выполняем поиск с учетом заданных параметров
     results = search(
         application_id=application_id,
         query=query_text,
         limit=limit,
         use_reranker=use_reranker,
-        rerank_limit=rerank_limit
+        rerank_limit=rerank_limit,
+        use_smart_search=use_smart_search,
+        vector_weight=vector_weight,
+        text_weight=text_weight,
+        hybrid_threshold=hybrid_threshold
     )
 
     # Если включен ререйтинг, обновляем статус
@@ -69,7 +95,8 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
             'text': result.get('text', ''),
             'section': result.get('metadata', {}).get('section', 'Неизвестно'),
             'content_type': result.get('metadata', {}).get('content_type', 'Неизвестно'),
-            'score': round(float(result.get('score', 0.0)), 4)
+            'score': round(float(result.get('score', 0.0)), 4),
+            'search_type': result.get('search_type', search_method)
         }
 
         # Добавляем оценку ререйтинга, если она есть
@@ -135,6 +162,8 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
         'status': 'success',
         'count': len(formatted_results),
         'use_reranker': use_reranker,
+        'use_smart_search': use_smart_search,
+        'search_method': search_method,  # Добавляем информацию о методе поиска
         'use_llm': use_llm,
         'execution_time': round(total_time, 2),
         'results': formatted_results,

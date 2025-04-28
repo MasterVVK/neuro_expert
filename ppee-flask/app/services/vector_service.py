@@ -143,7 +143,8 @@ def index_document(application_id, file_id, progress_callback=None):
         raise
 
 
-def search(application_id, query, limit=5, use_reranker=False, rerank_limit=None):
+def search(application_id, query, limit=5, use_reranker=False, rerank_limit=None,
+           use_smart_search=False, vector_weight=0.5, text_weight=0.5, hybrid_threshold=10):
     """
     Выполняет семантический поиск.
 
@@ -153,23 +154,43 @@ def search(application_id, query, limit=5, use_reranker=False, rerank_limit=None
         limit: Максимальное количество результатов
         use_reranker: Использовать ли ререйтинг
         rerank_limit: Количество документов для ререйтинга
+        use_smart_search: Использовать ли умный выбор метода поиска
+        vector_weight: Вес векторного поиска для гибридного
+        text_weight: Вес текстового поиска для гибридного
+        hybrid_threshold: Порог длины запроса для гибридного поиска
 
     Returns:
         list: Результаты поиска
     """
-    logger.info(f"Выполнение поиска '{query}' для заявки {application_id} (ререйтинг: {use_reranker})")
+    if use_smart_search:
+        logger.info(f"Выполнение умного поиска '{query}' для заявки {application_id} "
+                   f"(ререйтинг: {use_reranker}, порог: {hybrid_threshold})")
+    else:
+        logger.info(f"Выполнение поиска '{query}' для заявки {application_id} (ререйтинг: {use_reranker})")
 
     try:
         # Получаем адаптер Qdrant
         qdrant_adapter = get_qdrant_adapter(use_reranker=use_reranker)
 
         # Выполняем поиск
-        results = qdrant_adapter.search(
-            application_id=str(application_id),
-            query=query,
-            limit=limit,
-            rerank_limit=rerank_limit
-        )
+        if use_smart_search:
+            results = qdrant_adapter.smart_search(
+                application_id=str(application_id),
+                query=query,
+                limit=limit,
+                use_reranker=use_reranker,
+                rerank_limit=rerank_limit,
+                vector_weight=vector_weight,
+                text_weight=text_weight,
+                hybrid_threshold=hybrid_threshold
+            )
+        else:
+            results = qdrant_adapter.search(
+                application_id=str(application_id),
+                query=query,
+                limit=limit,
+                rerank_limit=rerank_limit
+            )
 
         # Освобождаем ресурсы, если использовался ререйтинг
         if use_reranker:
