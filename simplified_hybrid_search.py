@@ -1,5 +1,6 @@
 """
-improved_hybrid_search.py - Скрипт для тестирования гибридного поиска в Qdrant
+simplified_hybrid_search.py - Скрипт для тестирования гибридного поиска в Qdrant
+с автоматическим выбором типа поиска на основе длины запроса
 """
 
 import os
@@ -31,19 +32,20 @@ except ImportError as e:
     sys.exit(1)
 
 
-class HybridSearchTester:
-    """Класс для тестирования гибридного поиска в Qdrant"""
+class SimpleSearchTester:
+    """Класс для тестирования упрощенного гибридного поиска в Qdrant"""
 
     def __init__(
             self,
             host: str = "localhost",
             port: int = 6333,
-            collection_name: str = "ppee_applications",  # Используем существующую коллекцию
+            collection_name: str = "ppee_applications",
             embeddings_model: str = "bge-m3",
-            ollama_url: str = "http://localhost:11434"
+            ollama_url: str = "http://localhost:11434",
+            hybrid_threshold: int = 10  # Порог для выбора гибридного поиска
     ):
         """
-        Инициализирует тестер гибридного поиска.
+        Инициализирует тестер поиска.
 
         Args:
             host: Хост Qdrant
@@ -51,12 +53,14 @@ class HybridSearchTester:
             collection_name: Имя коллекции в Qdrant
             embeddings_model: Модель для эмбеддингов
             ollama_url: URL для Ollama API
+            hybrid_threshold: Пороговая длина запроса для выбора гибридного поиска
         """
         self.host = host
         self.port = port
         self.collection_name = collection_name
         self.embeddings_model = embeddings_model
         self.ollama_url = ollama_url
+        self.hybrid_threshold = hybrid_threshold
 
         # Инициализируем клиент Qdrant
         logger.info(f"Подключение к Qdrant на {host}:{port}, коллекция {collection_name}")
@@ -98,7 +102,8 @@ class HybridSearchTester:
             collection_info = self.client.get_collection(collection_name=self.collection_name)
 
             # Проверяем текущие индексы
-            if hasattr(collection_info, 'payload_schema') and collection_info.payload_schema and 'page_content' in collection_info.payload_schema:
+            if hasattr(collection_info,
+                       'payload_schema') and collection_info.payload_schema and 'page_content' in collection_info.payload_schema:
                 logger.info("Полнотекстовый индекс уже существует")
                 return True
 
@@ -125,14 +130,14 @@ class HybridSearchTester:
             logger.error(f"Ошибка при получении списка заявок: {str(e)}")
             return []
 
-    def perform_standard_search(
+    def vector_search(
             self,
             application_id: str,
             query: str,
             k: int = 5
     ) -> List[Document]:
         """
-        Выполняет стандартный (векторный) поиск.
+        Выполняет векторный поиск.
 
         Args:
             application_id: ID заявки
@@ -142,7 +147,7 @@ class HybridSearchTester:
         Returns:
             List[Document]: Результаты поиска
         """
-        logger.info(f"Выполнение стандартного векторного поиска: '{query}' для заявки {application_id}")
+        logger.info(f"Выполнение векторного поиска: '{query}' для заявки {application_id}")
 
         # Предпроцессинг запроса для модели bge
         processed_query = f"query: {query}" if "bge" in self.embeddings_model.lower() else query
@@ -162,7 +167,7 @@ class HybridSearchTester:
 
             query_vector = self.embeddings.embed_query(processed_query)
 
-            # Используем search вместо query_points, так как версия Qdrant не поддерживает нужный синтаксис
+            # Используем search для совместимости
             search_result = self.client.search(
                 collection_name=self.collection_name,
                 query_vector=query_vector,
@@ -171,7 +176,8 @@ class HybridSearchTester:
             )
 
             elapsed_time = time.time() - start_time
-            logger.info(f"Векторный поиск выполнен за {elapsed_time:.2f} сек., найдено {len(search_result)} результатов")
+            logger.info(
+                f"Векторный поиск выполнен за {elapsed_time:.2f} сек., найдено {len(search_result)} результатов")
 
             # Преобразуем результаты
             documents = []
@@ -186,10 +192,10 @@ class HybridSearchTester:
 
             return documents
         except Exception as e:
-            logger.error(f"Ошибка при выполнении стандартного поиска: {str(e)}")
+            logger.error(f"Ошибка при выполнении векторного поиска: {str(e)}")
             return []
 
-    def perform_text_search(
+    def text_search(
             self,
             application_id: str,
             query: str,
@@ -262,7 +268,7 @@ class HybridSearchTester:
             logger.error(f"Ошибка при выполнении текстового поиска: {str(e)}")
             return []
 
-    def perform_hybrid_search(
+    def hybrid_search(
             self,
             application_id: str,
             query: str,
@@ -285,23 +291,23 @@ class HybridSearchTester:
             List[Document]: Результаты поиска
         """
         logger.info(f"Выполнение гибридного поиска: '{query}' для заявки {application_id} "
-                f"(вес вектора: {vector_weight}, вес текста: {text_weight})")
+                    f"(вес вектора: {vector_weight}, вес текста: {text_weight})")
 
         try:
             start_time = time.time()
 
-            # Используем программную реализацию гибридного поиска
             # Получаем результаты векторного поиска
-            vector_results = self.perform_standard_search(application_id, query, k * 2)
+            vector_results = self.vector_search(application_id, query, k * 2)
 
             # Получаем результаты текстового поиска
-            text_results = self.perform_text_search(application_id, query, k * 2)
+            text_results = self.text_search(application_id, query, k * 2)
 
             # Объединяем результаты
             combined_results = self._combine_results(vector_results, text_results, vector_weight, text_weight, k)
 
             elapsed_time = time.time() - start_time
-            logger.info(f"Гибридный поиск выполнен за {elapsed_time:.2f} сек., найдено {len(combined_results)} результатов")
+            logger.info(
+                f"Гибридный поиск выполнен за {elapsed_time:.2f} сек., найдено {len(combined_results)} результатов")
 
             return combined_results
 
@@ -411,120 +417,67 @@ class HybridSearchTester:
         # В крайнем случае используем хеш текста
         return str(hash(doc.page_content))
 
-    def run_search_comparison(
+    def search(
             self,
             application_id: str,
-            queries: List[Dict[str, str]],
-            k: int = 5
+            query: str,
+            k: int = 5,
+            vector_weight: float = 0.5,
+            text_weight: float = 0.5
     ):
         """
-        Запускает сравнение стандартного и гибридного поиска для набора запросов.
+        Выполняет поиск в зависимости от длины запроса:
+        - Если длина запроса < hybrid_threshold, используется гибридный поиск
+        - Иначе только векторный поиск
 
         Args:
             application_id: ID заявки
-            queries: Список запросов с описаниями
-            k: Количество результатов для каждого поиска
-        """
-        logger.info(f"Запуск сравнения поиска для заявки {application_id}")
-
-        for q_info in queries:
-            query = q_info["query"]
-            description = q_info.get("description", "")
-
-            logger.info("=" * 80)
-            logger.info(f"Запрос: {query}")
-            if description:
-                logger.info(f"Описание: {description}")
-            logger.info("-" * 80)
-
-            # Выполняем стандартный поиск
-            vector_results = self.perform_standard_search(application_id, query, k)
-
-            # Выполняем текстовый поиск
-            text_results = self.perform_text_search(application_id, query, k)
-
-            # Выполняем гибридный поиск
-            hybrid_results = self.perform_hybrid_search(application_id, query, k)
-
-            # Вывод результатов стандартного поиска
-            logger.info("-" * 80)
-            logger.info(f"Результаты стандартного (векторного) поиска ({len(vector_results)}):")
-            for i, doc in enumerate(vector_results):
-                score = doc.metadata.get('score', 0.0)
-                content_type = doc.metadata.get('content_type', 'unknown')
-                section = doc.metadata.get('section', 'unknown')
-                logger.info(f"{i+1}. Оценка: {score:.4f}, Раздел: {section}, Тип: {content_type}")
-                # Ограничиваем длину текста для вывода
-                display_text = doc.page_content[:200] + "..." if len(doc.page_content) > 200 else doc.page_content
-                logger.info(f"   Текст: {display_text}")
-
-            # Вывод результатов текстового поиска
-            logger.info("-" * 80)
-            logger.info(f"Результаты текстового поиска ({len(text_results)}):")
-            for i, doc in enumerate(text_results):
-                score = doc.metadata.get('score', 0.0)
-                content_type = doc.metadata.get('content_type', 'unknown')
-                section = doc.metadata.get('section', 'unknown')
-                logger.info(f"{i+1}. Оценка: {score:.4f}, Раздел: {section}, Тип: {content_type}")
-                # Ограничиваем длину текста для вывода
-                display_text = doc.page_content[:200] + "..." if len(doc.page_content) > 200 else doc.page_content
-                logger.info(f"   Текст: {display_text}")
-
-            # Вывод результатов гибридного поиска
-            logger.info("-" * 80)
-            logger.info(f"Результаты гибридного поиска ({len(hybrid_results)}):")
-            for i, doc in enumerate(hybrid_results):
-                score = doc.metadata.get('score', 0.0)
-                content_type = doc.metadata.get('content_type', 'unknown')
-                section = doc.metadata.get('section', 'unknown')
-                search_type = doc.metadata.get('search_type', 'unknown')
-                logger.info(f"{i+1}. Оценка: {score:.4f}, Раздел: {section}, Тип: {content_type}, Метод: {search_type}")
-                # Ограничиваем длину текста для вывода
-                display_text = doc.page_content[:200] + "..." if len(doc.page_content) > 200 else doc.page_content
-                logger.info(f"   Текст: {display_text}")
-
-            # Сравнение результатов
-            logger.info("-" * 80)
-            vector_text_common = self._compare_result_sets(vector_results, text_results)
-            vector_hybrid_common = self._compare_result_sets(vector_results, hybrid_results)
-            text_hybrid_common = self._compare_result_sets(text_results, hybrid_results)
-
-            logger.info(f"Общих результатов векторного и текстового поиска: {vector_text_common} из {k}")
-            logger.info(f"Общих результатов векторного и гибридного поиска: {vector_hybrid_common} из {k}")
-            logger.info(f"Общих результатов текстового и гибридного поиска: {text_hybrid_common} из {k}")
-
-            logger.info("=" * 80)
-            logger.info("")  # Пустая строка для разделения запросов
-
-    def _compare_result_sets(self, set1: List[Document], set2: List[Document]) -> int:
-        """
-        Сравнивает два набора результатов.
-
-        Args:
-            set1: Первый набор результатов
-            set2: Второй набор результатов
+            query: Поисковый запрос
+            k: Количество результатов
+            vector_weight: Вес векторного поиска для гибридного поиска
+            text_weight: Вес текстового поиска для гибридного поиска
 
         Returns:
-            int: Количество общих результатов
+            List[Document]: Результаты поиска
         """
-        # Создаем множества ID документов
-        keys1 = set()
-        keys2 = set()
+        # Выбираем стратегию поиска на основе длины запроса
+        if len(query) < self.hybrid_threshold:
+            logger.info(f"Запрос '{query}' короче {self.hybrid_threshold} символов, используем гибридный поиск")
+            return self.hybrid_search(application_id, query, k, vector_weight, text_weight)
+        else:
+            logger.info(f"Запрос '{query}' длиннее {self.hybrid_threshold} символов, используем векторный поиск")
+            return self.vector_search(application_id, query, k)
 
-        for doc in set1:
-            keys1.add(self._get_document_key(doc))
+    def print_results(self, results: List[Document], result_type: str = "поиска"):
+        """
+        Выводит результаты поиска в консоль.
 
-        for doc in set2:
-            keys2.add(self._get_document_key(doc))
+        Args:
+            results: Результаты поиска
+            result_type: Тип результатов для отображения
+        """
+        logger.info("-" * 80)
+        logger.info(f"Результаты {result_type} ({len(results)}):")
 
-        # Находим пересечение множеств
-        common = keys1.intersection(keys2)
-        return len(common)
+        if not results:
+            logger.info("Ничего не найдено")
+            return
+
+        for i, doc in enumerate(results):
+            score = doc.metadata.get('score', 0.0)
+            content_type = doc.metadata.get('content_type', 'unknown')
+            section = doc.metadata.get('section', 'unknown')
+            search_type = doc.metadata.get('search_type', 'unknown')
+
+            logger.info(f"{i + 1}. Оценка: {score:.4f}, Раздел: {section}, Тип: {content_type}, Метод: {search_type}")
+            # Ограничиваем длину текста для вывода
+            display_text = doc.page_content[:200] + "..." if len(doc.page_content) > 200 else doc.page_content
+            logger.info(f"   Текст: {display_text}")
 
 
 if __name__ == "__main__":
     # Создаем парсер аргументов командной строки
-    parser = argparse.ArgumentParser(description='Тестирование гибридного поиска в Qdrant')
+    parser = argparse.ArgumentParser(description='Упрощенный гибридный поиск в Qdrant')
 
     parser.add_argument('--host', type=str, default='localhost',
                         help='Хост Qdrant сервера (по умолчанию: localhost)')
@@ -540,22 +493,21 @@ if __name__ == "__main__":
                         help='URL для Ollama API (по умолчанию: http://localhost:11434)')
     parser.add_argument('--limit', type=int, default=5,
                         help='Количество результатов поиска (по умолчанию: 5)')
-    parser.add_argument('--vector_weight', type=float, default=0.5,
-                        help='Вес векторного поиска (по умолчанию: 0.5)')
-    parser.add_argument('--text_weight', type=float, default=0.5,
-                        help='Вес текстового поиска (по умолчанию: 0.5)')
-    parser.add_argument('--queries', type=str, default='ИНН',
-                        help='Поисковые запросы через запятую (по умолчанию: ИНН)')
+    parser.add_argument('--threshold', type=int, default=10,
+                        help='Пороговая длина запроса для гибридного поиска (по умолчанию: 10)')
+    parser.add_argument('--query', type=str, required=True,
+                        help='Поисковый запрос')
 
     args = parser.parse_args()
 
     # Создаем экземпляр тестера
-    tester = HybridSearchTester(
+    tester = SimpleSearchTester(
         host=args.host,
         port=args.port,
         collection_name=args.collection,
         embeddings_model=args.model,
-        ollama_url=args.ollama_url
+        ollama_url=args.ollama_url,
+        hybrid_threshold=args.threshold
     )
 
     # Если указан application_id = 'list', выводим список доступных
@@ -569,21 +521,12 @@ if __name__ == "__main__":
             logger.info("Не найдено доступных заявок в коллекции")
         sys.exit(0)
 
-    # Формируем список запросов из аргумента
-    queries = [{"query": q.strip(), "description": ""} for q in args.queries.split(',')]
-
-    # Добавляем описания для некоторых запросов
-    for q in queries:
-        if q["query"] == "ИНН":
-            q["description"] = "Короткий запрос (ИНН)"
-        elif q["query"] == "полное наименование":
-            q["description"] = "Запрос полного наименования организации"
-        elif q["query"] == "категория объекта":
-            q["description"] = "Запрос категории объекта НВОС"
-
-    # Запускаем сравнение поиска
-    tester.run_search_comparison(
+    # Выполняем поиск с автоматическим выбором стратегии
+    results = tester.search(
         application_id=args.application_id,
-        queries=queries,
+        query=args.query,
         k=args.limit
     )
+
+    # Выводим результаты
+    tester.print_results(results, "автоматического поиска")
