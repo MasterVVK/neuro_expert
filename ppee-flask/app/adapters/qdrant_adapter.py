@@ -3,7 +3,7 @@ import logging
 from typing import List, Dict, Any, Optional
 
 from ppee_analyzer.vector_store import QdrantManager, BGEReranker
-from ppee_analyzer.document_processor import PPEEDocumentSplitter, DoclingPDFConverter, PDFToMarkdownConverter
+from ppee_analyzer.document_processor import PPEEDocumentSplitter, DoclingPDFConverter
 from langchain_core.documents import Document
 
 logger = logging.getLogger(__name__)
@@ -224,27 +224,13 @@ class QdrantAdapter:
             # Создаем путь для Markdown файла
             md_path = os.path.splitext(pdf_path)[0] + ".md"
 
-            # Пытаемся использовать DoclingPDFConverter
-            try:
-                logger.info(f"Попытка конвертации PDF через DoclingPDFConverter: {pdf_path}")
-                converter = DoclingPDFConverter(preserve_tables=True)
-                converter.convert_pdf_to_markdown(pdf_path, md_path)
-
-                if os.path.exists(md_path) and os.path.getsize(md_path) > 0:
-                    logger.info(f"PDF успешно конвертирован через DoclingPDFConverter: {md_path}")
-                    return md_path
-                else:
-                    logger.warning(f"DoclingPDFConverter не создал валидный Markdown файл")
-            except Exception as e:
-                logger.warning(f"Ошибка при использовании DoclingPDFConverter: {str(e)}")
-
-            # Если DoclingPDFConverter не сработал, пробуем PDFToMarkdownConverter
-            logger.info(f"Попытка конвертации PDF через PDFToMarkdownConverter: {pdf_path}")
-            converter = PDFToMarkdownConverter()
+            # Используем DoclingPDFConverter для конвертации
+            logger.info(f"Конвертация PDF через DoclingPDFConverter: {pdf_path}")
+            converter = DoclingPDFConverter(preserve_tables=True)
             converter.convert_pdf_to_markdown(pdf_path, md_path)
 
             if os.path.exists(md_path) and os.path.getsize(md_path) > 0:
-                logger.info(f"PDF успешно конвертирован через PDFToMarkdownConverter: {md_path}")
+                logger.info(f"PDF успешно конвертирован через DoclingPDFConverter: {md_path}")
                 return md_path
             else:
                 logger.error(f"Не удалось конвертировать PDF в Markdown: {pdf_path}")
@@ -253,6 +239,7 @@ class QdrantAdapter:
         except Exception as e:
             logger.exception(f"Ошибка при конвертации PDF в Markdown: {str(e)}")
             raise
+
 
     def index_document(self,
                        application_id: str,
