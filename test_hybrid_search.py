@@ -94,14 +94,39 @@ class HybridSearchTester:
     def _ensure_text_index(self):
         """Проверяет и при необходимости создает полнотекстовый индекс для page_content"""
         try:
-            # Пробуем создать полнотекстовый индекс (если он уже существует, это не вызовет ошибку)
+            # Пробуем создать полнотекстовый индекс
             logger.info("Создание полнотекстового индекса для page_content...")
-            self.client.create_payload_index(
-                collection_name=self.collection_name,
-                field_name="page_content",
-                field_schema="text"
-            )
-            logger.info("Полнотекстовый индекс создан или уже существует")
+
+            # Проверяем, существует ли уже индекс
+            collection_info = self.client.get_collection(collection_name=self.collection_name)
+
+            # Проверяем текущие индексы
+            if hasattr(collection_info, 'payload_schema') and 'page_content' in getattr(collection_info, 'payload_schema', {}):
+                logger.info("Полнотекстовый индекс уже существует")
+                return True
+
+            # Используем правильный API для создания текстового индекса
+            try:
+                self.client.create_payload_index(
+                    collection_name=self.collection_name,
+                    field_name="page_content",
+                    field_schema=models.TextIndexParams(
+                        type="text",
+                        tokenizer=models.TokenizerType.WORD,
+                        min_token_len=2,
+                        max_token_len=15,
+                        lowercase=True
+                    )
+                )
+            except AttributeError:
+                # Более простой вариант, если предыдущий не работает
+                self.client.create_payload_index(
+                    collection_name=self.collection_name,
+                    field_name="page_content",
+                    field_schema="text"
+                )
+
+            logger.info("Полнотекстовый индекс создан")
             return True
         except Exception as e:
             logger.warning(f"Ошибка при создании индекса: {str(e)}")
@@ -155,16 +180,15 @@ class HybridSearchTester:
             ]
         )
 
-        # Получаем эмбеддинг запроса
         try:
             start_time = time.time()
 
             query_vector = self.embeddings.embed_query(processed_query)
 
-            # Используем query_points вместо устаревшего search
-            search_result = self.client.query_points(
+            # Используем search вместо query_points
+            search_result = self.client.search(
                 collection_name=self.collection_name,
-                query_vector=("vector", query_vector),  # Указываем имя вектора
+                query_vector=query_vector,  # Без "vector" в tuple
                 query_filter=filter_obj,
                 limit=k
             )
@@ -220,13 +244,39 @@ class HybridSearchTester:
                 ]
             )
 
-            # Выполняем текстовый поиск
-            text_result = self.client.query_points(
-                collection_name=self.collection_name,
-                query_filter=filter_obj,
-                query_text=query,  # Текстовый запрос
-                limit=k
-            )
+            # Используем правильный API для текстового поиска
+            try:
+                # Попытка 1: Используем с search_params
+                text_result = self.client.search(
+                    collection_name=self.collection_name,
+                    query_filter=filter_obj,
+                    limit=k,
+                    search_params=models.SearchParams(
+                        text=query
+                    )
+                )
+            except Exception as e1:
+                logger.warning(f"Первый метод текстового поиска не сработал: {str(e1)}")
+                try:
+                    # Попытка 2: Используем с параметрами
+                    text_result = self.client.search(
+                        collection_name=self.collection_name,
+                        query_filter=filter_obj,
+                        limit=k,
+                        with_payload=True,
+                        with_vectors=False,
+                        query_text=query
+                    )
+                except Exception as e2:
+                    logger.warning(f"Второй метод текстового поиска не сработал: {str(e2)}")
+                    # Попытка 3: Используем scroll с полнотекстовым поиском
+                    text_result = self.client.scroll(
+                        collection_name=self.collection_name,
+                        scroll_filter=filter_obj,
+                        limit=k,
+                        with_payload=True,
+                        with_vectors=False
+                    )[0]  # Берем только первый элемент (points)
 
             elapsed_time = time.time() - start_time
             logger.info(f"Текстовый поиск выполнен за {elapsed_time:.2f} сек., найдено {len(text_result)} результатов")
@@ -236,7 +286,14 @@ class HybridSearchTester:
             for scored_point in text_result:
                 metadata = scored_point.payload.get("metadata", {})
                 text = scored_point.payload.get("page_content", "")
-                metadata['score'] = float(scored_point.score)
+
+                # В случае scroll score не будет, используем 1.0 по умолчанию
+                if hasattr(scored_point, 'score'):
+                    score = float(scored_point.score)
+                else:
+                    score = 1.0
+
+                metadata['score'] = score
                 metadata['search_type'] = 'text'
 
                 doc = Document(page_content=text, metadata=metadata)
@@ -290,60 +347,56 @@ class HybridSearchTester:
                 ]
             )
 
-            # Используем новый API для гибридного поиска
+            # Пробуем различные методы гибридного поиска
             try:
-                search_result = self.client.hybrid_search(
+                # Попытка 1: Используем search с SearchParams
+                search_result = self.client.search(
                     collection_name=self.collection_name,
                     query_vector=query_vector,
-                    query_text=query,
                     query_filter=filter_obj,
                     limit=k,
-                    vector_weights={"vector": vector_weight, "text": text_weight}
+                    search_params=models.SearchParams(
+                        text=query,
+                        vector_weights={
+                            "vector": vector_weight,
+                            "text": text_weight
+                        }
+                    )
                 )
+            except Exception as e1:
+                logger.warning(f"Первый метод гибридного поиска не сработал: {str(e1)}")
+                try:
+                    # Попытка 2: Используем search с hybrid_fields
+                    search_result = self.client.search(
+                        collection_name=self.collection_name,
+                        query_vector=query_vector,
+                        query_filter=filter_obj,
+                        limit=k,
+                        with_payload=True,
+                        query_text=query,
+                        hybrid_fields=["page_content"]
+                    )
+                except Exception as e2:
+                    logger.warning(f"Второй метод гибридного поиска не сработал: {str(e2)}")
+                    # Используем программную имплементацию
+                    logger.info("Переключение на программную имплементацию гибридного поиска...")
+                    return self._manual_hybrid_search(application_id, query, k, vector_weight, text_weight)
 
-                elapsed_time = time.time() - start_time
-                logger.info(f"Гибридный поиск выполнен за {elapsed_time:.2f} сек., найдено {len(search_result)} результатов")
+            elapsed_time = time.time() - start_time
+            logger.info(f"Гибридный поиск выполнен за {elapsed_time:.2f} сек., найдено {len(search_result)} результатов")
 
-                # Преобразуем результаты
-                documents = []
-                for scored_point in search_result:
-                    metadata = scored_point.payload.get("metadata", {})
-                    text = scored_point.payload.get("page_content", "")
-                    metadata['score'] = float(scored_point.score)
-                    metadata['search_type'] = 'hybrid'
+            # Преобразуем результаты
+            documents = []
+            for scored_point in search_result:
+                metadata = scored_point.payload.get("metadata", {})
+                text = scored_point.payload.get("page_content", "")
+                metadata['score'] = float(scored_point.score)
+                metadata['search_type'] = 'hybrid'
 
-                    doc = Document(page_content=text, metadata=metadata)
-                    documents.append(doc)
+                doc = Document(page_content=text, metadata=metadata)
+                documents.append(doc)
 
-                return documents
-            except AttributeError:
-                # Если метод hybrid_search не найден, пробуем использовать альтернативный API
-                logger.warning("Метод hybrid_search не найден, пробуем альтернативный подход...")
-
-                search_result = self.client.query_points(
-                    collection_name=self.collection_name,
-                    query_vector=("vector", query_vector),
-                    query_filter=filter_obj,
-                    query_text=query,
-                    limit=k,
-                    hybrid_weights={"vector": vector_weight, "text": text_weight}
-                )
-
-                elapsed_time = time.time() - start_time
-                logger.info(f"Гибридный поиск (альтернативный) выполнен за {elapsed_time:.2f} сек., найдено {len(search_result)} результатов")
-
-                # Преобразуем результаты
-                documents = []
-                for scored_point in search_result:
-                    metadata = scored_point.payload.get("metadata", {})
-                    text = scored_point.payload.get("page_content", "")
-                    metadata['score'] = float(scored_point.score)
-                    metadata['search_type'] = 'hybrid'
-
-                    doc = Document(page_content=text, metadata=metadata)
-                    documents.append(doc)
-
-                return documents
+            return documents
         except Exception as e:
             logger.error(f"Ошибка при выполнении гибридного поиска: {str(e)}")
 
@@ -629,15 +682,9 @@ if __name__ == "__main__":
         sys.exit(0)
 
     # Список запросов для тестирования
-    # Добавляем разные типы запросов
+    # Оставляем только один запрос для отладки
     test_queries = [
         {"query": "ИНН", "description": "Короткий запрос (ИНН)"}
-#        {"query": "ОГРН", "description": "Короткий запрос (ОГРН)"},
-#        {"query": "1234567890", "description": "Числовой запрос (произвольный)"},
-#        {"query": "наименование объекта", "description": "Средний запрос"},
-#        {"query": "адрес", "description": "Короткий текстовый запрос"},
-#        {"query": "полное наименование юридического лица", "description": "Длинный запрос"},
-#        {"query": "категория объекта НВОС", "description": "Средний запрос (терминология)"}
     ]
 
     # Запускаем сравнение поиска
