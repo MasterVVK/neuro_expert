@@ -16,24 +16,6 @@ def get_llm_provider():
     )
 
 
-import logging
-from app import db
-from app.models import Application, ChecklistParameter, ParameterResult
-from app.adapters.llm_adapter import OllamaLLMProvider
-from app.services.vector_service import search
-from app.utils import format_documents_for_context, extract_value_from_response, calculate_confidence
-from flask import current_app
-
-logger = logging.getLogger(__name__)
-
-
-def get_llm_provider():
-    """Создает и возвращает провайдер LLM"""
-    return OllamaLLMProvider(
-        base_url=current_app.config['OLLAMA_URL']
-    )
-
-
 def analyze_application(application_id, progress_callback=None, skip_status_check=False):
     """
     Анализирует заявку по чек-листам.
@@ -96,6 +78,10 @@ def analyze_application(application_id, progress_callback=None, skip_status_chec
         if progress_callback:
             progress_callback(15, 'analyze', f'Начало анализа {total_parameters} параметров...')
 
+        # Получаем настройки умного поиска из конфигурации приложения
+        use_smart_search = True  # Включаем умный поиск
+        hybrid_threshold = 10    # Порог длины запроса для выбора метода поиска
+
         for i, parameter in enumerate(parameters):
             try:
                 # Обновляем прогресс для текущего параметра
@@ -109,13 +95,24 @@ def analyze_application(application_id, progress_callback=None, skip_status_chec
                 logger.info(
                     f"Ререйтинг: {parameter.use_reranker}, Лимит: {parameter.search_limit}, Лимит ререйтинга: {parameter.rerank_limit}")
 
-                # Выполняем семантический поиск с учетом настроек параметра
+                # Определяем метод поиска на основе длины запроса
+                query = parameter.search_query
+                if len(query) < hybrid_threshold:
+                    logger.info(f"Используем гибридный поиск для запроса '{query}' (<{hybrid_threshold} символов)")
+                    search_method = "hybrid"
+                else:
+                    logger.info(f"Используем векторный поиск для запроса '{query}' (>={hybrid_threshold} символов)")
+                    search_method = "vector"
+
+                # Выполняем поиск с нужными параметрами
                 search_results = search(
                     application_id=application_id,
                     query=parameter.search_query,
                     limit=parameter.search_limit,
                     use_reranker=parameter.use_reranker,
-                    rerank_limit=parameter.rerank_limit
+                    rerank_limit=parameter.rerank_limit,
+                    use_smart_search=True,  # Всегда используем умный поиск
+                    hybrid_threshold=hybrid_threshold  # Порог в 10 символов
                 )
 
                 # Логируем результаты поиска
@@ -152,7 +149,8 @@ def analyze_application(application_id, progress_callback=None, skip_status_chec
                         'model': parameter.llm_model,
                         'temperature': parameter.llm_temperature,
                         'max_tokens': parameter.llm_max_tokens,
-                        'error': 'Не найдено результатов поиска'
+                        'error': 'Не найдено результатов поиска',
+                        'search_method': search_method
                     }
 
                     db.session.add(result)
@@ -184,7 +182,8 @@ def analyze_application(application_id, progress_callback=None, skip_status_chec
                     'full_prompt': full_prompt,
                     'model': parameter.llm_model,
                     'temperature': parameter.llm_temperature,
-                    'max_tokens': parameter.llm_max_tokens
+                    'max_tokens': parameter.llm_max_tokens,
+                    'search_method': search_method  # Добавляем информацию о методе поиска
                 }
 
                 # Добавляем context_length, если он был получен
@@ -196,6 +195,7 @@ def analyze_application(application_id, progress_callback=None, skip_status_chec
                 logger.info(f"Модель: {parameter.llm_model}")
                 logger.info(f"Температура: {parameter.llm_temperature}")
                 logger.info(f"Max tokens: {parameter.llm_max_tokens}")
+                logger.info(f"Метод поиска: {search_method}")
                 if model_context_length:
                     logger.info(f"Context length: {model_context_length}")
 
