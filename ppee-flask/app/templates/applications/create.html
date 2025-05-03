@@ -24,8 +24,10 @@
                     <div class="checkbox-group">
                         {% for checklist in checklists %}
                             <div class="checkbox-item">
-                                <input type="checkbox" id="checklist_{{ checklist.id }}" name="checklists" value="{{ checklist.id }}">
-                                <label for="checklist_{{ checklist.id }}">{{ checklist.name }}</label>
+                                <label for="checklist_{{ checklist.id }}" class="checkbox-label">
+                                    <input type="checkbox" id="checklist_{{ checklist.id }}" name="checklists" value="{{ checklist.id }}">
+                                    <span class="checkbox-text">{{ checklist.name }}</span>
+                                </label>
                             </div>
                         {% endfor %}
                     </div>
@@ -33,11 +35,32 @@
                     <p class="form-note">Нет доступных чек-листов. Создайте чек-лист в разделе "Чек-листы".</p>
                 {% endif %}
             </div>
-            
+
             <div class="form-actions">
                 <button type="submit" class="button">Создать заявку</button>
                 <a href="{{ url_for('applications.index') }}" class="button button-secondary">Отмена</a>
             </div>
         </form>
     </div>
+
+    <style>
+        /* Стили для чекбоксов */
+        .checkbox-item {
+            margin-bottom: 10px;
+        }
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            font-weight: normal;
+        }
+        .checkbox-text {
+            margin-left: 8px;
+        }
+        /* Убираем дополнительные отступы у checkbox */
+        .checkbox-item input[type="checkbox"] {
+            margin: 0;
+            width: auto;
+        }
+    </style>
 {% endblock %}
