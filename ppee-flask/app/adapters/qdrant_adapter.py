@@ -25,7 +25,8 @@ class QdrantAdapter:
                  reranker_model: str = "BAAI/bge-reranker-v2-m3",
                  use_semantic_chunking: bool = True,
                  check_ollama_availability: bool = True,
-                 ollama_options: Dict[str, Any] = None):
+                 ollama_options: Dict[str, Any] = None,
+                 min_vram_mb: int = 500):  # Добавляем параметр min_vram_mb
         """
         Инициализирует адаптер для Qdrant.
 
@@ -42,6 +43,7 @@ class QdrantAdapter:
             use_semantic_chunking: Использовать семантическое разделение для PDF
             check_ollama_availability: Проверять ли доступность Ollama при инициализации
             ollama_options: Опции для Ollama API
+            min_vram_mb: Минимальное количество свободной VRAM в МБ для использования GPU
         """
         self.host = host
         self.port = port
@@ -51,6 +53,7 @@ class QdrantAdapter:
         self.device = device
         self.ollama_url = ollama_url
         self.use_semantic_chunking = use_semantic_chunking
+        self.min_vram_mb = min_vram_mb  # Сохраняем минимальный порог VRAM
 
         # Получаем опции из OllamaEmbeddings
         from ppee_analyzer.vector_store.ollama_embeddings import OllamaEmbeddings
@@ -80,9 +83,11 @@ class QdrantAdapter:
         self.use_reranker = use_reranker
         if use_reranker:
             try:
+                # Инициализируем ре-ранкер с параметром min_vram_mb
                 self.reranker = BGEReranker(
                     model_name=reranker_model,
-                    device=device
+                    device=device,
+                    min_vram_mb=min_vram_mb  # Передаем минимальный порог VRAM
                 )
                 logger.info(f"Ре-ранкер инициализирован с моделью {reranker_model}")
             except Exception as e:
@@ -613,17 +618,41 @@ class QdrantAdapter:
             if apply_reranker and hasattr(self, 'reranker') and results:
                 logger.info(f"Применение ре-ранкинга к {len(results)} результатам")
                 try:
-                    reranked_results = self.reranker.rerank(
-                        query=query,
-                        documents=results,
-                        top_k=limit,
-                        text_key="text"
-                    )
+                    max_retries = 2  # Максимальное количество попыток ререйтинга
+                    reranked_results = None
+
+                    for attempt in range(max_retries):
+                        try:
+                            # Выполняем ре-ранкинг
+                            reranked_results = self.reranker.rerank(
+                                query=query,
+                                documents=results,
+                                top_k=limit,
+                                text_key="text"
+                            )
+                            # Успешно получили результаты, выходим из цикла
+                            break
+                        except Exception as rerank_error:
+                            # Если это последняя попытка, сохраняем ошибку для последующей обработки
+                            if attempt == max_retries - 1:
+                                logger.error(
+                                    f"Ошибка при ререйтинге (попытка {attempt + 1}/{max_retries}): {str(rerank_error)}")
+                                raise rerank_error
+                            # Если это не последняя попытка, логируем и продолжаем
+                            logger.warning(
+                                f"Ошибка при ререйтинге (попытка {attempt + 1}/{max_retries}): {str(rerank_error)}. Повторяем...")
+
                     # Очищаем ресурсы после использования ререйтинга
                     self.cleanup()
-                    return reranked_results[:limit]
+
+                    # Если успешно получили результаты ререйтинга, возвращаем их
+                    if reranked_results:
+                        return reranked_results[:limit]
+
                 except Exception as e:
                     logger.error(f"Ошибка при ререйтинге: {str(e)}, возвращаем исходные результаты")
+                    # Освобождаем ресурсы даже при ошибке
+                    self.cleanup()
                     return results[:limit]
             else:
                 return results[:limit]

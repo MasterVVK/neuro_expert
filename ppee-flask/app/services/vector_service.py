@@ -8,13 +8,14 @@ from flask import current_app
 logger = logging.getLogger(__name__)
 
 
-def get_qdrant_adapter(use_reranker=False, use_semantic_chunking=None):
+def get_qdrant_adapter(use_reranker=False, use_semantic_chunking=None, min_vram_mb=None):
     """
     Создает и возвращает адаптер для Qdrant
 
     Args:
         use_reranker: Использовать ли ререйтинг
         use_semantic_chunking: Использовать ли семантическое разделение (None - брать из конфига)
+        min_vram_mb: Минимальное количество свободной VRAM в МБ для использования GPU
 
     Returns:
         QdrantAdapter: Адаптер для Qdrant
@@ -22,6 +23,10 @@ def get_qdrant_adapter(use_reranker=False, use_semantic_chunking=None):
     # Если semantic_chunking не указано, берем из конфигурации
     if use_semantic_chunking is None:
         use_semantic_chunking = current_app.config.get('USE_SEMANTIC_CHUNKING', True)
+
+    # Если min_vram_mb не указан, берем из конфигурации
+    if min_vram_mb is None:
+        min_vram_mb = current_app.config.get('MIN_VRAM_MB', 500)
 
     # Импортируем класс для получения настроек по умолчанию
     from ppee_analyzer.vector_store.ollama_embeddings import OllamaEmbeddings
@@ -34,6 +39,7 @@ def get_qdrant_adapter(use_reranker=False, use_semantic_chunking=None):
     if current_app.config.get('OPTIMIZE_EMBEDDINGS', False):
         ollama_options["num_thread"] = 12  # Увеличиваем число потоков
 
+    # Передаем min_vram_mb в конструктор QdrantAdapter
     return QdrantAdapter(
         host=current_app.config['QDRANT_HOST'],
         port=current_app.config['QDRANT_PORT'],
@@ -44,7 +50,8 @@ def get_qdrant_adapter(use_reranker=False, use_semantic_chunking=None):
         use_reranker=use_reranker,
         reranker_model='BAAI/bge-reranker-v2-m3',
         use_semantic_chunking=use_semantic_chunking,
-        ollama_options=ollama_options
+        ollama_options=ollama_options,
+        min_vram_mb=min_vram_mb  # Добавляем параметр min_vram_mb
     )
 
 
@@ -144,7 +151,8 @@ def index_document(application_id, file_id, progress_callback=None):
 
 
 def search(application_id, query, limit=5, use_reranker=False, rerank_limit=None,
-           use_smart_search=False, vector_weight=0.5, text_weight=0.5, hybrid_threshold=10):
+           use_smart_search=False, vector_weight=0.5, text_weight=0.5, hybrid_threshold=10,
+           min_vram_mb=None):
     """
     Выполняет семантический поиск.
 
@@ -158,19 +166,28 @@ def search(application_id, query, limit=5, use_reranker=False, rerank_limit=None
         vector_weight: Вес векторного поиска для гибридного
         text_weight: Вес текстового поиска для гибридного
         hybrid_threshold: Порог длины запроса для гибридного поиска
+        min_vram_mb: Минимальное количество свободной VRAM в МБ для использования GPU
 
     Returns:
         list: Результаты поиска
     """
+    # Если min_vram_mb не задан, берем из конфигурации
+    if min_vram_mb is None:
+        min_vram_mb = current_app.config.get('MIN_VRAM_MB', 500)
+
     if use_smart_search:
-        logger.info(f"Выполнение умного поиска '{query}' для заявки {application_id} "
-                   f"(ререйтинг: {use_reranker}, порог: {hybrid_threshold})")
+        logger.info(f"Выполнение умного поиска '{query}' для заявки {application_id} " +
+                    f"(ререйтинг: {use_reranker}, порог: {hybrid_threshold}, min_vram: {min_vram_mb})")
     else:
-        logger.info(f"Выполнение поиска '{query}' для заявки {application_id} (ререйтинг: {use_reranker})")
+        logger.info(f"Выполнение поиска '{query}' для заявки {application_id} " +
+                    f"(ререйтинг: {use_reranker}, min_vram: {min_vram_mb})")
 
     try:
-        # Получаем адаптер Qdrant
-        qdrant_adapter = get_qdrant_adapter(use_reranker=use_reranker)
+        # Получаем адаптер Qdrant с параметром min_vram_mb
+        qdrant_adapter = get_qdrant_adapter(
+            use_reranker=use_reranker,
+            min_vram_mb=min_vram_mb
+        )
 
         # Выполняем поиск
         if use_smart_search:

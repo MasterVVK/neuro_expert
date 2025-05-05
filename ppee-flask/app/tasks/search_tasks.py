@@ -69,26 +69,59 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
         BaseTask.update_progress(self, 40, 'vector_search', 'Выполнение векторного поиска...')
         search_method = "vector"
 
-    # Выполняем поиск с учетом заданных параметров
+    # Выполняем поиск с учетом заданных параметров и повторными попытками при необходимости
     try:
-        results = search(
-            application_id=application_id,
-            query=query_text,
-            limit=limit,
-            use_reranker=use_reranker,  # Явно передаем параметр ререйтинга
-            rerank_limit=rerank_limit,
-            use_smart_search=use_smart_search,
-            vector_weight=vector_weight,
-            text_weight=text_weight,
-            hybrid_threshold=hybrid_threshold
-        )
+        # Получаем минимальный порог VRAM из конфигурации
+        min_vram_mb = current_app.config.get('MIN_VRAM_MB', 500)
 
-        # Если результатов нет, логируем это
-        if not results:
-            logger.warning(f"Поиск не вернул результатов для запроса '{query_text}'")
+        # Максимальное количество попыток поиска
+        max_retries = 2
+        results = None
+
+        for attempt in range(max_retries):
+            try:
+                # Увеличиваем минимальный порог VRAM с каждой попыткой
+                attempt_min_vram = min_vram_mb + (attempt * 200)  # 500, 700, ...
+
+                logger.info(f"Попытка {attempt+1}/{max_retries} с порогом VRAM {attempt_min_vram} МБ")
+
+                # Выполняем поиск с текущим порогом VRAM
+                results = search(
+                    application_id=application_id,
+                    query=query_text,
+                    limit=limit,
+                    use_reranker=use_reranker,
+                    rerank_limit=rerank_limit,
+                    use_smart_search=use_smart_search,
+                    vector_weight=vector_weight,
+                    text_weight=text_weight,
+                    hybrid_threshold=hybrid_threshold,
+                    min_vram_mb=attempt_min_vram
+                )
+
+                # Если получили результаты, выходим из цикла
+                if results is not None:
+                    logger.info(f"Поиск успешно выполнен на попытке {attempt+1}")
+                    break
+
+            except Exception as attempt_error:
+                logger.warning(f"Попытка {attempt+1}/{max_retries} не удалась: {str(attempt_error)}")
+
+                # Если это последняя попытка, сохраняем ошибку для логирования
+                if attempt == max_retries - 1:
+                    logger.error(f"Все попытки поиска завершились неудачно")
+                else:
+                    # Иначе логируем и пробуем еще раз с повышенным порогом VRAM
+                    logger.warning(f"Пробуем еще раз с более высоким порогом VRAM...")
+                    time.sleep(1)  # Добавляем небольшую задержку перед повторной попыткой
+
+        # Если после всех попыток результаты не получены, создаем пустой список
+        if results is None:
+            logger.error(f"Не удалось получить результаты поиска после {max_retries} попыток")
+            results = []
 
     except Exception as e:
-        logger.error(f"Ошибка при выполнении поиска: {str(e)}")
+        logger.error(f"Критическая ошибка при выполнении поиска: {str(e)}")
         results = []
 
     # Если включен ререйтинг, обновляем статус

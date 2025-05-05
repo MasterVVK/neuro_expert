@@ -104,7 +104,7 @@ def analyze_application(application_id, progress_callback=None, skip_status_chec
                     logger.info(f"Используем векторный поиск для запроса '{query}' (>={hybrid_threshold} символов)")
                     search_method = "vector"
 
-                # Выполняем поиск с нужными параметрами
+                # В функции analyze_application добавляем передачу параметра min_vram_mb
                 search_results = search(
                     application_id=application_id,
                     query=parameter.search_query,
@@ -112,9 +112,9 @@ def analyze_application(application_id, progress_callback=None, skip_status_chec
                     use_reranker=parameter.use_reranker,
                     rerank_limit=parameter.rerank_limit,
                     use_smart_search=True,  # Всегда используем умный поиск
-                    hybrid_threshold=hybrid_threshold  # Порог в 10 символов
+                    hybrid_threshold=hybrid_threshold,  # Порог в 10 символов
+                    min_vram_mb=current_app.config.get('MIN_VRAM_MB', 500)  # Используем значение из конфига
                 )
-
                 # Логируем результаты поиска
                 logger.info(f"Результаты поиска для параметра {parameter.name}:")
                 for j, doc in enumerate(search_results):
