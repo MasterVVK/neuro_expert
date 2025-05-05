@@ -79,45 +79,96 @@ class BGEReranker:
             # Очищаем кэш CUDA перед проверкой
             torch.cuda.empty_cache()
 
-            # Используем subprocess для вызова nvidia-smi, чтобы получить реальные данные о памяти
-            import subprocess
-            import re
+            # Данные от nvidia-smi (более точные для общего состояния)
+            nvidia_smi_info = None
+            try:
+                import subprocess
+                result = subprocess.run(
+                    ['nvidia-smi', '--query-gpu=memory.total,memory.used,memory.free', '--format=csv,noheader,nounits'],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    universal_newlines=True,
+                    check=True
+                )
 
-            # Выполняем команду nvidia-smi для получения информации о памяти
-            result = subprocess.run(
-                ['nvidia-smi', '--query-gpu=memory.total,memory.used,memory.free', '--format=csv,noheader,nounits'],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                universal_newlines=True)
-
-            if result.returncode != 0:
-                logger.warning(f"Не удалось выполнить nvidia-smi: {result.stderr}")
-                # Запасной вариант - используем torch.cuda
-                device = torch.cuda.current_device()
-                total_mem = torch.cuda.get_device_properties(device).total_memory
-                allocated_mem = torch.cuda.memory_allocated(device)
-                free_mem = total_mem - allocated_mem
-                free_mem_mb = free_mem / (1024 * 1024)
-            else:
-                # Парсим вывод nvidia-smi
                 memory_values = result.stdout.strip().split(',')
-                total_mem_mb = float(memory_values[0].strip())
-                used_mem_mb = float(memory_values[1].strip())
-                free_mem_mb = float(memory_values[2].strip())
+                nvidia_smi_info = {
+                    "total_mb": float(memory_values[0].strip()),
+                    "used_mb": float(memory_values[1].strip()),
+                    "free_mb": float(memory_values[2].strip())
+                }
+                logger.info(f"VRAM (nvidia-smi): "
+                           f"Всего: {nvidia_smi_info['total_mb']:.1f} МБ, "
+                           f"Используется: {nvidia_smi_info['used_mb']:.1f} МБ, "
+                           f"Свободно: {nvidia_smi_info['free_mb']:.1f} МБ")
+            except Exception as e:
+                logger.warning(f"Не удалось получить информацию через nvidia-smi: {str(e)}")
 
-                logger.info(
-                    f"Данные от nvidia-smi: Всего: {total_mem_mb} МБ, Используется: {used_mem_mb} МБ, Свободно: {free_mem_mb} МБ")
+            # Данные от torch.cuda (более точные для текущего процесса)
+            torch_info = None
+            try:
+                device = torch.cuda.current_device()
+                device_props = torch.cuda.get_device_properties(device)
+                total_mem = device_props.total_memory
+                allocated_mem = torch.cuda.memory_allocated(device)
+                reserved_mem = torch.cuda.memory_reserved(device)
+
+                torch_info = {
+                    "total_mb": total_mem / (1024 * 1024),
+                    "allocated_mb": allocated_mem / (1024 * 1024),
+                    "reserved_mb": reserved_mem / (1024 * 1024),
+                    "free_mb": (total_mem - allocated_mem) / (1024 * 1024)
+                }
+                logger.info(f"VRAM (torch): "
+                           f"Всего: {torch_info['total_mb']:.1f} МБ, "
+                           f"Аллоцировано: {torch_info['allocated_mb']:.1f} МБ, "
+                           f"Зарезервировано: {torch_info['reserved_mb']:.1f} МБ, "
+                           f"Свободно: {torch_info['free_mb']:.1f} МБ")
+            except Exception as e:
+                logger.warning(f"Не удалось получить информацию через torch.cuda: {str(e)}")
+
+            # Определяем доступную память, используя наиболее консервативную оценку
+            if nvidia_smi_info and torch_info:
+                # Учитываем как данные nvidia-smi, так и torch.cuda
+                # nvidia-smi дает информацию о свободной памяти на уровне системы
+                # torch.cuda дает информацию о памяти, которую может использовать текущий процесс
+
+                # Берем минимум из двух значений для консервативной оценки
+                free_mem_mb = min(
+                    nvidia_smi_info["free_mb"],
+                    torch_info["free_mb"]
+                )
+
+                # Учитываем уже зарезервированную PyTorch память
+                # Если зарезервированная память больше, чем аллоцированная, вычитаем разницу
+                if torch_info["reserved_mb"] > torch_info["allocated_mb"]:
+                    free_mem_mb -= (torch_info["reserved_mb"] - torch_info["allocated_mb"])
+
+                logger.info(f"Консервативная оценка свободной VRAM: {free_mem_mb:.1f} МБ")
+            elif nvidia_smi_info:
+                free_mem_mb = nvidia_smi_info["free_mb"]
+                logger.info(f"Используем данные nvidia-smi: {free_mem_mb:.1f} МБ")
+            elif torch_info:
+                free_mem_mb = torch_info["free_mb"]
+                logger.info(f"Используем данные torch.cuda: {free_mem_mb:.1f} МБ")
+            else:
+                logger.error("Не удалось получить информацию о памяти GPU")
+                return False
 
             # Оцениваем необходимую память для модели
             estimated_mem = self._estimate_memory_requirements()
             logger.info(f"Оценочные требования памяти для модели: {estimated_mem:.1f} МБ")
 
+            # Добавляем буфер безопасности (20% от оценки)
+            safety_buffer = estimated_mem * 0.2
+            total_required = estimated_mem + safety_buffer
+
             # Принимаем решение на основе свободной памяти
-            if free_mem_mb >= min_free_mb and free_mem_mb >= estimated_mem:
-                logger.info(f"Проверка VRAM: ОК (свободно {free_mem_mb:.1f} МБ > требуется {min_free_mb} МБ)")
+            if free_mem_mb >= min_free_mb and free_mem_mb >= total_required:
+                logger.info(f"Проверка VRAM: ОК (свободно {free_mem_mb:.1f} МБ > требуется {total_required:.1f} МБ)")
                 return True
             else:
-                logger.warning(f"Проверка VRAM: НЕ ОК (свободно {free_mem_mb:.1f} МБ < требуется {min_free_mb} МБ)")
+                logger.warning(f"Проверка VRAM: НЕ ОК (свободно {free_mem_mb:.1f} МБ < требуется {total_required:.1f} МБ)")
                 return False
         except Exception as e:
             logger.error(f"Ошибка при проверке VRAM: {str(e)}")
@@ -130,74 +181,90 @@ class BGEReranker:
         Returns:
             float: Оценка потребления VRAM в МБ
         """
-        # Примерные размеры моделей в миллионах параметров
+        # Примерные размеры моделей в миллионах параметров и их требования к памяти
         model_sizes = {
-            "bge-reranker-base": 110,  # ~110M параметров
-            "bge-reranker-v2-m3": 350,  # ~350M параметров
-            "bge-reranker-large": 870,  # ~870M параметров
+            "bge-reranker-base": {"params": 110, "multiplier": 4.2},  # ~110M параметров
+            "bge-reranker-v2-m3": {"params": 350, "multiplier": 4.5},  # ~350M параметров
+            "bge-reranker-large": {"params": 870, "multiplier": 4.8},  # ~870M параметров
         }
 
         # Находим ближайшую модель из известных
-        model_size = 350  # По умолчанию для m3
-        for known_model, size in model_sizes.items():
+        model_info = model_sizes.get("bge-reranker-v2-m3")  # По умолчанию для m3
+        for known_model, info in model_sizes.items():
             if known_model.lower() in self.model_name.lower():
-                model_size = size
+                model_info = info
                 break
 
         # Расчет памяти (в МБ)
-        model_memory = model_size * 4 / 1024  # Параметры модели (FP32)
+        model_memory_mb = model_info["params"] * model_info["multiplier"]
 
-        # Размер входных данных (2 входа - запрос и документ)
-        input_memory = (self.batch_size * self.max_length * 2 * 2) / 1024  # 2 байта при mixed precision
+        # Размер входных данных (запрос и документ)
+        # Учитываем размер батча и максимальную длину последовательности
+        batch_overhead = self.batch_size * (self.max_length * 4) / (1024 * 1024)  # в МБ
 
-        # Промежуточные активации и буферы (приблизительно)
-        activations_memory = (model_memory * 0.4) + (input_memory * 3)
+        # Промежуточные буферы (может значительно меняться)
+        activation_memory = model_memory_mb * 0.3
 
-        # Служебная память PyTorch
-        pytorch_overhead = 200
+        # Служебная память PyTorch и прочие буферы
+        system_overhead = 300
 
         # Общая оценка
-        total_memory = model_memory + input_memory + activations_memory + pytorch_overhead
+        total_memory = model_memory_mb + batch_overhead + activation_memory + system_overhead
+
+        logger.info(f"Оценка памяти для модели {self.model_name}:")
+        logger.info(f"  - Параметры модели: ~{model_info['params']}M ({model_memory_mb:.1f} МБ)")
+        logger.info(f"  - Батч (размер={self.batch_size}, max_length={self.max_length}): ~{batch_overhead:.1f} МБ")
+        logger.info(f"  - Активации: ~{activation_memory:.1f} МБ")
+        logger.info(f"  - Системные нужды: ~{system_overhead:.1f} МБ")
+        logger.info(f"  - ВСЕГО: ~{total_memory:.1f} МБ")
 
         return total_memory
 
     def _fallback_to_cpu(self) -> None:
         """
         Переключает модель на CPU при проблемах с VRAM.
+        Освобождает ресурсы GPU и перезагружает модель при необходимости.
         """
         if self.device != "cpu":
             logger.warning(f"Переключение модели {self.model_name} с {self.device} на CPU")
             self.device = "cpu"
 
             try:
-                # Перемещаем модель на CPU
-                self.model = self.model.to("cpu")
+                # Фиксируем имя модели перед удалением объектов
+                model_name = self.model_name
+
+                # Отключаем модель от GPU и освобождаем ресурсы
+                if hasattr(self, 'model'):
+                    self.model.cpu()  # Сначала переносим на CPU
+                    del self.model
+                    self.model = None
+
+                if hasattr(self, 'tokenizer'):
+                    del self.tokenizer
+                    self.tokenizer = None
+
+                # Явно собираем мусор
+                import gc
+                gc.collect()
 
                 # Очищаем кэш CUDA
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
 
-                logger.info(f"Модель успешно перемещена на CPU")
+                # Ждем небольшое время для освобождения ресурсов
+                import time
+                time.sleep(1)
+
+                # Заново инициализируем модель и токенизатор на CPU
+                logger.info("Перезагрузка модели на CPU...")
+                self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+                self.model = AutoModelForSequenceClassification.from_pretrained(model_name)
+                self.model.eval()  # Режим оценки (не обучения)
+                logger.info(f"Модель {model_name} успешно перезагружена на CPU")
+
             except Exception as e:
-                logger.error(f"Ошибка при переключении на CPU: {str(e)}")
-
-                # Если не удалось переместить модель, пересоздаем её
-                try:
-                    # Удаляем текущую модель
-                    del self.model
-
-                    # Очищаем кэш CUDA
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-
-                    # Заново загружаем модель на CPU
-                    self.model = AutoModelForSequenceClassification.from_pretrained(self.model_name)
-                    self.model.to("cpu")
-                    self.model.eval()
-                    logger.info(f"Модель {self.model_name} успешно перезагружена на CPU")
-                except Exception as reload_error:
-                    logger.error(f"Критическая ошибка при перезагрузке модели: {str(reload_error)}")
-                    raise
+                logger.error(f"Критическая ошибка при переключении на CPU: {str(e)}")
+                raise RuntimeError(f"Не удалось переключить модель на CPU: {str(e)}")
 
     def rerank(
         self,
