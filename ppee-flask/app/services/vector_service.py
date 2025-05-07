@@ -123,7 +123,7 @@ def index_document(application_id, file_id, progress_callback=None):
         result = qdrant_adapter.index_document_with_progress(
             application_id=str(application_id),
             document_path=file.file_path,
-            delete_existing=True,
+            delete_existing=False,
             progress_callback=progress_callback
         )
 
