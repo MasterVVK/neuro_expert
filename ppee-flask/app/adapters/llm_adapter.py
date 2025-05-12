@@ -393,14 +393,17 @@ class OllamaLLMProvider(LLMProvider):
 
             # Получаем максимальный размер контекста для модели
             context_length = self.get_context_length(model_name)
-            if context_length > 16384: context_length=16384
+            if context_length > 16384: context_length = 16384
 
             # Формируем параметры для запроса
             options = {
                 # Явно указываем размер контекста, чтобы предотвратить обрезание
                 "num_ctx": context_length,
                 # Устанавливаем, сколько токенов нужно сохранить с начала промпта
-                "num_keep": context_length
+                "num_keep": context_length,
+                # Добавляем параметр для отключения режима think
+                "raw_prompt": True,  # Использовать промпт как есть, без обработки
+                "think": False  # Отключаем режим размышлений
             }
 
             # Добавляем температуру, если указана
@@ -457,6 +460,29 @@ class OllamaLLMProvider(LLMProvider):
 
             answer = result.get("response", "")
 
+            # Проверяем, содержит ли ответ блоки <think>
+            import re
+            think_blocks = re.findall(r'<think>.*?</think>', answer, flags=re.DOTALL)
+
+            # Если блоки найдены, удаляем их
+            if think_blocks:
+                logger.info(f"Обнаружено {len(think_blocks)} блоков <think> в ответе модели")
+                # Удаляем весь текст между тегами <think> и </think>, включая сами теги
+                cleaned_answer = re.sub(r'<think>.*?</think>', '', answer, flags=re.DOTALL)
+                # Убираем возможные двойные переносы строк, образовавшиеся после удаления блоков
+                cleaned_answer = re.sub(r'\n\s*\n', '\n\n', cleaned_answer)
+                # Обрезаем пробелы в начале и конце
+                cleaned_answer = cleaned_answer.strip()
+
+                # Если после очистки ответ пустой, возвращаем строку о проблеме
+                if not cleaned_answer:
+                    logger.warning("После удаления блоков <think> ответ стал пустым")
+                    return "Информация не найдена"
+
+                answer = cleaned_answer
+            else:
+                logger.info("Блоки <think> не обнаружены в ответе модели")
+
             # Выводим информацию о загрузке и генерации
             total_duration = result.get('total_duration', 0)
             load_duration = result.get('load_duration', 0)
@@ -464,13 +490,14 @@ class OllamaLLMProvider(LLMProvider):
             eval_count = result.get('eval_count', 0)
 
             # Выводим полный ответ модели для отладки
-            logger.info(f"Получен ответ от модели {model_name} длиной {len(answer)} символов")
+            logger.info(f"Итоговый ответ от модели {model_name} длиной {len(answer)} символов")
             logger.info(f"Статистика генерации: prompt_tokens={prompt_eval_count}, output_tokens={eval_count}")
 
             if total_duration > 0:
                 total_seconds = total_duration / 1e9  # Преобразуем наносекунды в секунды
                 logger.info(f"Время выполнения: {total_seconds:.2f} сек (загрузка: {load_duration / 1e9:.2f} сек)")
 
+            # Возвращаем обработанный ответ
             return answer
 
         except requests.exceptions.RequestException as e:
