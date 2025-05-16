@@ -1,23 +1,28 @@
 from app import create_app, db
 from app.models import User, Checklist, ChecklistParameter
 
+
 def init_db():
     """Инициализирует базу данных"""
     app = create_app()
     with app.app_context():
         # Создаем таблицы
         db.create_all()
-        
+
         # Создаем администратора, если он не существует
         if User.query.filter_by(username='admin').first() is None:
             admin = User(username='admin', email='admin@example.com', role='admin')
             admin.set_password('admin')
             db.session.add(admin)
-            
+            db.session.commit()  # Сохраняем изменения перед созданием чек-листа
+
             # Создаем тестовый чек-лист
             checklist = Checklist(name='Базовый чек-лист', description='Чек-лист для проверки документов ППЭЭ')
             db.session.add(checklist)
-            
+            db.session.commit()  # Сохраняем чек-лист для получения ID
+
+            print(f"Создан чек-лист с ID: {checklist.id}")
+
             # Добавляем несколько базовых параметров
             params = [
                 {
@@ -96,10 +101,10 @@ def init_db():
                     'llm_max_tokens': 1000
                 }
             ]
-            
+
             for param_data in params:
                 param = ChecklistParameter(
-                    checklist_id=checklist.id,
+                    checklist_id=checklist.id,  # Используем ID сохраненного чек-листа
                     name=param_data['name'],
                     search_query=param_data['search_query'],
                     llm_model=param_data['llm_model'],
@@ -108,11 +113,13 @@ def init_db():
                     llm_max_tokens=param_data['llm_max_tokens']
                 )
                 db.session.add(param)
-            
+                print(f"Добавлен параметр: {param_data['name']} для чек-листа ID: {checklist.id}")
+
             db.session.commit()
             print("База данных инициализирована с тестовыми данными")
         else:
             print("База данных уже инициализирована")
+
 
 if __name__ == '__main__':
     init_db()
