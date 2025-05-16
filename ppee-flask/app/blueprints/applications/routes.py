@@ -86,13 +86,26 @@ def upload_file(id):
             return redirect(request.url)
 
         if file:
-            # Создаем безопасное имя файла
+            # Получаем оригинальное имя файла
             original_filename = file.filename
-            filename = secure_filename(original_filename)
 
-            # Добавляем уникальный идентификатор для избежания конфликтов
+            # ВАЖНОЕ ИЗМЕНЕНИЕ: Извлекаем расширение до обработки
+            file_root, file_ext = os.path.splitext(original_filename)
+
+            # Создаем безопасное имя файла для базовой части
+            safe_filename = secure_filename(file_root)
+
+            # Добавляем уникальный идентификатор
             unique_id = str(uuid.uuid4())
-            filename = f"{unique_id}_{filename}"
+
+            # Формируем новое имя файла с сохранением расширения
+            filename = f"{unique_id}_{safe_filename}{file_ext}"
+
+            # Отладочная информация
+            current_app.logger.info(f"Исходное имя: {original_filename}")
+            current_app.logger.info(f"Базовая часть: {file_root}, Расширение: {file_ext}")
+            current_app.logger.info(f"Обработанное базовое имя: {safe_filename}")
+            current_app.logger.info(f"Итоговое имя с UUID: {filename}")
 
             # Полный путь к файлу
             file_path = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
@@ -107,7 +120,6 @@ def upload_file(id):
             file_size = os.path.getsize(file_path)
 
             # Определяем тип файла
-            _, ext = os.path.splitext(original_filename)
             file_type = 'document'  # По умолчанию
 
             # Создаем запись о файле
