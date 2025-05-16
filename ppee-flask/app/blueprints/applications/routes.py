@@ -29,6 +29,13 @@ def create():
         description = request.form.get('description', '')
         checklist_ids = request.form.getlist('checklists')
 
+        # Проверяем, выбран ли хотя бы один чек-лист
+        if not checklist_ids:
+            flash('Необходимо выбрать хотя бы один чек-лист', 'error')
+            return render_template('applications/create.html',
+                               title='Создание заявки',
+                               checklists=checklists)
+
         # Создаем заявку
         application = Application(
             name=name,
