@@ -24,7 +24,8 @@ class QdrantAdapter:
                  reranker_model: str = "BAAI/bge-reranker-v2-m3",
                  check_ollama_availability: bool = True,
                  ollama_options: Dict[str, Any] = None,
-                 min_vram_mb: int = 500):
+                 min_vram_mb: int = 500,
+                 read_only: bool = False):
         """
         Инициализирует адаптер для Qdrant.
 
@@ -41,6 +42,7 @@ class QdrantAdapter:
             check_ollama_availability: Проверять ли доступность Ollama при инициализации
             ollama_options: Опции для Ollama API
             min_vram_mb: Минимальное количество свободной VRAM в МБ для использования GPU
+            read_only: Только для чтения (без обработки документов)
         """
         self.host = host
         self.port = port
@@ -50,6 +52,7 @@ class QdrantAdapter:
         self.device = device
         self.ollama_url = ollama_url
         self.min_vram_mb = min_vram_mb
+        self.read_only = read_only
 
         # Получаем опции из OllamaEmbeddings
         from ppee_analyzer.vector_store.ollama_embeddings import OllamaEmbeddings
@@ -89,13 +92,15 @@ class QdrantAdapter:
 
         logger.info(f"QdrantAdapter инициализирован для коллекции {collection_name} на {host}:{port}")
 
-        # Проверяем доступность семантического чанкера
-        try:
-            from ppee_analyzer.semantic_chunker import SemanticChunker
-            logger.info("Семантический чанкер доступен и будет использован для обработки документов")
-        except ImportError:
-            logger.warning("Модуль semantic_chunker не найден. Обработка документов невозможна.")
-            raise ImportError("Модуль semantic_chunker не найден. Требуется для обработки документов.")
+        # Проверяем доступность семантического чанкера только если не read_only
+        self.semantic_chunker_available = True
+        if not read_only:
+            try:
+                from ppee_analyzer.semantic_chunker import SemanticChunker
+                logger.info("Семантический чанкер доступен и будет использован для обработки документов")
+            except ImportError:
+                logger.warning("Модуль semantic_chunker не найден. Обработка документов будет недоступна.")
+                self.semantic_chunker_available = False
 
     def _ensure_collection_exists(self):
         """Проверяет существование коллекции и создает при необходимости"""
@@ -168,6 +173,10 @@ class QdrantAdapter:
         Returns:
             List[Document]: Список документов для индексации
         """
+        # Проверяем доступность семантического чанкера перед обработкой
+        if not self.semantic_chunker_available:
+            raise ImportError("Модуль semantic_chunker не найден. Требуется для обработки документов.")
+
         try:
             # Импортируем SemanticChunker
             from ppee_analyzer.semantic_chunker import SemanticChunker

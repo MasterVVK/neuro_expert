@@ -8,13 +8,14 @@ from flask import current_app
 logger = logging.getLogger(__name__)
 
 
-def get_qdrant_adapter(use_reranker=False, min_vram_mb=None):
+def get_qdrant_adapter(use_reranker=False, min_vram_mb=None, read_only=False):
     """
     Создает и возвращает адаптер для Qdrant
 
     Args:
         use_reranker: Использовать ли ререйтинг
         min_vram_mb: Минимальное количество свободной VRAM в МБ для использования GPU
+        read_only: Только для чтения (без обработки документов)
 
     Returns:
         QdrantAdapter: Адаптер для Qdrant
@@ -34,7 +35,7 @@ def get_qdrant_adapter(use_reranker=False, min_vram_mb=None):
     if current_app.config.get('OPTIMIZE_EMBEDDINGS', False):
         ollama_options["num_thread"] = 12  # Увеличиваем число потоков
 
-    # Передаем min_vram_mb в конструктор QdrantAdapter
+    # Передаем min_vram_mb и read_only в конструктор QdrantAdapter
     return QdrantAdapter(
         host=current_app.config['QDRANT_HOST'],
         port=current_app.config['QDRANT_PORT'],
@@ -45,7 +46,8 @@ def get_qdrant_adapter(use_reranker=False, min_vram_mb=None):
         use_reranker=use_reranker,
         reranker_model='BAAI/bge-reranker-v2-m3',
         ollama_options=ollama_options,
-        min_vram_mb=min_vram_mb
+        min_vram_mb=min_vram_mb,
+        read_only=read_only
     )
 
 

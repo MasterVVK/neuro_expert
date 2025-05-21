@@ -395,7 +395,8 @@ def view_chunks(id):
         from app.services.vector_service import get_qdrant_adapter
         from qdrant_client.http import models
 
-        qdrant_adapter = get_qdrant_adapter()
+        # Используем read_only=True, чтобы избежать проверки semantic_chunker
+        qdrant_adapter = get_qdrant_adapter(read_only=True)
 
         # Получаем статистику по заявке
         stats = qdrant_adapter.qdrant_manager.get_stats(str(application.id))

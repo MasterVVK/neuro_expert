@@ -1,8 +1,7 @@
 """
 Модуль для семантического разделения документов ППЭЭ
-с использованием библиотеки docling.
 """
 
-from .chunker import SemanticChunker, SemanticDocumentSplitter
+from .chunker import SemanticChunker
 
-__all__ = ['SemanticChunker', 'SemanticDocumentSplitter']
+__all__ = ['SemanticChunker']
