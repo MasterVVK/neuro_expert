@@ -8,22 +8,17 @@ from flask import current_app
 logger = logging.getLogger(__name__)
 
 
-def get_qdrant_adapter(use_reranker=False, use_semantic_chunking=None, min_vram_mb=None):
+def get_qdrant_adapter(use_reranker=False, min_vram_mb=None):
     """
     Создает и возвращает адаптер для Qdrant
 
     Args:
         use_reranker: Использовать ли ререйтинг
-        use_semantic_chunking: Использовать ли семантическое разделение (None - брать из конфига)
         min_vram_mb: Минимальное количество свободной VRAM в МБ для использования GPU
 
     Returns:
         QdrantAdapter: Адаптер для Qdrant
     """
-    # Если semantic_chunking не указано, берем из конфигурации
-    if use_semantic_chunking is None:
-        use_semantic_chunking = current_app.config.get('USE_SEMANTIC_CHUNKING', True)
-
     # Если min_vram_mb не указан, берем из конфигурации
     if min_vram_mb is None:
         min_vram_mb = current_app.config.get('MIN_VRAM_MB', 500)
@@ -49,9 +44,8 @@ def get_qdrant_adapter(use_reranker=False, use_semantic_chunking=None, min_vram_
         ollama_url=current_app.config['OLLAMA_URL'],
         use_reranker=use_reranker,
         reranker_model='BAAI/bge-reranker-v2-m3',
-        use_semantic_chunking=use_semantic_chunking,
         ollama_options=ollama_options,
-        min_vram_mb=min_vram_mb  # Добавляем параметр min_vram_mb
+        min_vram_mb=min_vram_mb
     )
 
 
@@ -99,25 +93,12 @@ def index_document(application_id, file_id, progress_callback=None):
     logger.info(f"Файл найден: {file.file_path} (размер: {os.path.getsize(file.file_path)} байт)")
 
     try:
-        # Определяем, использовать ли семантическое разделение
-        use_semantic_chunking = True
-
-        # Проверяем расширение файла
-        _, ext = os.path.splitext(file.file_path)
-        ext = ext.lower()
-
-        # Семантическое разделение имеет смысл только для PDF файлов
-        if ext != '.pdf':
-            use_semantic_chunking = False
-
-        logger.info(f"Тип файла: {ext.lower()}, использование семантического разделения: {use_semantic_chunking}")
-
-        # Получаем адаптер Qdrant с настройкой семантического разделения
-        qdrant_adapter = get_qdrant_adapter(use_semantic_chunking=use_semantic_chunking)
+        # Получаем адаптер Qdrant
+        qdrant_adapter = get_qdrant_adapter()
 
         # Обновляем статус
         if progress_callback:
-            progress_callback(15, 'convert', 'Конвертация документа...')
+            progress_callback(15, 'convert', 'Начало обработки документа...')
 
         # Индексируем документ с отслеживанием прогресса
         result = qdrant_adapter.index_document_with_progress(

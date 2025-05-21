@@ -12,11 +12,11 @@
         <form method="post" enctype="multipart/form-data">
             <div class="form-group">
                 <label for="document">Выберите файл документа ППЭЭ</label>
-                <input type="file" id="document" name="document" accept=".pdf,.docx,.md,.txt" required>
-                <p class="form-note">Поддерживаемые форматы: PDF, DOCX, Markdown, TXT</p>
+                <input type="file" id="document" name="document" accept=".pdf" required>
+                <p class="form-note">Поддерживаемый формат: только PDF</p>
                 <p class="form-note">Максимальный размер файла: 100МБ</p>
             </div>
-            
+
             <div class="form-actions">
                 <button type="submit" class="button">Загрузить и индексировать</button>
                 <a href="{{ url_for('applications.view', id=application.id) }}" class="button button-secondary">Отмена</a>

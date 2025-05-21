@@ -3,7 +3,6 @@ import logging
 from typing import List, Dict, Any, Optional
 
 from ppee_analyzer.vector_store import QdrantManager, BGEReranker
-from ppee_analyzer.document_processor import PPEEDocumentSplitter, DoclingPDFConverter
 from langchain_core.documents import Document
 from qdrant_client.http import models
 
@@ -23,10 +22,9 @@ class QdrantAdapter:
                  ollama_url: str = "http://localhost:11434",
                  use_reranker: bool = False,
                  reranker_model: str = "BAAI/bge-reranker-v2-m3",
-                 use_semantic_chunking: bool = True,
                  check_ollama_availability: bool = True,
                  ollama_options: Dict[str, Any] = None,
-                 min_vram_mb: int = 500):  # Добавляем параметр min_vram_mb
+                 min_vram_mb: int = 500):
         """
         Инициализирует адаптер для Qdrant.
 
@@ -40,7 +38,6 @@ class QdrantAdapter:
             ollama_url: URL для Ollama API
             use_reranker: Использовать ре-ранкер для уточнения результатов
             reranker_model: Название модели ре-ранкера
-            use_semantic_chunking: Использовать семантическое разделение для PDF
             check_ollama_availability: Проверять ли доступность Ollama при инициализации
             ollama_options: Опции для Ollama API
             min_vram_mb: Минимальное количество свободной VRAM в МБ для использования GPU
@@ -52,8 +49,7 @@ class QdrantAdapter:
         self.model_name = model_name
         self.device = device
         self.ollama_url = ollama_url
-        self.use_semantic_chunking = use_semantic_chunking
-        self.min_vram_mb = min_vram_mb  # Сохраняем минимальный порог VRAM
+        self.min_vram_mb = min_vram_mb
 
         # Получаем опции из OllamaEmbeddings
         from ppee_analyzer.vector_store.ollama_embeddings import OllamaEmbeddings
@@ -76,9 +72,6 @@ class QdrantAdapter:
             ollama_options=options
         )
 
-        # Инициализация сплиттера документов
-        self.splitter = PPEEDocumentSplitter()
-
         # Инициализация ре-ранкера (при необходимости)
         self.use_reranker = use_reranker
         if use_reranker:
@@ -87,7 +80,7 @@ class QdrantAdapter:
                 self.reranker = BGEReranker(
                     model_name=reranker_model,
                     device=device,
-                    min_vram_mb=min_vram_mb  # Передаем минимальный порог VRAM
+                    min_vram_mb=min_vram_mb
                 )
                 logger.info(f"Ре-ранкер инициализирован с моделью {reranker_model}")
             except Exception as e:
@@ -97,13 +90,12 @@ class QdrantAdapter:
         logger.info(f"QdrantAdapter инициализирован для коллекции {collection_name} на {host}:{port}")
 
         # Проверяем доступность семантического чанкера
-        if self.use_semantic_chunking:
-            try:
-                from ppee_analyzer.semantic_chunker import SemanticChunker
-                logger.info("Семантический чанкер доступен и будет использован для PDF")
-            except ImportError:
-                logger.warning("Модуль semantic_chunker не найден. Будет использоваться стандартное разделение.")
-                self.use_semantic_chunking = False
+        try:
+            from ppee_analyzer.semantic_chunker import SemanticChunker
+            logger.info("Семантический чанкер доступен и будет использован для обработки документов")
+        except ImportError:
+            logger.warning("Модуль semantic_chunker не найден. Обработка документов невозможна.")
+            raise ImportError("Модуль semantic_chunker не найден. Требуется для обработки документов.")
 
     def _ensure_collection_exists(self):
         """Проверяет существование коллекции и создает при необходимости"""
@@ -165,12 +157,12 @@ class QdrantAdapter:
             except Exception as e:
                 logger.warning(f"Ошибка при проверке индексов: {str(e)}")
 
-    def _convert_pdf_with_semantic_chunking(self, pdf_path: str, application_id: str) -> List[Document]:
+    def _process_document_with_semantic_chunker(self, document_path: str, application_id: str) -> List[Document]:
         """
-        Конвертирует PDF с использованием семантического разделения.
+        Обрабатывает документ с использованием семантического разделения.
 
         Args:
-            pdf_path: Путь к PDF файлу
+            document_path: Путь к документу
             application_id: ID заявки
 
         Returns:
@@ -185,126 +177,77 @@ class QdrantAdapter:
             if hasattr(self, 'device') and self.device.lower() == 'cuda':
                 use_gpu = True
 
-            logger.info(f"Используем семантическое разделение для PDF: {pdf_path}")
+            logger.info(f"Обработка документа с использованием семантического чанкера: {document_path}")
 
-            # Инициализируем семантический чанкер
-            chunker = SemanticChunker(use_gpu=use_gpu)
+            # Получаем расширение файла
+            _, ext = os.path.splitext(document_path)
+            ext = ext.lower()
 
-            # Шаг 1: Извлекаем смысловые блоки
-            logger.info("Извлечение смысловых блоков...")
-            chunks = chunker.extract_chunks(pdf_path)
-            logger.info(f"Найдено {len(chunks)} начальных блоков")
+            # Проверяем, что это PDF
+            if ext == '.pdf':
+                # Инициализируем семантический чанкер
+                chunker = SemanticChunker(use_gpu=use_gpu)
 
-            # Шаг 2: Обрабатываем таблицы
-            logger.info("Обработка и объединение таблиц...")
-            processed_chunks = chunker.post_process_tables(chunks)
-            logger.info(f"После обработки таблиц: {len(processed_chunks)} блоков")
+                # Шаг 1: Извлекаем смысловые блоки
+                logger.info("Извлечение смысловых блоков...")
+                chunks = chunker.extract_chunks(document_path)
+                logger.info(f"Найдено {len(chunks)} начальных блоков")
 
-            # Шаг 3: Группируем короткие блоки
-            logger.info("Группировка коротких блоков...")
-            grouped_chunks = chunker.group_semantic_chunks(processed_chunks)
-            logger.info(f"После группировки: {len(grouped_chunks)} финальных блоков")
+                # Шаг 2: Обрабатываем таблицы
+                logger.info("Обработка и объединение таблиц...")
+                processed_chunks = chunker.post_process_tables(chunks)
+                logger.info(f"После обработки таблиц: {len(processed_chunks)} блоков")
 
-            # Создаем идентификатор документа на основе имени файла
-            document_id = f"doc_{os.path.basename(pdf_path).replace(' ', '_').replace('.', '_')}"
-            document_name = os.path.basename(pdf_path)
+                # Шаг 3: Группируем короткие блоки
+                logger.info("Группировка коротких блоков...")
+                grouped_chunks = chunker.group_semantic_chunks(processed_chunks)
+                logger.info(f"После группировки: {len(grouped_chunks)} финальных блоков")
 
-            # Преобразуем в документы LangChain
-            documents = []
-            for i, chunk in enumerate(grouped_chunks):
-                # Создаем метаданные
-                metadata = {
-                    "application_id": application_id,
-                    "document_id": document_id,
-                    "document_name": document_name,
-                    "content_type": chunk.get("type", "unknown"),
-                    "chunk_index": i,
-                    "section": chunk.get("heading", "Не определено"),
-                }
+                # Создаем идентификатор документа на основе имени файла
+                document_id = f"doc_{os.path.basename(document_path).replace(' ', '_').replace('.', '_')}"
+                document_name = os.path.basename(document_path)
 
-                # Добавляем информацию о странице
-                if chunk.get("page"):
-                    metadata["page_number"] = chunk.get("page")
+                # Преобразуем в документы LangChain
+                documents = []
+                for i, chunk in enumerate(grouped_chunks):
+                    # Создаем метаданные
+                    metadata = {
+                        "application_id": application_id,
+                        "document_id": document_id,
+                        "document_name": document_name,
+                        "content_type": chunk.get("type", "unknown"),
+                        "chunk_index": i,
+                        "section": chunk.get("heading", "Не определено"),
+                    }
 
-                # Добавляем информацию о таблице
-                if chunk.get("type") == "table":
-                    metadata["table_id"] = chunk.get("table_id")
+                    # Добавляем информацию о странице
+                    if chunk.get("page"):
+                        metadata["page_number"] = chunk.get("page")
 
-                    # Если есть информация о нескольких страницах
-                    if chunk.get("pages"):
-                        metadata["pages"] = chunk.get("pages")
+                    # Добавляем информацию о таблице
+                    if chunk.get("type") == "table":
+                        metadata["table_id"] = chunk.get("table_id")
 
-                # Создаем документ
-                documents.append(Document(
-                    page_content=chunk.get("content", ""),
-                    metadata=metadata
-                ))
+                        # Если есть информация о нескольких страницах
+                        if chunk.get("pages"):
+                            metadata["pages"] = chunk.get("pages")
 
-            return documents
+                    # Создаем документ
+                    documents.append(Document(
+                        page_content=chunk.get("content", ""),
+                        metadata=metadata
+                    ))
 
-        except Exception as e:
-            logger.exception(f"Ошибка при семантическом разделении PDF: {str(e)}")
-            # Возвращаемся к стандартному разделению в случае ошибки
-            return self._convert_pdf_to_standard_chunks(pdf_path, application_id)
-
-    def _convert_pdf_to_standard_chunks(self, pdf_path: str, application_id: str) -> List[Document]:
-        """
-        Конвертирует PDF с использованием стандартного разделителя.
-
-        Args:
-            pdf_path: Путь к PDF файлу
-            application_id: ID заявки
-
-        Returns:
-            List[Document]: Список документов для индексации
-        """
-        logger.info(f"Используем стандартное разделение для PDF: {pdf_path}")
-
-        # Создаем идентификатор документа на основе имени файла
-        document_id = f"doc_{os.path.basename(pdf_path).replace(' ', '_').replace('.', '_')}"
-        document_name = os.path.basename(pdf_path)
-
-        # Используем стандартный сплиттер
-        from ppee_analyzer.document_processor import PPEEDocumentSplitter
-        splitter = PPEEDocumentSplitter()
-
-        # Загружаем и разделяем документ
-        return splitter.load_and_process_file(pdf_path, application_id)
-
-    def _convert_pdf_to_markdown(self, pdf_path: str) -> str:
-        """
-        Конвертирует PDF в Markdown для последующей обработки.
-
-        Args:
-            pdf_path: Путь к PDF файлу
-
-        Returns:
-            str: Путь к созданному Markdown файлу
-        """
-        try:
-            # Проверяем, что файл существует
-            if not os.path.isfile(pdf_path):
-                logger.error(f"PDF файл не найден: {pdf_path}")
-                raise FileNotFoundError(f"PDF файл не найден: {pdf_path}")
-
-            # Создаем путь для Markdown файла
-            md_path = os.path.splitext(pdf_path)[0] + ".md"
-
-            # Используем DoclingPDFConverter для конвертации
-            logger.info(f"Конвертация PDF через DoclingPDFConverter: {pdf_path}")
-            converter = DoclingPDFConverter(preserve_tables=True)
-            converter.convert_pdf_to_markdown(pdf_path, md_path)
-
-            if os.path.exists(md_path) and os.path.getsize(md_path) > 0:
-                logger.info(f"PDF успешно конвертирован через DoclingPDFConverter: {md_path}")
-                return md_path
+                return documents
             else:
-                logger.error(f"Не удалось конвертировать PDF в Markdown: {pdf_path}")
-                raise RuntimeError(f"Не удалось конвертировать PDF в Markdown: {pdf_path}")
+                # Для других форматов временно возвращаем ошибку
+                error_msg = f"Формат {ext} пока не поддерживается. Поддерживается только PDF."
+                logger.error(error_msg)
+                raise ValueError(error_msg)
 
         except Exception as e:
-            logger.exception(f"Ошибка при конвертации PDF в Markdown: {str(e)}")
-            raise
+            logger.exception(f"Ошибка при обработке документа через семантический чанкер: {str(e)}")
+            raise RuntimeError(f"Не удалось обработать документ: {str(e)}")
 
     def index_document(self,
                        application_id: str,
@@ -342,38 +285,9 @@ class QdrantAdapter:
             ext = ext.lower()
             logger.info(f"Расширение файла: {ext}")
 
-            # Определяем способ разделения и выполняем его
-            chunks = None
-            processing_path = document_path
-
-            # Для PDF используем семантическое разделение (если доступно)
-            if ext == '.pdf' and self.use_semantic_chunking:
-                try:
-                    # Пробуем использовать семантическое разделение
-                    chunks = self._convert_pdf_with_semantic_chunking(document_path, application_id)
-                    logger.info(
-                        f"PDF успешно разделен с помощью семантического чанкера: найдено {len(chunks)} фрагментов")
-                except Exception as e:
-                    logger.error(f"Ошибка при семантическом разделении PDF: {str(e)}")
-                    chunks = None  # Сбрасываем чанки для использования запасного метода
-
-            # Если не удалось разделить PDF семантически или это другой тип файла
-            if chunks is None:
-                # Если это PDF, сначала конвертируем его в Markdown
-                if ext == '.pdf':
-                    logger.info(f"Обнаружен PDF файл, требуется стандартная конвертация")
-                    try:
-                        processing_path = self._convert_pdf_to_markdown(document_path)
-                        logger.info(f"PDF успешно конвертирован в Markdown: {processing_path}")
-                    except Exception as e:
-                        logger.error(f"Ошибка при конвертации PDF: {str(e)}")
-                        # В случае ошибки продолжаем с исходным файлом
-                        processing_path = document_path
-
-                # Разделяем документ на фрагменты
-                logger.info(f"Разделение документа на фрагменты: {processing_path}")
-                chunks = self.splitter.load_and_process_file(processing_path, application_id)
-                logger.info(f"Документ разделен на {len(chunks)} фрагментов")
+            # Обрабатываем документ через семантический чанкер
+            chunks = self._process_document_with_semantic_chunker(document_path, application_id)
+            logger.info(f"Документ успешно обработан: получено {len(chunks)} фрагментов")
 
             # Если нужно, удаляем существующие данные заявки
             if delete_existing:
@@ -395,7 +309,7 @@ class QdrantAdapter:
             result = {
                 "application_id": application_id,
                 "document_path": document_path,
-                "processing_path": processing_path,
+                "processing_path": document_path,
                 "total_chunks": len(chunks),
                 "indexed_count": indexed_count,
                 "content_types": content_types,
@@ -444,54 +358,22 @@ class QdrantAdapter:
 
             # Обновляем прогресс
             if progress_callback:
-                progress_callback(20, 'convert', 'Начало конвертации документа...')
+                progress_callback(20, 'convert', 'Начало обработки документа...')
 
             # Проверяем расширение файла
             _, ext = os.path.splitext(document_path)
             ext = ext.lower()
 
-            # Определяем способ разделения и выполняем его
-            chunks = None
-            processing_path = document_path
+            # Для всех форматов используем семантический чанкер
+            if progress_callback:
+                progress_callback(25, 'convert', 'Начало семантического разделения документа...')
 
-            # Для PDF используем семантическое разделение (если доступно)
-            if ext == '.pdf' and self.use_semantic_chunking:
-                if progress_callback:
-                    progress_callback(25, 'convert', 'Начало семантического разделения PDF...')
+            # Обрабатываем документ через семантический чанкер
+            chunks = self._process_document_with_semantic_chunker(document_path, application_id)
+            logger.info(f"Документ успешно обработан: получено {len(chunks)} фрагментов")
 
-                try:
-                    # Пробуем использовать семантическое разделение
-                    chunks = self._convert_pdf_with_semantic_chunking(document_path, application_id)
-                    logger.info(
-                        f"PDF успешно разделен с помощью семантического чанкера: найдено {len(chunks)} фрагментов")
-
-                    if progress_callback:
-                        progress_callback(40, 'split', 'Семантическое разделение завершено успешно')
-                except Exception as e:
-                    logger.error(f"Ошибка при семантическом разделении PDF: {str(e)}")
-                    chunks = None  # Сбрасываем чанки для использования запасного метода
-
-            # Если не удалось разделить PDF семантически или это другой тип файла
-            if chunks is None:
-                # Если это PDF, сначала конвертируем его в Markdown
-                if ext == '.pdf':
-                    logger.info(f"Обнаружен PDF файл, требуется стандартная конвертация")
-                    try:
-                        processing_path = self._convert_pdf_to_markdown(document_path)
-                        logger.info(f"PDF успешно конвертирован в Markdown: {processing_path}")
-                    except Exception as e:
-                        logger.error(f"Ошибка при конвертации PDF: {str(e)}")
-                        # В случае ошибки продолжаем с исходным файлом
-                        processing_path = document_path
-
-                # Обновляем прогресс
-                if progress_callback:
-                    progress_callback(40, 'split', 'Разделение документа на фрагменты...')
-
-                # Разделяем документ на фрагменты
-                logger.info(f"Разделение документа на фрагменты: {processing_path}")
-                chunks = self.splitter.load_and_process_file(processing_path, application_id)
-                logger.info(f"Документ разделен на {len(chunks)} фрагментов")
+            if progress_callback:
+                progress_callback(40, 'split', 'Семантическое разделение завершено успешно')
 
             # Если нужно, удаляем существующие данные заявки
             if delete_existing:
@@ -541,7 +423,7 @@ class QdrantAdapter:
             result = {
                 "application_id": application_id,
                 "document_path": document_path,
-                "processing_path": processing_path,
+                "processing_path": document_path,
                 "total_chunks": total_chunks,
                 "indexed_count": total_chunks,
                 "content_types": content_types,
