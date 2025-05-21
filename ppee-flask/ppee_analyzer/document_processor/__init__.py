@@ -3,7 +3,6 @@
 """
 
 from .docling_converter import DoclingPDFConverter
-from .splitter import PPEEDocumentSplitter
 
 # Импортируем семантический разделитель
 try:
@@ -14,7 +13,6 @@ except ImportError:
 
 # Экспортируем все публичные классы
 __all__ = [
-    'PPEEDocumentSplitter',
     'DoclingPDFConverter'
 ]
 
