@@ -9,9 +9,7 @@ from app.blueprints.applications import bp
 from app.tasks.indexing_tasks import index_document_task
 from qdrant_client.http import models  # Добавляем импорт для создания фильтров в Qdrant
 from app.services.fastapi_client import FastAPIClient
-import redis
 
-redis_client = redis.Redis(host='localhost', port=6379, decode_responses=True)
 
 
 @bp.route('/')
@@ -276,63 +274,50 @@ def delete(id):
 
 @bp.route('/status/<task_id>')
 def task_status(task_id):
-    """Возвращает текущий статус задачи из Redis"""
-    # Сначала проверяем Redis
-    task_data = redis_client.get(f"task:{task_id}")
-
-    if task_data:
-        import json
-        data = json.loads(task_data)
+    """Возвращает текущий статус задачи через FastAPI"""
+    try:
+        # Используем FastAPI клиент для получения статуса
+        client = FastAPIClient()
+        task_data = client.get_task_status(task_id)
 
         # Преобразуем статус из FastAPI формата в формат Flask
-        if data['status'] == 'PROGRESS':
+        if task_data['status'] == 'PROGRESS':
             response_data = {
                 'status': 'progress',
-                'progress': data.get('progress', 0),
-                'message': data.get('message', ''),
-                'stage': data.get('stage', '')
+                'progress': task_data.get('progress', 0),
+                'message': task_data.get('message', ''),
+                'stage': task_data.get('stage', '')
             }
-        elif data['status'] == 'SUCCESS':
+        elif task_data['status'] == 'SUCCESS':
             response_data = {
                 'status': 'success',
                 'progress': 100,
                 'message': 'Задача успешно завершена',
                 'stage': 'complete'
             }
-
-            # Обновляем статус в БД если задача завершена
-            application = Application.query.filter_by(task_id=task_id).first()
-            if application:
-                if application.status == 'indexing':
-                    application.status = 'indexed'
-                elif application.status == 'analyzing':
-                    application.status = 'analyzed'
-                    # Сохраняем результаты анализа
-                    if 'result' in data and 'results' in data['result']:
-                        save_analysis_results(application.id, data['result']['results'])
-                db.session.commit()
-        elif data['status'] == 'FAILURE':
+        elif task_data['status'] == 'FAILURE':
             response_data = {
                 'status': 'error',
-                'message': data.get('message', 'Неизвестная ошибка')
+                'message': task_data.get('message', 'Неизвестная ошибка')
             }
         else:
-            response_data = data
+            response_data = task_data
 
         return jsonify(response_data)
 
-    # Если в Redis нет, проверяем БД
-    application = Application.query.filter_by(task_id=task_id).first()
-    if not application:
-        return jsonify({'status': 'error', 'message': 'Задача не найдена'}), 404
+    except Exception as e:
+        # Если не удалось получить статус из FastAPI, проверяем БД
+        application = Application.query.filter_by(task_id=task_id).first()
+        if not application:
+            return jsonify({'status': 'error', 'message': 'Задача не найдена'}), 404
 
-    # Возвращаем статус из БД
-    return jsonify({
-        'status': application.status,
-        'application_status': application.status,
-        'progress': 100 if application.status in ['indexed', 'analyzed'] else 0,
-        'message': application.status_message or 'Обработка...'
-    })
+        # Возвращаем статус из БД
+        return jsonify({
+            'status': application.status,
+            'application_status': application.status,
+            'progress': 100 if application.status in ['indexed', 'analyzed'] else 0,
+            'message': application.status_message or 'Обработка...'
+        })
 
 
 def save_analysis_results(application_id, results):
@@ -414,19 +399,12 @@ def status(id):
     # Иначе формируем базовый ответ
     response_data = {
         'status': application.status,
-        'progress': None,
-        'message': application.status_message or 'Неизвестный статус',
-        'stage': None
+        'progress': 0,
+        'message': application.status_message or application.get_status_display(),
+        'stage': application.status
     }
 
-    # Устанавливаем stage в зависимости от статуса
-    if application.status == 'indexing':
-        response_data['stage'] = 'prepare'
-    elif application.status == 'analyzing':
-        response_data['stage'] = 'prepare'
-
     return jsonify(response_data)
-
 
 @bp.route('/<int:id>/chunks')
 def view_chunks(id):

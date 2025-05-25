@@ -1,4 +1,4 @@
-from app import celery
+from app import celery, create_app
 import logging
 import requests
 import time
@@ -14,98 +14,101 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
                          use_smart_search=False, vector_weight=0.5, text_weight=0.5,
                          hybrid_threshold=10):
     """Асинхронная задача для семантического поиска через FastAPI"""
+    # Создаем контекст приложения для работы с БД
+    app = create_app()
 
-    task_id = self.request.id
-    start_time = time.time()  # Добавляем определение start_time здесь
+    with app.app_context():
+        task_id = self.request.id
+        start_time = time.time()
 
-    try:
-        # Вызываем FastAPI для поиска
-        response = requests.post(f"{FASTAPI_URL}/search", json={
-            "application_id": str(application_id),
-            "query": query_text,
-            "limit": limit,
-            "use_reranker": use_reranker,
-            "rerank_limit": rerank_limit,
-            "use_smart_search": use_smart_search,
-            "vector_weight": vector_weight,
-            "text_weight": text_weight,
-            "hybrid_threshold": hybrid_threshold
-        })
-
-        if response.status_code != 200:
-            raise Exception(f"FastAPI search error: {response.text}")
-
-        search_results = response.json()["results"]
-
-        # Обработка через LLM если нужно
-        llm_result = None
-        if use_llm and llm_params and search_results:
-            # Форматируем контекст
-            context = format_documents_for_context(search_results)
-
-            # Вызываем LLM через FastAPI
-            llm_response = requests.post(f"{FASTAPI_URL}/llm/process", json={
-                "model_name": llm_params.get('model_name', 'gemma3:27b'),
-                "prompt": llm_params.get('prompt_template', ''),
-                "context": context,
-                "parameters": {
-                    'temperature': llm_params.get('temperature', 0.1),
-                    'max_tokens': llm_params.get('max_tokens', 1000),
-                    'search_query': query_text
-                },
-                "query": query_text
+        try:
+            # Вызываем FastAPI для поиска
+            response = requests.post(f"{FASTAPI_URL}/search", json={
+                "application_id": str(application_id),
+                "query": query_text,
+                "limit": limit,
+                "use_reranker": use_reranker,
+                "rerank_limit": rerank_limit,
+                "use_smart_search": use_smart_search,
+                "vector_weight": vector_weight,
+                "text_weight": text_weight,
+                "hybrid_threshold": hybrid_threshold
             })
 
-            if llm_response.status_code == 200:
-                llm_text = llm_response.json()["response"]
-                llm_result = {
-                    'value': extract_value_from_response(llm_text, query_text),
-                    'confidence': calculate_confidence(llm_text),
-                    'raw_response': llm_text
+            if response.status_code != 200:
+                raise Exception(f"FastAPI search error: {response.text}")
+
+            search_results = response.json()["results"]
+
+            # Обработка через LLM если нужно
+            llm_result = None
+            if use_llm and llm_params and search_results:
+                # Форматируем контекст
+                context = format_documents_for_context(search_results)
+
+                # Вызываем LLM через FastAPI
+                llm_response = requests.post(f"{FASTAPI_URL}/llm/process", json={
+                    "model_name": llm_params.get('model_name', 'gemma3:27b'),
+                    "prompt": llm_params.get('prompt_template', ''),
+                    "context": context,
+                    "parameters": {
+                        'temperature': llm_params.get('temperature', 0.1),
+                        'max_tokens': llm_params.get('max_tokens', 1000),
+                        'search_query': query_text
+                    },
+                    "query": query_text
+                })
+
+                if llm_response.status_code == 200:
+                    llm_text = llm_response.json()["response"]
+                    llm_result = {
+                        'value': extract_value_from_response(llm_text, query_text),
+                        'confidence': calculate_confidence(llm_text),
+                        'raw_response': llm_text
+                    }
+
+            # Форматируем результаты
+            formatted_results = []
+            for i, result in enumerate(search_results):
+                formatted_result = {
+                    'position': i + 1,
+                    'text': result.get('text', ''),
+                    'section': result.get('metadata', {}).get('section', 'Неизвестно'),
+                    'content_type': result.get('metadata', {}).get('content_type', 'Неизвестно'),
+                    'score': round(float(result.get('score', 0.0)), 4),
+                    'search_type': result.get('search_type', 'vector')
                 }
 
-        # Форматируем результаты
-        formatted_results = []
-        for i, result in enumerate(search_results):
-            formatted_result = {
-                'position': i + 1,
-                'text': result.get('text', ''),
-                'section': result.get('metadata', {}).get('section', 'Неизвестно'),
-                'content_type': result.get('metadata', {}).get('content_type', 'Неизвестно'),
-                'score': round(float(result.get('score', 0.0)), 4),
-                'search_type': result.get('search_type', 'vector')
+                # Добавляем rerank_score если есть
+                if 'rerank_score' in result:
+                    formatted_result['rerank_score'] = round(float(result.get('rerank_score', 0.0)), 4)
+
+                formatted_results.append(formatted_result)
+
+            # Определяем метод поиска
+            search_method = 'vector'
+            if use_smart_search:
+                search_method = 'hybrid' if len(query_text) < hybrid_threshold else 'vector'
+
+            return {
+                'status': 'success',
+                'count': len(formatted_results),
+                'use_reranker': use_reranker,
+                'use_smart_search': use_smart_search,
+                'search_method': search_method,
+                'use_llm': use_llm,
+                'execution_time': round(time.time() - start_time, 2),
+                'results': formatted_results,
+                'llm_result': llm_result
             }
 
-            # Добавляем rerank_score если есть
-            if 'rerank_score' in result:
-                formatted_result['rerank_score'] = round(float(result.get('rerank_score', 0.0)), 4)
-
-            formatted_results.append(formatted_result)
-
-        # Определяем метод поиска
-        search_method = 'vector'
-        if use_smart_search:
-            search_method = 'hybrid' if len(query_text) < hybrid_threshold else 'vector'
-
-        return {
-            'status': 'success',
-            'count': len(formatted_results),
-            'use_reranker': use_reranker,
-            'use_smart_search': use_smart_search,
-            'search_method': search_method,
-            'use_llm': use_llm,
-            'execution_time': round(time.time() - start_time, 2),
-            'results': formatted_results,
-            'llm_result': llm_result
-        }
-
-    except Exception as e:
-        logger.error(f"Ошибка при поиске: {e}")
-        return {
-            'status': 'error',
-            'message': str(e),
-            'execution_time': round(time.time() - start_time, 2)
-        }
+        except Exception as e:
+            logger.error(f"Ошибка при поиске: {e}")
+            return {
+                'status': 'error',
+                'message': str(e),
+                'execution_time': round(time.time() - start_time, 2)
+            }
 
 
 def format_documents_for_context(documents, max_docs=8):

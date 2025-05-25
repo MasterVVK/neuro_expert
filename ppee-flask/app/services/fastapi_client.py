@@ -98,3 +98,23 @@ class FastAPIClient:
         except Exception as e:
             logger.error(f"Ошибка получения моделей: {e}")
             return []
+
+    def get_task_status(self, task_id: str) -> Dict[str, Any]:
+        """Получает статус задачи"""
+        try:
+            response = requests.get(f"{self.base_url}/tasks/{task_id}/status")
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logger.error(f"Ошибка получения статуса задачи: {e}")
+            raise
+
+    def get_task_results(self, task_id: str) -> Dict[str, Any]:
+        """Получает результаты выполненной задачи"""
+        try:
+            response = requests.get(f"{self.base_url}/tasks/{task_id}/results")
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logger.error(f"Ошибка получения результатов задачи: {e}")
+            raise
