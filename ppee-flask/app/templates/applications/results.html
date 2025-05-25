@@ -53,18 +53,28 @@
                             <tr class="prompt-row" id="prompt-{{ item.result.id }}" style="display: none;">
                                 <td colspan="4" class="prompt-container">
                                     {% if item.result.llm_request %}
-                                        <h4>Использованный промпт:</h4>
-                                        <div class="text-scroll-container">
-                                            <div class="llm-prompt text-container">
-                                                {{ item.result.llm_request.full_prompt }}
+                                        {% if item.result.llm_request.prompt %}
+                                            <h4>Использованный промпт:</h4>
+                                            <div class="text-scroll-container">
+                                                <div class="llm-prompt text-container">
+                                                    {{ item.result.llm_request.prompt }}
+                                                </div>
                                             </div>
-                                        </div>
+                                        {% else %}
+                                            <div class="alert alert-warning">
+                                                <p><strong>Внимание:</strong> Полный промпт не был сохранен для этого результата.</p>
+                                                <p>Шаблон промпта: {{ item.parameter.llm_prompt_template[:100] }}...</p>
+                                            </div>
+                                        {% endif %}
 
                                         <h4>Параметры запроса:</h4>
                                         <ul>
-                                            <li>Модель: {{ item.result.llm_request.model }}</li>
-                                            <li>Temperature: {{ item.result.llm_request.temperature }}</li>
-                                            <li>Max tokens: {{ item.result.llm_request.max_tokens }}</li>
+                                            <li>Модель: {{ item.result.llm_request.model or item.parameter.llm_model }}</li>
+                                            <li>Temperature: {{ item.result.llm_request.temperature or item.parameter.llm_temperature }}</li>
+                                            <li>Max tokens: {{ item.result.llm_request.max_tokens or item.parameter.llm_max_tokens }}</li>
+                                            {% if item.result.llm_request.context_length %}
+                                            <li>Context length: {{ item.result.llm_request.context_length }}</li>
+                                            {% endif %}
                                         </ul>
 
                                         {% if item.result.llm_request.response %}
@@ -75,12 +85,34 @@
                                                 </div>
                                             </div>
                                         {% endif %}
-                                    {% elif item.result.search_results %}
-                                        <h4>Использованный промпт:</h4>
-                                        <div class="text-scroll-container">
-                                            <div class="llm-prompt text-container">
-                                                {{ item.parameter.llm_prompt_template|replace("{query}", item.parameter.search_query)|replace("{context}", "[Контекст из результатов поиска]") }}
+
+                                        <h4>Результаты поиска (контекст):</h4>
+                                        {% if item.result.search_results %}
+                                            {% for doc in item.result.search_results %}
+                                            <div class="search-result">
+                                                <p><strong>Документ {{ loop.index }}:</strong></p>
+                                                {% if doc.metadata %}
+                                                    <p><strong>Раздел:</strong> {{ doc.metadata.section or 'Не указан' }}</p>
+                                                    <p><strong>Тип:</strong> {{ doc.metadata.content_type or 'Не указан' }}</p>
+                                                    {% if doc.score %}
+                                                    <p><strong>Релевантность:</strong> {{ "%.4f"|format(doc.score) }}</p>
+                                                    {% endif %}
+                                                    {% if doc.rerank_score %}
+                                                    <p><strong>Релевантность (ререйтинг):</strong> {{ "%.4f"|format(doc.rerank_score) }}</p>
+                                                    {% endif %}
+                                                {% endif %}
+                                                <div class="text-scroll-container">
+                                                    <div class="search-result-content text-container">
+                                                        {{ doc.text }}
+                                                    </div>
+                                                </div>
                                             </div>
+                                            {% endfor %}
+                                        {% endif %}
+                                    {% elif item.result.search_results %}
+                                        {# Старый формат - промпт не сохранялся #}
+                                        <div class="alert alert-info">
+                                            <p><strong>Информация:</strong> Для данного результата сохранен старый формат данных без полного промпта.</p>
                                         </div>
 
                                         <h4>Параметры запроса:</h4>
@@ -124,6 +156,24 @@
         html, body {
             overflow-x: hidden;
             max-width: 100%;
+        /* Стили для уведомлений */
+        .alert {
+            padding: 15px;
+            margin-bottom: 20px;
+            border: 1px solid transparent;
+            border-radius: 4px;
+        }
+
+        .alert-warning {
+            color: #856404;
+            background-color: #fff3cd;
+            border-color: #ffeaa7;
+        }
+
+        .alert-info {
+            color: #0c5460;
+            background-color: #d1ecf1;
+            border-color: #bee5eb;
         }
 
         .container {
@@ -246,6 +296,111 @@
         .toggle-label {
             white-space: nowrap; /* Запрещаем перенос текста */
             display: inline-block; /* Чтобы действовал white-space */
+        }
+
+        /* Стиль для отображения уверенности */
+        .confidence-bar {
+            position: relative;
+            height: 20px;
+            background-color: #e9ecef;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .confidence-value {
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100%;
+            background-color: #28a745;
+            transition: width 0.3s ease;
+        }
+
+        .confidence-bar span {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            text-align: center;
+            line-height: 20px;
+            color: white;
+            font-weight: bold;
+            text-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
+            z-index: 1;
+        }
+
+        /* Цвета для разной уверенности */
+        .confidence-value[style*="width: 0%"],
+        .confidence-value[style*="width: 1%"],
+        .confidence-value[style*="width: 2%"],
+        .confidence-value[style*="width: 3%"],
+        .confidence-value[style*="width: 4%"],
+        .confidence-value[style*="width: 5%"],
+        .confidence-value[style*="width: 6%"],
+        .confidence-value[style*="width: 7%"],
+        .confidence-value[style*="width: 8%"],
+        .confidence-value[style*="width: 9%"],
+        .confidence-value[style*="width: 10%"],
+        .confidence-value[style*="width: 11%"],
+        .confidence-value[style*="width: 12%"],
+        .confidence-value[style*="width: 13%"],
+        .confidence-value[style*="width: 14%"],
+        .confidence-value[style*="width: 15%"],
+        .confidence-value[style*="width: 16%"],
+        .confidence-value[style*="width: 17%"],
+        .confidence-value[style*="width: 18%"],
+        .confidence-value[style*="width: 19%"],
+        .confidence-value[style*="width: 20%"],
+        .confidence-value[style*="width: 21%"],
+        .confidence-value[style*="width: 22%"],
+        .confidence-value[style*="width: 23%"],
+        .confidence-value[style*="width: 24%"],
+        .confidence-value[style*="width: 25%"],
+        .confidence-value[style*="width: 26%"],
+        .confidence-value[style*="width: 27%"],
+        .confidence-value[style*="width: 28%"],
+        .confidence-value[style*="width: 29%"],
+        .confidence-value[style*="width: 30%"],
+        .confidence-value[style*="width: 31%"],
+        .confidence-value[style*="width: 32%"],
+        .confidence-value[style*="width: 33%"] {
+            background-color: #dc3545; /* Красный для низкой уверенности */
+        }
+
+        .confidence-value[style*="width: 34%"],
+        .confidence-value[style*="width: 35%"],
+        .confidence-value[style*="width: 36%"],
+        .confidence-value[style*="width: 37%"],
+        .confidence-value[style*="width: 38%"],
+        .confidence-value[style*="width: 39%"],
+        .confidence-value[style*="width: 40%"],
+        .confidence-value[style*="width: 41%"],
+        .confidence-value[style*="width: 42%"],
+        .confidence-value[style*="width: 43%"],
+        .confidence-value[style*="width: 44%"],
+        .confidence-value[style*="width: 45%"],
+        .confidence-value[style*="width: 46%"],
+        .confidence-value[style*="width: 47%"],
+        .confidence-value[style*="width: 48%"],
+        .confidence-value[style*="width: 49%"],
+        .confidence-value[style*="width: 50%"],
+        .confidence-value[style*="width: 51%"],
+        .confidence-value[style*="width: 52%"],
+        .confidence-value[style*="width: 53%"],
+        .confidence-value[style*="width: 54%"],
+        .confidence-value[style*="width: 55%"],
+        .confidence-value[style*="width: 56%"],
+        .confidence-value[style*="width: 57%"],
+        .confidence-value[style*="width: 58%"],
+        .confidence-value[style*="width: 59%"],
+        .confidence-value[style*="width: 60%"],
+        .confidence-value[style*="width: 61%"],
+        .confidence-value[style*="width: 62%"],
+        .confidence-value[style*="width: 63%"],
+        .confidence-value[style*="width: 64%"],
+        .confidence-value[style*="width: 65%"],
+        .confidence-value[style*="width: 66%"] {
+            background-color: #ffc107; /* Желтый для средней уверенности */
         }
     </style>
 
