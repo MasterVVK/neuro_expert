@@ -2,7 +2,7 @@ from flask import render_template, redirect, url_for, flash, request, jsonify, c
 from app import db
 from app.models import Checklist, ChecklistParameter
 from app.blueprints.checklists import bp
-from app.adapters.llm_adapter import OllamaLLMProvider
+from app.services.fastapi_client import FastAPIClient
 
 
 @bp.route('/')
@@ -80,8 +80,8 @@ def create_parameter(id):
         return redirect(url_for('checklists.view', id=checklist.id))
 
     # Получаем список доступных моделей
-    llm_provider = OllamaLLMProvider(base_url=current_app.config['OLLAMA_URL'])
-    available_models = llm_provider.get_available_models()
+    client = FastAPIClient()
+    available_models = client.get_llm_models()
 
     # Если не удалось получить список моделей, используем фиксированный список
     if not available_models:
@@ -142,8 +142,8 @@ def edit_parameter(id):
         return redirect(url_for('checklists.view', id=checklist.id))
 
     # Получаем список доступных моделей
-    llm_provider = OllamaLLMProvider(base_url=current_app.config['OLLAMA_URL'])
-    available_models = llm_provider.get_available_models()
+    client = FastAPIClient()
+    available_models = client.get_llm_models()
 
     # Если не удалось получить список моделей, используем фиксированный список
     if not available_models:

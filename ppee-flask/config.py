@@ -44,6 +44,8 @@ class Config:
     USE_SEMANTIC_CHUNKING = os.environ.get('USE_SEMANTIC_CHUNKING', '1') == '1'
     USE_GPU_FOR_CHUNKING = os.environ.get('USE_GPU_FOR_CHUNKING', '1') == '1'
 
+    # FastAPI сервис
+    FASTAPI_URL = os.environ.get('FASTAPI_URL') or 'http://localhost:8001'
 
 class DevelopmentConfig(Config):
     DEBUG = True

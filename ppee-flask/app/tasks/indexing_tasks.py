@@ -1,26 +1,17 @@
 from app import celery, db
 from app.models import Application, File
-from app.services.vector_service import index_document as index_document_service
-from app.tasks.base_task import BaseTask
 import logging
+import requests
+import uuid
 
-# Настройка логирования
 logger = logging.getLogger(__name__)
+
+FASTAPI_URL = "http://localhost:8001"
 
 
 @celery.task(bind=True)
-@BaseTask.task_wrapper
 def index_document_task(self, application_id, file_id):
-    """
-    Асинхронная задача для индексации документа.
-
-    Args:
-        application_id: ID заявки
-        file_id: ID файла
-
-    Returns:
-        dict: Результат индексации
-    """
+    """Асинхронная задача для индексации документа через FastAPI"""
     # Получаем данные из БД
     application = Application.query.get(application_id)
     file = File.query.get(file_id)
@@ -28,36 +19,28 @@ def index_document_task(self, application_id, file_id):
     if not application or not file:
         return {'status': 'error', 'message': 'Заявка или файл не найдены'}
 
-    # Записываем ID задачи в приложение
-    application.task_id = self.request.id
+    # Записываем ID задачи
+    task_id = self.request.id
+    application.task_id = task_id
     db.session.commit()
 
-    # Начальное состояние (разовое обновление статуса)
-    BaseTask.update_progress(self, 5, 'prepare', 'Подготовка к индексации...')
+    try:
+        # Отправляем запрос в FastAPI
+        response = requests.post(f"{FASTAPI_URL}/index", json={
+            "task_id": task_id,
+            "application_id": str(application_id),
+            "document_path": file.file_path,
+            "delete_existing": False
+        })
 
-    # Обновляем статус перед конвертацией
-    BaseTask.update_progress(self, 15, 'convert', 'Подготовка к конвертации документа...')
+        if response.status_code == 200:
+            return {"status": "success", "message": "Индексация запущена"}
+        else:
+            raise Exception(f"FastAPI вернул ошибку: {response.text}")
 
-    # Индексируем документ с отслеживанием прогресса через callback
-    result = index_document_service(
-        application_id=application_id,
-        file_id=file_id,
-        progress_callback=lambda progress, stage, message:
-        BaseTask.update_progress(self, progress, stage, message)
-    )
-
-    # Обновляем статус заявки на основе результата
-    if result["status"] == "success":
-        application.status = "indexed"
-        logger.info(f"Индексация для заявки {application_id} успешно завершена")
-    else:
+    except Exception as e:
+        logger.error(f"Ошибка при вызове FastAPI: {e}")
         application.status = "error"
-        application.status_message = result.get("error", "Неизвестная ошибка")
-        logger.error(f"Ошибка при индексации заявки {application_id}: {result.get('error', 'Неизвестная ошибка')}")
-
-    db.session.commit()
-
-    # Финальное обновление прогресса будет выполнено в декораторе task_wrapper
-    # Не нужно вызывать BaseTask.update_progress() для финального статуса
-
-    return result
+        application.status_message = str(e)
+        db.session.commit()
+        return {"status": "error", "message": str(e)}

@@ -2,7 +2,7 @@ from flask import render_template, redirect, url_for, flash, request, jsonify, c
 from app.blueprints.search import bp
 from app.models import Application, Checklist, ChecklistParameter
 from app.tasks.search_tasks import semantic_search_task
-from app.adapters.llm_adapter import OllamaLLMProvider
+from app.services.fastapi_client import FastAPIClient
 
 
 @bp.route('/')
@@ -11,12 +11,12 @@ def index():
     # Получаем список доступных заявок
     applications = Application.query.filter(Application.status.in_(['indexed', 'analyzed'])).all()
 
-    # Получаем список доступных моделей LLM
-    llm_provider = OllamaLLMProvider(base_url=current_app.config['OLLAMA_URL'])
-    available_models = llm_provider.get_available_models()
-
-    # Если не удалось получить список моделей, используем фиксированный список
-    if not available_models:
+    # Получаем список доступных моделей LLM через FastAPI
+    try:
+        client = FastAPIClient()
+        available_models = client.get_llm_models()
+    except Exception as e:
+        current_app.logger.error(f"Ошибка при получении списка моделей: {str(e)}")
         available_models = ['gemma3:27b', 'llama3:8b', 'mistral:7b']
 
     # Получаем шаблон промпта из базы данных
@@ -33,19 +33,32 @@ def index():
     except Exception as e:
         current_app.logger.error(f"Ошибка при получении шаблона промпта: {str(e)}")
 
-    # Если не удалось получить промпт из базы данных
+    # Если не удалось получить промпт из базы данных, используем шаблон по умолчанию
     if not default_prompt:
-        flash(
-            'Не удалось загрузить шаблон промпта из базы данных. Пожалуйста, введите его вручную или создайте параметры чек-листа.',
-            'warning')
-        # Оставляем пустое значение вместо шаблона по умолчанию
-        default_prompt = ""
+        default_prompt = """Ты эксперт по поиску информации в документах.
+
+Нужно найти значение для параметра: "{query}"
+
+Найденные результаты:
+{context}
+
+Твоя задача - извлечь точное значение для параметра "{query}" из предоставленных документов.
+
+Правила:
+1. Если значение найдено в нескольких местах, выбери наиболее полное и точное.
+2. Если значение в таблице, внимательно определи соответствие между строкой и нужным столбцом.
+3. Не добавляй никаких комментариев или пояснений - только параметр и его значение.
+4. Значение должно содержать данные, которые есть в документах.
+5. Если параметр не найден, укажи: "Информация не найдена".
+
+Ответь одной строкой в указанном формате:
+{query}: [значение]"""
 
     return render_template('search/index.html',
                            title='Семантический поиск',
                            applications=applications,
                            available_models=available_models,
-                           default_prompt=default_prompt)  # Передаем промпт в шаблон
+                           default_prompt=default_prompt)
 
 
 @bp.route('/execute', methods=['POST'])

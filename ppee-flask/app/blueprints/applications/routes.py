@@ -8,6 +8,10 @@ from app.models import Application, File, Checklist
 from app.blueprints.applications import bp
 from app.tasks.indexing_tasks import index_document_task
 from qdrant_client.http import models  # Добавляем импорт для создания фильтров в Qdrant
+from app.services.fastapi_client import FastAPIClient
+import redis
+
+redis_client = redis.Redis(host='localhost', port=6379, decode_responses=True)
 
 
 @bp.route('/')
@@ -245,20 +249,20 @@ def results(id):
 
 @bp.route('/<int:id>/delete', methods=['POST'])
 def delete(id):
-    """Удаление заявки"""
+    """Удаление заявки через FastAPI"""
     try:
         application = Application.query.get_or_404(id)
 
-        # Удаляем файлы заявки
+        # Удаляем файлы
         for file in application.files:
             if os.path.exists(file.file_path):
                 os.remove(file.file_path)
 
-        # Удаляем данные из векторного хранилища
-        from app.services.vector_service import delete_application_data
-        delete_application_data(str(application.id))
+        # Удаляем данные из векторного хранилища через FastAPI
+        client = FastAPIClient()
+        client.delete_application_data(str(application.id))
 
-        # Удаляем заявку из базы данных
+        # Удаляем из БД
         db.session.delete(application)
         db.session.commit()
 
@@ -268,94 +272,99 @@ def delete(id):
 
     return redirect(url_for('applications.index'))
 
-
 # НОВЫЙ МАРШРУТ: Статус по ID задачи Celery
+
 @bp.route('/status/<task_id>')
 def task_status(task_id):
-    """Возвращает текущий статус задачи Celery по ID задачи"""
-    # Находим заявку по task_id
-    application = Application.query.filter_by(task_id=task_id).first()
+    """Возвращает текущий статус задачи из Redis"""
+    # Сначала проверяем Redis
+    task_data = redis_client.get(f"task:{task_id}")
 
-    # Если заявка не найдена по task_id, возвращаем ошибку
-    if not application:
-        current_app.logger.error(f"Заявка с task_id={task_id} не найдена")
-        return jsonify({
-            'status': 'error',
-            'message': f'Задача с ID {task_id} не найдена'
-        }), 404
+    if task_data:
+        import json
+        data = json.loads(task_data)
 
-    # Базовый ответ, добавляем статус заявки для дополнительной проверки на клиенте
-    response_data = {
-        'status': application.status,
-        'application_status': application.status,  # Явно добавляем статус заявки
-        'progress': 0,
-        'message': application.status_message or 'Выполняется обработка...',
-        'stage': 'starting'
-    }
+        # Преобразуем статус из FastAPI формата в формат Flask
+        if data['status'] == 'PROGRESS':
+            response_data = {
+                'status': 'progress',
+                'progress': data.get('progress', 0),
+                'message': data.get('message', ''),
+                'stage': data.get('stage', '')
+            }
+        elif data['status'] == 'SUCCESS':
+            response_data = {
+                'status': 'success',
+                'progress': 100,
+                'message': 'Задача успешно завершена',
+                'stage': 'complete'
+            }
 
-    # Если заявка уже в завершенном состоянии, отражаем это в ответе
-    if application.status in ['indexed', 'analyzed']:
-        response_data['status'] = 'success'
-        response_data['progress'] = 100
-        response_data['stage'] = 'complete'
-        response_data['message'] = f'Задача успешно завершена ({application.status})'
-        return jsonify(response_data)
-    elif application.status == 'error':
-        response_data['status'] = 'error'
-        response_data['message'] = application.status_message or 'Произошла ошибка при выполнении задачи'
-        return jsonify(response_data)
-
-    # Если приложение использует Celery и находится в процессе обработки
-    if application.task_id:
-        if application.status == 'indexing':
-            # Импортируем задачу индексации
-            from app.tasks.indexing_tasks import index_document_task
-            task = index_document_task.AsyncResult(application.task_id)
-        elif application.status == 'analyzing':
-            # Импортируем задачу анализа
-            from app.tasks.llm_tasks import process_parameters_task
-            task = process_parameters_task.AsyncResult(application.task_id)
+            # Обновляем статус в БД если задача завершена
+            application = Application.query.filter_by(task_id=task_id).first()
+            if application:
+                if application.status == 'indexing':
+                    application.status = 'indexed'
+                elif application.status == 'analyzing':
+                    application.status = 'analyzed'
+                    # Сохраняем результаты анализа
+                    if 'result' in data and 'results' in data['result']:
+                        save_analysis_results(application.id, data['result']['results'])
+                db.session.commit()
+        elif data['status'] == 'FAILURE':
+            response_data = {
+                'status': 'error',
+                'message': data.get('message', 'Неизвестная ошибка')
+            }
         else:
-            # Если статус не связан с асинхронной задачей, просто возвращаем базовый ответ
-            return jsonify(response_data)
+            response_data = data
 
-        # Обновляем данные ответа на основе информации о задаче
-        if task.state == 'PENDING':
-            response_data['status'] = 'pending'
-            response_data['message'] = 'Задача в очереди на выполнение'
-        elif task.state == 'STARTED':
-            response_data['status'] = 'progress'
-            response_data['progress'] = 5
-            response_data['message'] = 'Задача начала выполнение'
-        elif task.state == 'PROGRESS' and task.info:
-            # Копируем все доступные данные из информации о задаче
-            response_data['status'] = 'progress'
-            for key, value in task.info.items():
-                response_data[key] = value
-        elif task.state == 'SUCCESS':
-            # Если задача успешно завершена
-            response_data['status'] = 'success'
-            response_data['progress'] = 100
-            response_data['stage'] = 'complete'
+        return jsonify(response_data)
 
-            # Если есть дополнительная информация в результате, добавляем ее
-            if task.result and isinstance(task.result, dict):
-                for key, value in task.result.items():
-                    if key not in response_data:
-                        response_data[key] = value
+    # Если в Redis нет, проверяем БД
+    application = Application.query.filter_by(task_id=task_id).first()
+    if not application:
+        return jsonify({'status': 'error', 'message': 'Задача не найдена'}), 404
 
-            # Обязательно указываем сообщение о завершении
-            response_data['message'] = 'Задача успешно завершена'
+    # Возвращаем статус из БД
+    return jsonify({
+        'status': application.status,
+        'application_status': application.status,
+        'progress': 100 if application.status in ['indexed', 'analyzed'] else 0,
+        'message': application.status_message or 'Обработка...'
+    })
 
-            # Логируем успешное завершение для отладки
-            logger.info(f"Задача {task_id} успешно завершена, статус заявки: {application.status}")
-        elif task.state == 'FAILURE':
-            response_data['status'] = 'error'
-            response_data['message'] = f'Ошибка выполнения задачи: {str(task.result)}'
 
-    current_app.logger.info(
-        f"Статус задачи {task_id}: {response_data['status']} ({response_data.get('progress', 0)}%), заявка: {application.status}")
-    return jsonify(response_data)
+def save_analysis_results(application_id, results):
+    """Сохраняет результаты анализа в БД"""
+    from app.models import ParameterResult
+
+    for result in results:
+        # Проверяем, есть ли уже результат для этого параметра
+        existing_result = ParameterResult.query.filter_by(
+            application_id=application_id,
+            parameter_id=result['parameter_id']
+        ).first()
+
+        if existing_result:
+            # Обновляем существующий результат
+            existing_result.value = result['value']
+            existing_result.confidence = result['confidence']
+            existing_result.search_results = result['search_results']
+            existing_result.llm_request = result.get('llm_request', {})
+        else:
+            # Создаем новый результат
+            param_result = ParameterResult(
+                application_id=application_id,
+                parameter_id=result['parameter_id'],
+                value=result['value'],
+                confidence=result['confidence'],
+                search_results=result['search_results'],
+                llm_request=result.get('llm_request', {})
+            )
+            db.session.add(param_result)
+
+    db.session.commit()
 
 
 # ОБРАТНАЯ СОВМЕСТИМОСТЬ: Сохраняем старый маршрут, перенаправляя на новый
@@ -387,60 +396,18 @@ def status(id):
 
 @bp.route('/<int:id>/chunks')
 def view_chunks(id):
-    """Просмотр чанков документов заявки"""
+    """Просмотр чанков документов заявки через FastAPI"""
     try:
         application = Application.query.get_or_404(id)
 
-        # Получаем адаптер Qdrant и статистику
-        from app.services.vector_service import get_qdrant_adapter
-        from qdrant_client.http import models
+        # Используем FastAPI клиент
+        client = FastAPIClient()
 
-        # Используем read_only=True, чтобы избежать проверки semantic_chunker
-        qdrant_adapter = get_qdrant_adapter(read_only=True)
+        # Получаем статистику
+        stats = client.get_application_stats(str(application.id))
 
-        # Получаем статистику по заявке
-        stats = qdrant_adapter.qdrant_manager.get_stats(str(application.id))
-
-        # Получаем все чанки заявки (ограничиваем 500 для производительности)
-        response = qdrant_adapter.qdrant_manager.client.scroll(
-            collection_name=qdrant_adapter.qdrant_manager.collection_name,
-            scroll_filter=models.Filter(
-                must=[
-                    models.FieldCondition(
-                        key="metadata.application_id",
-                        match=models.MatchValue(value=str(application.id))
-                    )
-                ]
-            ),
-            limit=500,
-            with_payload=True,
-            with_vectors=False
-        )
-
-        # Преобразуем результаты в более удобный формат
-        chunks = []
-        for point in response[0]:
-            if "payload" in point.__dict__:
-                # Получаем текст
-                text = ""
-                if "page_content" in point.payload:
-                    text = point.payload["page_content"]
-
-                # Получаем метаданные
-                metadata = {}
-                if "metadata" in point.payload:
-                    metadata = point.payload["metadata"]
-
-                # Добавляем в список
-                chunk = {
-                    "id": point.id,
-                    "text": text,
-                    "metadata": metadata
-                }
-                chunks.append(chunk)
-
-        # Сортируем чанки по порядку (если есть chunk_index в метаданных)
-        chunks.sort(key=lambda x: x["metadata"].get("chunk_index", 0) if x["metadata"] else 0)
+        # Получаем чанки
+        chunks = client.get_application_chunks(str(application.id), limit=500)
 
         return render_template('applications/chunks.html',
                                title=f'Чанки заявки {application.name}',
