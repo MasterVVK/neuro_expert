@@ -141,29 +141,39 @@ def check_status(task_id):
         response = {
             'status': 'pending',
             'progress': 0,
-            'message': 'Задача ожидает выполнения...'
+            'message': 'Задача ожидает выполнения...',
+            'stage': 'pending'
         }
     elif task.state == 'PROGRESS':
-        # Сохраняем структуру исходного ответа задачи и добавляем общий статус
-        response = {
-            'status': 'progress',
-            'progress': task.info.get('progress', 0),
-            'message': task.info.get('message', ''),
-            'stage': task.info.get('stage', '')  # Используем ключ 'stage' вместо 'substatus'
-        }
-    elif task.state == 'FAILURE':
-        error_msg = str(task.result) if task.result else "Неизвестная ошибка при выполнении задачи"
-        response = {
-            'status': 'error',
-            'message': error_msg
-        }
-        current_app.logger.error(f"Ошибка выполнения задачи поиска {task_id}: {error_msg}")
-    elif task.state == 'SUCCESS':
+        # Используем meta данные из update_state
         response = task.info
+        # Убеждаемся, что есть все необходимые поля
+        if 'status' not in response:
+            response['status'] = 'progress'
+    elif task.state == 'SUCCESS':
+        # Возвращаем результат
+        response = task.result if task.result else task.info
+        # Убеждаемся, что статус установлен
+        if response and isinstance(response, dict):
+            response['status'] = 'success'
+    elif task.state == 'FAILURE':
+        # Обрабатываем ошибку
+        if task.info and isinstance(task.info, dict):
+            response = task.info
+        else:
+            error_msg = str(task.info) if task.info else "Неизвестная ошибка при выполнении задачи"
+            response = {
+                'status': 'error',
+                'message': error_msg,
+                'progress': 0,
+                'stage': 'error'
+            }
     else:
         response = {
             'status': 'unknown',
-            'message': f'Неизвестный статус задачи: {task.state}'
+            'message': f'Неизвестный статус задачи: {task.state}',
+            'progress': 0,
+            'stage': 'unknown'
         }
 
     current_app.logger.info(f"Статус задачи поиска {task_id}: {response.get('status')}, прогресс: {response.get('progress', 0)}%")

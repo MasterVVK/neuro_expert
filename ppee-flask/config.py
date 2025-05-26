@@ -24,6 +24,7 @@ class Config:
         'result_serializer': 'json',
         'enable_utc': True,
         'task_always_eager': False,  # Важно! Установите в False для асинхронного режима
+        'result_expires': 3600,
         'task_eager_propagates': False  # Также устанавливаем в False
     }
 

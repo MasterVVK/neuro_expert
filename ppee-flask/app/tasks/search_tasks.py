@@ -22,6 +22,32 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
         start_time = time.time()
 
         try:
+            # Обновляем статус - начало
+            self.update_state(state='PROGRESS', meta={
+                'status': 'progress',
+                'progress': 10,
+                'stage': 'initializing',
+                'message': 'Инициализация поиска...'
+            })
+
+            # Определяем метод поиска
+            search_method = 'vector'
+            if use_smart_search and len(query_text) < hybrid_threshold:
+                search_method = 'hybrid'
+                self.update_state(state='PROGRESS', meta={
+                    'status': 'progress',
+                    'progress': 30,
+                    'stage': 'hybrid_search',
+                    'message': 'Выполнение гибридного поиска...'
+                })
+            else:
+                self.update_state(state='PROGRESS', meta={
+                    'status': 'progress',
+                    'progress': 30,
+                    'stage': 'vector_search',
+                    'message': 'Выполнение векторного поиска...'
+                })
+
             # Вызываем FastAPI для поиска
             response = requests.post(f"{FASTAPI_URL}/search", json={
                 "application_id": str(application_id),
@@ -40,9 +66,25 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
 
             search_results = response.json()["results"]
 
+            # Если используется ререйтинг
+            if use_reranker:
+                self.update_state(state='PROGRESS', meta={
+                    'status': 'progress',
+                    'progress': 50,
+                    'stage': 'reranking',
+                    'message': 'Применение ререйтинга...'
+                })
+
             # Обработка через LLM если нужно
             llm_result = None
             if use_llm and llm_params and search_results:
+                self.update_state(state='PROGRESS', meta={
+                    'status': 'progress',
+                    'progress': 70,
+                    'stage': 'llm_processing',
+                    'message': 'Обработка результатов через LLM...'
+                })
+
                 # Форматируем контекст
                 context = format_documents_for_context(search_results)
 
@@ -85,12 +127,16 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
 
                 formatted_results.append(formatted_result)
 
-            # Определяем метод поиска
-            search_method = 'vector'
-            if use_smart_search:
-                search_method = 'hybrid' if len(query_text) < hybrid_threshold else 'vector'
+            # Финальное обновление статуса
+            self.update_state(state='PROGRESS', meta={
+                'status': 'progress',
+                'progress': 90,
+                'stage': 'finishing',
+                'message': 'Завершение поиска...'
+            })
 
-            return {
+            # Результат
+            result = {
                 'status': 'success',
                 'count': len(formatted_results),
                 'use_reranker': use_reranker,
@@ -99,16 +145,28 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
                 'use_llm': use_llm,
                 'execution_time': round(time.time() - start_time, 2),
                 'results': formatted_results,
-                'llm_result': llm_result
+                'llm_result': llm_result,
+                'progress': 100,
+                'stage': 'complete',
+                'message': 'Поиск завершен'
             }
+
+            # Важно! Устанавливаем финальный статус
+            self.update_state(state='SUCCESS', meta=result)
+
+            return result
 
         except Exception as e:
             logger.error(f"Ошибка при поиске: {e}")
-            return {
+            error_result = {
                 'status': 'error',
                 'message': str(e),
-                'execution_time': round(time.time() - start_time, 2)
+                'execution_time': round(time.time() - start_time, 2),
+                'progress': 0,
+                'stage': 'error'
             }
+            self.update_state(state='FAILURE', meta=error_result)
+            return error_result
 
 
 def format_documents_for_context(documents, max_docs=8):
