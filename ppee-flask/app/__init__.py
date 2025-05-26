@@ -82,6 +82,7 @@ def register_blueprints(app):
     from app.blueprints.llm_management import bp as llm_bp
     from app.blueprints.auth import bp as auth_bp
     from app.blueprints.search import bp as search_bp
+    from app.blueprints.stats import bp as stats_bp  # ДОБАВЬТЕ ЭТУ СТРОКУ
 
     app.register_blueprint(main_bp)
     app.register_blueprint(applications_bp)
@@ -89,6 +90,7 @@ def register_blueprints(app):
     app.register_blueprint(llm_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(search_bp)
+    app.register_blueprint(stats_bp)  # ДОБАВЬТЕ ЭТУ СТРОКУ
 
 
 def register_template_filters(app):

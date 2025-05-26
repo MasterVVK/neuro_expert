@@ -131,3 +131,23 @@ class FastAPIClient:
         except Exception as e:
             logger.error(f"Ошибка получения результатов задачи: {e}")
             raise
+
+        # Добавьте этот метод в класс FastAPIClient в файле app/services/fastapi_client.py
+
+    def get_system_stats(self) -> Dict[str, Any]:
+        """Получает статистику использования системных ресурсов"""
+        try:
+            response = requests.get(f"{self.base_url}/api/v1/system/stats", timeout=2)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logger.error(f"Ошибка получения системной статистики: {e}")
+            # Возвращаем значения по умолчанию при ошибке
+            return {
+                "cpu": {"percent": 0, "cores": 0, "threads": 0},
+                "memory": {"percent": 0, "used_gb": 0, "total_gb": 0, "available_gb": 0},
+                "gpu": {"name": "Недоступно", "vram_percent": 0, "vram_used_gb": 0, "vram_total_gb": 0,
+                        "temperature": None, "utilization": 0},
+                "system": {"process_count": 0, "disk_percent": 0, "active_indexing_tasks": 0,
+                           "indexing_queue_size": 0}
+            }

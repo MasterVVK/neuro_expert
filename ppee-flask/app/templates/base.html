@@ -17,7 +17,39 @@
                 <li><a href="{{ url_for('llm_management.index') }}">Управление LLM</a></li>
             </ul>
         </nav>
+
+        <!-- Виджет системной статистики -->
+        <div id="system-stats" class="system-stats-widget">
+            <div class="stat-item" title="Загрузка процессора">
+                <span class="stat-icon"></span>
+                <span class="stat-label">CPU:</span>
+                <span id="cpu-percent" class="stat-value">--</span>
+                <span class="stat-unit">%</span>
+            </div>
+            <div class="stat-item" title="Использование оперативной памяти">
+                <span class="stat-icon">易</span>
+                <span class="stat-label">RAM:</span>
+                <span id="mem-percent" class="stat-value">--</span>
+                <span class="stat-unit">%</span>
+                <span id="mem-details" class="stat-details">(-- / -- GB)</span>
+            </div>
+            <div class="stat-item" title="Использование видеопамяти">
+                <span class="stat-icon"></span>
+                <span class="stat-label">VRAM:</span>
+                <span id="vram-percent" class="stat-value">--</span>
+                <span class="stat-unit">%</span>
+                <span id="vram-details" class="stat-details">(-- / -- GB)</span>
+            </div>
+            <div class="stat-item" title="Загрузка GPU">
+                <span class="stat-icon">⚡</span>
+                <span class="stat-label">GPU:</span>
+                <span id="gpu-util" class="stat-value">--</span>
+                <span class="stat-unit">%</span>
+                <span id="gpu-temp" class="stat-details"></span>
+            </div>
+        </div>
     </header>
+
     <main>
         <div class="container">
             {% block content %}{% endblock %}
@@ -32,5 +64,177 @@
     <script src="{{ url_for('static', filename='js/task-progress.js') }}"></script>
     <!-- Подключаем основной JS-файл -->
     <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+
+    <!-- Скрипт для обновления системной статистики -->
+    <script>
+        // Функция для получения цвета в зависимости от процента использования
+        function getColorByPercent(percent) {
+            if (percent < 50) return '#28a745'; // Зеленый
+            if (percent < 80) return '#ffc107'; // Желтый
+            return '#dc3545'; // Красный
+        }
+
+        // Функция для обновления статистики
+        function updateSystemStats() {
+            fetch('/stats/system')
+                .then(response => response.json())
+                .then(data => {
+                    // CPU
+                    const cpuPercent = document.getElementById('cpu-percent');
+                    cpuPercent.textContent = data.cpu.percent.toFixed(1);
+                    cpuPercent.style.color = getColorByPercent(data.cpu.percent);
+
+                    // Memory
+                    const memPercent = document.getElementById('mem-percent');
+                    const memDetails = document.getElementById('mem-details');
+                    memPercent.textContent = data.memory.percent.toFixed(1);
+                    memPercent.style.color = getColorByPercent(data.memory.percent);
+                    memDetails.textContent = `(${data.memory.used_gb.toFixed(1)} / ${data.memory.total_gb.toFixed(1)} GB)`;
+
+                    // VRAM
+                    const vramPercent = document.getElementById('vram-percent');
+                    const vramDetails = document.getElementById('vram-details');
+                    vramPercent.textContent = data.gpu.vram_percent.toFixed(1);
+                    vramPercent.style.color = getColorByPercent(data.gpu.vram_percent);
+                    vramDetails.textContent = `(${data.gpu.vram_used_gb.toFixed(1)} / ${data.gpu.vram_total_gb.toFixed(1)} GB)`;
+
+                    // GPU Utilization
+                    const gpuUtil = document.getElementById('gpu-util');
+                    const gpuTemp = document.getElementById('gpu-temp');
+                    if (data.gpu.utilization !== undefined) {
+                        gpuUtil.textContent = data.gpu.utilization.toFixed(1);
+                        gpuUtil.style.color = getColorByPercent(data.gpu.utilization);
+                    }
+                    if (data.gpu.temperature) {
+                        gpuTemp.textContent = `(${data.gpu.temperature}°C)`;
+                        // Цвет температуры
+                        if (data.gpu.temperature < 70) {
+                            gpuTemp.style.color = '#28a745';
+                        } else if (data.gpu.temperature < 85) {
+                            gpuTemp.style.color = '#ffc107';
+                        } else {
+                            gpuTemp.style.color = '#dc3545';
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('Ошибка при получении системной статистики:', error);
+                });
+        }
+
+        // Обновляем статистику сразу при загрузке
+        updateSystemStats();
+
+        // Обновляем каждые 5 секунд
+        setInterval(updateSystemStats, 5000);
+    </script>
+
+    <style>
+        /* Стили для виджета статистики */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 2rem;
+        }
+
+        .system-stats-widget {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            background-color: rgba(0, 0, 0, 0.2);
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 0.9rem;
+        }
+
+        .stat-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            color: #fff;
+            cursor: help;
+            position: relative;
+        }
+
+        .stat-item:not(:last-child)::after {
+            content: '';
+            position: absolute;
+            right: -10px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 1px;
+            height: 20px;
+            background-color: rgba(255, 255, 255, 0.3);
+        }
+
+        .stat-icon {
+            font-size: 1.2rem;
+        }
+
+        .stat-label {
+            font-weight: bold;
+            opacity: 0.8;
+        }
+
+        .stat-value {
+            font-weight: bold;
+            font-size: 1.1rem;
+            min-width: 35px;
+            text-align: right;
+        }
+
+        .stat-unit {
+            opacity: 0.8;
+            font-size: 0.85rem;
+        }
+
+        .stat-details {
+            opacity: 0.7;
+            font-size: 0.8rem;
+            margin-left: 5px;
+        }
+
+        /* Адаптивность для мобильных устройств */
+        @media (max-width: 1200px) {
+            .system-stats-widget {
+                font-size: 0.85rem;
+                gap: 15px;
+                padding: 8px 15px;
+            }
+
+            .stat-details {
+                display: none;
+            }
+        }
+
+        @media (max-width: 768px) {
+            header {
+                flex-direction: column;
+                gap: 10px;
+            }
+
+            .system-stats-widget {
+                width: 100%;
+                justify-content: center;
+                flex-wrap: wrap;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .system-stats-widget {
+                gap: 10px;
+                font-size: 0.75rem;
+            }
+
+            .stat-icon {
+                display: none;
+            }
+
+            .stat-item:not(:last-child)::after {
+                display: none;
+            }
+        }
+    </style>
 </body>
 </html>
