@@ -1,5 +1,6 @@
 from app import celery, db, create_app
 from app.models import Application, ParameterResult
+from app.utils.db_utils import save_analysis_results  # Импортируем из utils
 import logging
 import requests
 import time
@@ -113,38 +114,3 @@ def process_parameters_task(self, application_id):
             application.status_message = str(e)
             db.session.commit()
             return {"status": "error", "message": str(e)}
-
-
-def save_analysis_results(application_id, results):
-    """Сохраняет результаты анализа в БД"""
-    try:
-        for result in results:
-            # Проверяем, есть ли уже результат для этого параметра
-            existing_result = ParameterResult.query.filter_by(
-                application_id=application_id,
-                parameter_id=result['parameter_id']
-            ).first()
-
-            if existing_result:
-                # Обновляем существующий результат
-                existing_result.value = result['value']
-                existing_result.confidence = result['confidence']
-                existing_result.search_results = result['search_results']
-                existing_result.llm_request = result.get('llm_request', {})
-            else:
-                # Создаем новый результат
-                param_result = ParameterResult(
-                    application_id=application_id,
-                    parameter_id=result['parameter_id'],
-                    value=result['value'],
-                    confidence=result['confidence'],
-                    search_results=result['search_results'],
-                    llm_request=result.get('llm_request', {})
-                )
-                db.session.add(param_result)
-
-        db.session.commit()
-        logger.info(f"Результаты анализа для заявки {application_id} сохранены")
-    except Exception as e:
-        logger.error(f"Ошибка при сохранении результатов анализа: {e}")
-        raise

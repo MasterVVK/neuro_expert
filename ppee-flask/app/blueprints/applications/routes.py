@@ -9,7 +9,7 @@ from app.blueprints.applications import bp
 from app.tasks.indexing_tasks import index_document_task
 from qdrant_client.http import models  # Добавляем импорт для создания фильтров в Qdrant
 from app.services.fastapi_client import FastAPIClient
-
+from app.utils.db_utils import save_analysis_results  # Импортируем из utils
 
 
 @bp.route('/')
@@ -35,8 +35,8 @@ def create():
         if not checklist_ids:
             flash('Необходимо выбрать хотя бы один чек-лист', 'error')
             return render_template('applications/create.html',
-                               title='Создание заявки',
-                               checklists=checklists)
+                                   title='Создание заявки',
+                                   checklists=checklists)
 
         # Создаем заявку
         application = Application(
@@ -270,7 +270,6 @@ def delete(id):
 
     return redirect(url_for('applications.index'))
 
-# НОВЫЙ МАРШРУТ: Статус по ID задачи Celery
 
 @bp.route('/status/<task_id>')
 def task_status(task_id):
@@ -320,72 +319,6 @@ def task_status(task_id):
         })
 
 
-def save_analysis_results(application_id, results):
-    """Сохраняет результаты анализа в БД"""
-    from app.models import ParameterResult, ChecklistParameter
-
-    application = Application.query.get(application_id)
-    if not application:
-        return
-
-    # Создаем словарь параметров для быстрого доступа
-    params_dict = {}
-    for checklist in application.checklists:
-        for param in checklist.parameters:
-            params_dict[param.id] = param
-
-    for result in results:
-        parameter_id = result['parameter_id']
-        parameter = params_dict.get(parameter_id)
-
-        if not parameter:
-            continue
-
-        # Формируем полный промпт так же, как он был отправлен
-        full_prompt = parameter.llm_prompt_template.replace(
-            "{query}", parameter.search_query
-        ).replace(
-            "{context}", result.get('context', '[Контекст из результатов поиска]')
-        )
-
-        # Формируем полную информацию о запросе
-        llm_request_data = {
-            'model': parameter.llm_model,
-            'temperature': parameter.llm_temperature,
-            'max_tokens': parameter.llm_max_tokens,
-            'prompt': full_prompt,  # Сохраняем полный промпт
-            'response': result.get('llm_response', ''),  # Ответ LLM если есть
-            'search_query': parameter.search_query,
-            'context_length': result.get('context_length', 8192)
-        }
-
-        # Проверяем, есть ли уже результат для этого параметра
-        existing_result = ParameterResult.query.filter_by(
-            application_id=application_id,
-            parameter_id=parameter_id
-        ).first()
-
-        if existing_result:
-            # Обновляем существующий результат
-            existing_result.value = result['value']
-            existing_result.confidence = result['confidence']
-            existing_result.search_results = result['search_results']
-            existing_result.llm_request = llm_request_data  # Сохраняем полную информацию
-        else:
-            # Создаем новый результат
-            param_result = ParameterResult(
-                application_id=application_id,
-                parameter_id=parameter_id,
-                value=result['value'],
-                confidence=result['confidence'],
-                search_results=result['search_results'],
-                llm_request=llm_request_data  # Сохраняем полную информацию
-            )
-            db.session.add(param_result)
-
-    db.session.commit()
-
-
 # ОБРАТНАЯ СОВМЕСТИМОСТЬ: Сохраняем старый маршрут, перенаправляя на новый
 @bp.route('/<int:id>/status')
 def status(id):
@@ -405,6 +338,7 @@ def status(id):
     }
 
     return jsonify(response_data)
+
 
 @bp.route('/<int:id>/chunks')
 def view_chunks(id):
