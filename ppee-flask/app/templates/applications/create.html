@@ -18,25 +18,7 @@
                 <textarea id="description" name="description" rows="4"></textarea>
             </div>
 
-            <div class="form-group">
-                <label>Чек-листы <span class="required-marker">*</span></label>
-                {% if checklists %}
-                    <div class="checkbox-group">
-                        {% for checklist in checklists %}
-                            <div class="checkbox-item">
-                                <label for="checklist_{{ checklist.id }}" class="checkbox-label">
-                                    <input type="checkbox" id="checklist_{{ checklist.id }}" name="checklists" value="{{ checklist.id }}" class="checklist-checkbox">
-                                    <span class="checkbox-text">{{ checklist.name }}</span>
-                                </label>
-                            </div>
-                        {% endfor %}
-                    </div>
-                    <p class="form-note">Необходимо выбрать хотя бы один чек-лист</p>
-                    <p id="checklist-error" class="error-message" style="display: none; color: red;">Пожалуйста, выберите хотя бы один чек-лист</p>
-                {% else %}
-                    <p class="form-note">Нет доступных чек-листов. Создайте чек-лист в разделе "Чек-листы".</p>
-                {% endif %}
-            </div>
+            {% include 'applications/_checklist_selection.html' with context %}
 
             <div class="form-actions">
                 <button type="submit" class="button">Создать заявку</button>
@@ -44,67 +26,4 @@
             </div>
         </form>
     </div>
-
-    <style>
-        /* Стили для чекбоксов */
-        .checkbox-item {
-            margin-bottom: 10px;
-        }
-        .checkbox-label {
-            display: flex;
-            align-items: center;
-            cursor: pointer;
-            font-weight: normal;
-        }
-        .checkbox-text {
-            margin-left: 8px;
-        }
-        /* Убираем дополнительные отступы у checkbox */
-        .checkbox-item input[type="checkbox"] {
-            margin: 0;
-            width: auto;
-        }
-        /* Стиль для отметки обязательного поля */
-        .required-marker {
-            color: red;
-            margin-left: 5px;
-        }
-        /* Стиль для сообщения об ошибке */
-        .error-message {
-            margin-top: 5px;
-            font-weight: bold;
-        }
-    </style>
-
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            const form = document.getElementById('application-form');
-            const checklistError = document.getElementById('checklist-error');
-            const checklistCheckboxes = document.querySelectorAll('.checklist-checkbox');
-
-            form.addEventListener('submit', function(event) {
-                // Проверяем, выбран ли хотя бы один чек-лист
-                const isChecklistSelected = Array.from(checklistCheckboxes).some(checkbox => checkbox.checked);
-
-                if (!isChecklistSelected) {
-                    event.preventDefault(); // Предотвращаем отправку формы
-                    checklistError.style.display = 'block'; // Показываем сообщение об ошибке
-                    // Прокручиваем к сообщению об ошибке
-                    checklistError.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                } else {
-                    checklistError.style.display = 'none'; // Скрываем сообщение об ошибке
-                }
-            });
-
-            // Скрываем сообщение об ошибке при выборе чек-листа
-            checklistCheckboxes.forEach(function(checkbox) {
-                checkbox.addEventListener('change', function() {
-                    const isChecklistSelected = Array.from(checklistCheckboxes).some(cb => cb.checked);
-                    if (isChecklistSelected) {
-                        checklistError.style.display = 'none';
-                    }
-                });
-            });
-        });
-    </script>
 {% endblock %}

@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <div class="page-header">
+        <h1>Добавление чек-листа</h1>
+        <a href="{{ url_for('applications.view', id=application.id) }}" class="button button-secondary">Назад к заявке</a>
+    </div>
+
+    <div class="form-container">
+        <h2>Заявка: {{ application.name }}</h2>
+
+        <div class="info-card">
+            <h3>Текущие чек-листы</h3>
+            {% if application.checklists %}
+                <ul class="current-checklists">
+                    {% for checklist in application.checklists %}
+                        <li>{{ checklist.name }} (параметров: {{ checklist.parameters.count() }})</li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <p class="empty-list">У заявки нет назначенных чек-листов</p>
+            {% endif %}
+        </div>
+
+        <form method="post" id="add-checklist-form">
+            {% include 'applications/_checklist_selection.html' with context %}
+
+            {% if checklists %}
+                <div class="form-actions">
+                    <button type="submit" class="button">Добавить чек-листы</button>
+                    <a href="{{ url_for('applications.view', id=application.id) }}" class="button button-secondary">Отмена</a>
+                </div>
+            {% else %}
+                <div class="form-actions">
+                    <a href="{{ url_for('applications.view', id=application.id) }}" class="button button-secondary">Вернуться к заявке</a>
+                </div>
+            {% endif %}
+        </form>
+    </div>
+
+    <style>
+        /* Стили для списка текущих чек-листов */
+        .current-checklists {
+            list-style-type: disc;
+            padding-left: 20px;
+            margin: 10px 0;
+        }
+
+        .current-checklists li {
+            margin-bottom: 5px;
+            color: #333;
+        }
+
+        .empty-list {
+            color: #6c757d;
+            font-style: italic;
+        }
+    </style>
+{% endblock %}

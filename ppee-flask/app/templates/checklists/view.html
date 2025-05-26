@@ -2,41 +2,89 @@
 
 {% block content %}
     <div class="page-header">
-        <h1>{{ checklist.name }}</h1>
+        <h1>
+            <span id="checklist-name-display">{{ checklist.name }}</span>
+            <button id="edit-name-btn" class="edit-btn" title="Редактировать название">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M12.146.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1 0 .708l-10 10a.5.5 0 0 1-.168.11l-5 2a.5.5 0 0 1-.65-.65l2-5a.5.5 0 0 1 .11-.168l10-10zM11.207 2.5L13.5 4.793 14.793 3.5 12.5 1.207 11.207 2.5zm1.586 3L10.5 3.207 4 9.707V10h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.293l6.5-6.5zm-9.761 5.175l-.106.106-1.528 3.821 3.821-1.528.106-.106A.5.5 0 0 1 5 12.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.468-.325z"/>
+                </svg>
+            </button>
+        </h1>
         <a href="{{ url_for('checklists.index') }}" class="button button-secondary">Назад к списку</a>
     </div>
-    
+
+    <!-- Форма редактирования названия (скрыта по умолчанию) -->
+    <div id="edit-name-form" class="edit-form" style="display: none;">
+        <form method="post" action="{{ url_for('checklists.edit', id=checklist.id) }}" class="inline-edit-form">
+            <input type="text" name="name" id="name-input" value="{{ checklist.name }}" required>
+            <input type="hidden" name="description" id="description-hidden" value="{{ checklist.description or '' }}">
+            <button type="submit" class="button button-small">Сохранить</button>
+            <button type="button" class="button button-small button-secondary" onclick="cancelEditName()">Отмена</button>
+        </form>
+    </div>
+
     <div class="checklist-details">
         <div class="info-card">
             <h2>Информация о чек-листе</h2>
-            
+
             <div class="info-row">
                 <div class="info-label">ID:</div>
                 <div class="info-value">{{ checklist.id }}</div>
             </div>
-            
+
             <div class="info-row">
                 <div class="info-label">Дата создания:</div>
                 <div class="info-value">{{ checklist.created_at.strftime('%d.%m.%Y %H:%M') }}</div>
             </div>
-            
+
+            {% if checklist.updated_at != checklist.created_at %}
             <div class="info-row">
-                <div class="info-label">Описание:</div>
-                <div class="info-value">{{ checklist.description or 'Нет описания' }}</div>
+                <div class="info-label">Последнее обновление:</div>
+                <div class="info-value">{{ checklist.updated_at.strftime('%d.%m.%Y %H:%M') }}</div>
             </div>
-            
+            {% endif %}
+
+            <div class="info-row">
+                <div class="info-label">
+                    Описание:
+                    <button id="edit-description-btn" class="edit-btn" title="Редактировать описание">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                            <path d="M12.146.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1 0 .708l-10 10a.5.5 0 0 1-.168.11l-5 2a.5.5 0 0 1-.65-.65l2-5a.5.5 0 0 1 .11-.168l10-10zM11.207 2.5L13.5 4.793 14.793 3.5 12.5 1.207 11.207 2.5zm1.586 3L10.5 3.207 4 9.707V10h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.293l6.5-6.5zm-9.761 5.175l-.106.106-1.528 3.821 3.821-1.528.106-.106A.5.5 0 0 1 5 12.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.468-.325z"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="info-value">
+                    <div id="description-display">{{ checklist.description or 'Нет описания' }}</div>
+                    <div id="edit-description-form" class="edit-form" style="display: none;">
+                        <form method="post" action="{{ url_for('checklists.edit', id=checklist.id) }}">
+                            <input type="hidden" name="name" value="{{ checklist.name }}">
+                            <textarea name="description" id="description-input" rows="3">{{ checklist.description or '' }}</textarea>
+                            <div class="form-actions">
+                                <button type="submit" class="button button-small">Сохранить</button>
+                                <button type="button" class="button button-small button-secondary" onclick="cancelEditDescription()">Отмена</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <div class="info-row">
+                <div class="info-label">Используется в заявках:</div>
+                <div class="info-value">{{ checklist.applications.count() }}</div>
+            </div>
+
             <div class="action-buttons">
                 <a href="{{ url_for('checklists.create_parameter', id=checklist.id) }}" class="button">Добавить параметр</a>
-                
+
                 <form method="post" action="{{ url_for('checklists.delete', id=checklist.id) }}" class="inline-form" onsubmit="return confirm('Вы уверены, что хотите удалить этот чек-лист? Это действие необратимо.');">
                     <button type="submit" class="button button-danger">Удалить чек-лист</button>
                 </form>
             </div>
         </div>
-        
+
         <div class="parameters-section">
             <h2>Параметры чек-листа</h2>
-            
+
             {% if checklist.parameters.all() %}
                 <div class="parameters-list">
                     <table class="data-table">
@@ -105,5 +153,151 @@
             font-size: 80%;
             color: #6c757d;
         }
+
+        /* Стили для inline редактирования */
+        .edit-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: #007bff;
+            padding: 2px 6px;
+            margin-left: 10px;
+            border-radius: 4px;
+            transition: all 0.2s;
+            vertical-align: middle;
+        }
+
+        .edit-btn:hover {
+            background-color: #e9ecef;
+            color: #0056b3;
+        }
+
+        .page-header h1 {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .edit-form {
+            margin: 10px 0;
+        }
+
+        .inline-edit-form {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .inline-edit-form input[type="text"] {
+            flex: 1;
+            min-width: 300px;
+            padding: 8px;
+            font-size: 1.2rem;
+            font-weight: bold;
+        }
+
+        #description-input {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 10px;
+        }
+
+        .form-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .info-label {
+            display: flex;
+            align-items: center;
+        }
+
+        /* Анимация для плавного появления/скрытия */
+        .edit-form {
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(-5px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
     </style>
+
+    <script>
+        // Редактирование названия
+        const editNameBtn = document.getElementById('edit-name-btn');
+        const nameDisplay = document.getElementById('checklist-name-display');
+        const editNameForm = document.getElementById('edit-name-form');
+        const nameInput = document.getElementById('name-input');
+
+        editNameBtn.addEventListener('click', function() {
+            nameDisplay.style.display = 'none';
+            editNameBtn.style.display = 'none';
+            editNameForm.style.display = 'block';
+            nameInput.focus();
+            nameInput.select();
+        });
+
+        function cancelEditName() {
+            nameDisplay.style.display = 'inline';
+            editNameBtn.style.display = 'inline';
+            editNameForm.style.display = 'none';
+            nameInput.value = "{{ checklist.name }}";
+        }
+
+        // Редактирование описания
+        const editDescriptionBtn = document.getElementById('edit-description-btn');
+        const descriptionDisplay = document.getElementById('description-display');
+        const editDescriptionForm = document.getElementById('edit-description-form');
+        const descriptionInput = document.getElementById('description-input');
+        const descriptionHidden = document.getElementById('description-hidden');
+
+        editDescriptionBtn.addEventListener('click', function() {
+            descriptionDisplay.style.display = 'none';
+            editDescriptionBtn.style.display = 'none';
+            editDescriptionForm.style.display = 'block';
+            descriptionInput.focus();
+        });
+
+        function cancelEditDescription() {
+            descriptionDisplay.style.display = 'block';
+            editDescriptionBtn.style.display = 'inline';
+            editDescriptionForm.style.display = 'none';
+            descriptionInput.value = "{{ checklist.description or '' }}";
+        }
+
+        // Синхронизация описания между формами
+        descriptionInput.addEventListener('input', function() {
+            descriptionHidden.value = descriptionInput.value;
+        });
+
+        // Обработка нажатия Escape для отмены редактирования
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
+                if (editNameForm.style.display === 'block') {
+                    cancelEditName();
+                }
+                if (editDescriptionForm.style.display === 'block') {
+                    cancelEditDescription();
+                }
+            }
+        });
+
+        // Валидация формы названия
+        document.querySelector('.inline-edit-form').addEventListener('submit', function(event) {
+            const newName = nameInput.value.trim();
+            if (!newName) {
+                event.preventDefault();
+                alert('Название чек-листа не может быть пустым');
+                nameInput.focus();
+            }
+        });
+    </script>
 {% endblock %}

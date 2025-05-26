@@ -4,7 +4,7 @@ from werkzeug.utils import secure_filename
 import uuid
 
 from app import db
-from app.models import Application, File, Checklist
+from app.models import Application, File, Checklist, ParameterResult
 from app.blueprints.applications import bp
 from app.tasks.indexing_tasks import index_document_task
 from qdrant_client.http import models  # Добавляем импорт для создания фильтров в Qdrant
@@ -36,7 +36,12 @@ def create():
             flash('Необходимо выбрать хотя бы один чек-лист', 'error')
             return render_template('applications/create.html',
                                    title='Создание заявки',
-                                   checklists=checklists)
+                                   checklists=checklists,
+                                   selected_ids=[],
+                                   form_id='application-form',
+                                   label='Чек-листы',
+                                   note='Необходимо выбрать хотя бы один чек-лист',
+                                   empty_message='Нет доступных чек-листов. Создайте чек-лист в разделе "Чек-листы".')
 
         # Создаем заявку
         application = Application(
@@ -59,7 +64,12 @@ def create():
 
     return render_template('applications/create.html',
                            title='Создание заявки',
-                           checklists=checklists)
+                           checklists=checklists,
+                           selected_ids=[],
+                           form_id='application-form',
+                           label='Чек-листы',
+                           note='Необходимо выбрать хотя бы один чек-лист',
+                           empty_message='Нет доступных чек-листов. Создайте чек-лист в разделе "Чек-листы".')
 
 
 @bp.route('/<int:id>')
@@ -141,11 +151,6 @@ def upload_file(id):
                 file_type=file_type
             )
 
-            # ВАЖНО: Проверяем, есть ли уже результаты анализа
-            if application.status == 'analyzed' and application.parameter_results.count() > 0:
-                flash('Внимание: После добавления нового документа рекомендуется заново выполнить анализ заявки.',
-                      'warning')
-
             # Обновляем статус заявки
             application.status = 'indexing'
             db.session.add(file_record)
@@ -174,72 +179,14 @@ def upload_file(id):
                            application=application)
 
 
-@bp.route('/<int:application_id>/file/<int:file_id>/delete', methods=['POST'])
-def delete_file(application_id, file_id):
-    """Удаление отдельного файла из заявки"""
-    try:
-        application = Application.query.get_or_404(application_id)
-        file_record = File.query.get_or_404(file_id)
-
-        # Проверяем, что файл принадлежит этой заявке
-        if file_record.application_id != application_id:
-            flash('Файл не принадлежит данной заявке', 'error')
-            return redirect(url_for('applications.view', id=application_id))
-
-        # Проверяем, что это не последний файл
-        if application.files.count() == 1:
-            flash('Нельзя удалить последний файл заявки. Удалите всю заявку.', 'error')
-            return redirect(url_for('applications.view', id=application_id))
-
-        # Удаляем физический файл
-        if os.path.exists(file_record.file_path):
-            os.remove(file_record.file_path)
-
-        # Удаляем запись из БД
-        db.session.delete(file_record)
-
-        # Удаляем чанки этого файла из векторного хранилища через FastAPI
-        try:
-            client = FastAPIClient()
-            # Используем document_id для удаления конкретного документа
-            document_id = f"doc_{file_record.filename.replace(' ', '_').replace('.', '_')}"
-            deleted_count = client.delete_document_chunks(str(application_id), document_id)
-            current_app.logger.info(f"Удалено {deleted_count} чанков документа {document_id}")
-        except Exception as e:
-            current_app.logger.error(f"Ошибка при удалении чанков из векторного хранилища: {e}")
-            # Продолжаем удаление даже если не удалось удалить из векторного хранилища
-
-        # Если у заявки есть результаты анализа, показываем предупреждение
-        if application.status == 'analyzed' and application.parameter_results.count() > 0:
-            flash('Файл удален. Рекомендуется заново выполнить анализ заявки.', 'warning')
-            # Можно изменить статус на indexed, чтобы показать, что нужен новый анализ
-            application.status = 'indexed'
-        else:
-            flash('Файл успешно удален', 'success')
-
-        db.session.commit()
-
-    except Exception as e:
-        db.session.rollback()
-        flash(f'Ошибка при удалении файла: {str(e)}', 'error')
-        current_app.logger.error(f"Ошибка при удалении файла: {str(e)}")
-
-    return redirect(url_for('applications.view', id=application_id))
-
-
 @bp.route('/<int:id>/analyze')
 def analyze(id):
     """Запуск анализа заявки"""
     application = Application.query.get_or_404(id)
 
-    # Проверяем, что заявка готова к анализу (добавляем 'error' в список допустимых статусов)
-    if application.status not in ['indexed', 'analyzed', 'error']:
+    # Проверяем, что заявка готова к анализу
+    if application.status not in ['indexed', 'analyzed']:
         flash('Заявка не готова к анализу. Дождитесь завершения индексации.', 'error')
-        return redirect(url_for('applications.view', id=application.id))
-
-    # Дополнительная проверка для статуса error - должны быть файлы
-    if application.status == 'error' and application.files.count() == 0:
-        flash('Для анализа необходимо сначала загрузить документ.', 'error')
         return redirect(url_for('applications.view', id=application.id))
 
     # Проверяем наличие чек-листов
@@ -248,9 +195,6 @@ def analyze(id):
         return redirect(url_for('applications.view', id=application.id))
 
     try:
-        # Сбрасываем сообщение об ошибке перед новой попыткой
-        application.status_message = None
-
         # Запускаем задачу Celery для анализа
         from app.tasks.llm_tasks import process_parameters_task
         task = process_parameters_task.delay(application.id)
@@ -430,3 +374,92 @@ def view_chunks(id):
         current_app.logger.error(f"Ошибка при просмотре чанков заявки {id}: {str(e)}")
         flash(f"Ошибка при просмотре чанков: {str(e)}", "error")
         return redirect(url_for('applications.index'))
+
+
+@bp.route('/<int:id>/add_checklist', methods=['GET', 'POST'])
+def add_checklist(id):
+    """Добавление чек-листа к существующей заявке"""
+    application = Application.query.get_or_404(id)
+
+    # Получаем ID уже назначенных чек-листов
+    assigned_checklist_ids = [c.id for c in application.checklists]
+
+    # Получаем доступные для добавления чек-листы (которые еще не назначены)
+    available_checklists = Checklist.query.filter(
+        ~Checklist.id.in_(assigned_checklist_ids)
+    ).all() if assigned_checklist_ids else Checklist.query.all()
+
+    if request.method == 'POST':
+        checklist_ids = request.form.getlist('checklists')
+
+        if not checklist_ids:
+            flash('Необходимо выбрать хотя бы один чек-лист', 'error')
+            return render_template('applications/add_checklist.html',
+                                   title=f'Добавление чек-листа - {application.name}',
+                                   application=application,
+                                   checklists=available_checklists,
+                                   selected_ids=[],
+                                   form_id='add-checklist-form',
+                                   label='Выберите чек-листы для добавления',
+                                   note='Выберите один или несколько чек-листов для добавления к заявке',
+                                   empty_message='Нет доступных чек-листов для добавления. Все существующие чек-листы уже добавлены к этой заявке.')
+
+        # Добавляем выбранные чек-листы
+        added_count = 0
+        for checklist_id in checklist_ids:
+            checklist = Checklist.query.get(int(checklist_id))
+            if checklist and checklist not in application.checklists:
+                application.checklists.append(checklist)
+                added_count += 1
+
+        if added_count > 0:
+            # Если заявка уже была проанализирована, сбрасываем статус
+            if application.status == 'analyzed':
+                application.status = 'indexed'
+                application.status_message = 'Добавлены новые чек-листы. Требуется повторный анализ.'
+
+            db.session.commit()
+            flash(f'Успешно добавлено чек-листов: {added_count}', 'success')
+        else:
+            flash('Выбранные чек-листы уже добавлены к заявке', 'warning')
+
+        return redirect(url_for('applications.view', id=application.id))
+
+    return render_template('applications/add_checklist.html',
+                           title=f'Добавление чек-листа - {application.name}',
+                           application=application,
+                           checklists=available_checklists,
+                           selected_ids=[],
+                           form_id='add-checklist-form',
+                           label='Выберите чек-листы для добавления',
+                           note='Выберите один или несколько чек-листов для добавления к заявке',
+                           empty_message='Нет доступных чек-листов для добавления. Все существующие чек-листы уже добавлены к этой заявке.')
+
+
+@bp.route('/<int:id>/remove_checklist/<int:checklist_id>', methods=['POST'])
+def remove_checklist(id, checklist_id):
+    """Удаление чек-листа из заявки"""
+    application = Application.query.get_or_404(id)
+    checklist = Checklist.query.get_or_404(checklist_id)
+
+    if checklist in application.checklists:
+        application.checklists.remove(checklist)
+
+        # Удаляем результаты анализа для параметров этого чек-листа
+        for parameter in checklist.parameters:
+            ParameterResult.query.filter_by(
+                application_id=application.id,
+                parameter_id=parameter.id
+            ).delete()
+
+        # Если заявка была проанализирована и остались другие чек-листы
+        if application.status == 'analyzed' and application.checklists:
+            application.status = 'indexed'
+            application.status_message = 'Чек-лист удален. Требуется повторный анализ.'
+
+        db.session.commit()
+        flash(f'Чек-лист "{checklist.name}" успешно удален из заявки', 'success')
+    else:
+        flash('Чек-лист не найден в данной заявке', 'error')
+
+    return redirect(url_for('applications.view', id=application.id))

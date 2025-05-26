@@ -38,6 +38,53 @@ def view(id):
                            checklist=checklist)
 
 
+@bp.route('/<int:id>/edit', methods=['POST'])
+def edit(id):
+    """Редактирование названия и описания чек-листа (inline)"""
+    checklist = Checklist.query.get_or_404(id)
+
+    name = request.form.get('name', '').strip()
+    description = request.form.get('description', '').strip()
+
+    # Валидация
+    if not name:
+        flash('Название чек-листа не может быть пустым', 'error')
+        return redirect(url_for('checklists.view', id=checklist.id))
+
+    # Проверяем, не занято ли имя другим чек-листом
+    existing = Checklist.query.filter(
+        Checklist.name == name,
+        Checklist.id != checklist.id
+    ).first()
+
+    if existing:
+        flash('Чек-лист с таким названием уже существует', 'error')
+        return redirect(url_for('checklists.view', id=checklist.id))
+
+    # Проверяем, были ли изменения
+    changes_made = False
+
+    if checklist.name != name:
+        checklist.name = name
+        changes_made = True
+
+    if checklist.description != description:
+        checklist.description = description if description else None
+        changes_made = True
+
+    if changes_made:
+        try:
+            db.session.commit()
+            flash('Чек-лист успешно обновлен', 'success')
+        except Exception as e:
+            db.session.rollback()
+            flash(f'Ошибка при сохранении изменений: {str(e)}', 'error')
+    else:
+        flash('Изменений не было', 'info')
+
+    return redirect(url_for('checklists.view', id=checklist.id))
+
+
 @bp.route('/<int:id>/parameter/create', methods=['GET', 'POST'])
 def create_parameter(id):
     """Создание нового параметра для чек-листа"""
