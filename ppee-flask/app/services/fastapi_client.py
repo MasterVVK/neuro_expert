@@ -45,6 +45,19 @@ class FastAPIClient:
             logger.error(f"Ошибка удаления данных заявки: {e}")
             return False
 
+    def delete_document_chunks(self, application_id: str, document_id: str) -> int:
+        """Удаляет чанки конкретного документа из векторного хранилища"""
+        try:
+            response = requests.delete(
+                f"{self.base_url}/applications/{application_id}/documents/{document_id}"
+            )
+            response.raise_for_status()
+            result = response.json()
+            return result.get('deleted_count', 0)
+        except Exception as e:
+            logger.error(f"Ошибка удаления чанков документа: {e}")
+            raise
+
     def search(self, application_id: str, query: str, **kwargs) -> List[Dict[str, Any]]:
         """Выполняет поиск"""
         try:

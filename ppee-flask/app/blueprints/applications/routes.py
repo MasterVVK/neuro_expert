@@ -141,6 +141,11 @@ def upload_file(id):
                 file_type=file_type
             )
 
+            # ВАЖНО: Проверяем, есть ли уже результаты анализа
+            if application.status == 'analyzed' and application.parameter_results.count() > 0:
+                flash('Внимание: После добавления нового документа рекомендуется заново выполнить анализ заявки.',
+                      'warning')
+
             # Обновляем статус заявки
             application.status = 'indexing'
             db.session.add(file_record)
@@ -169,14 +174,72 @@ def upload_file(id):
                            application=application)
 
 
+@bp.route('/<int:application_id>/file/<int:file_id>/delete', methods=['POST'])
+def delete_file(application_id, file_id):
+    """Удаление отдельного файла из заявки"""
+    try:
+        application = Application.query.get_or_404(application_id)
+        file_record = File.query.get_or_404(file_id)
+
+        # Проверяем, что файл принадлежит этой заявке
+        if file_record.application_id != application_id:
+            flash('Файл не принадлежит данной заявке', 'error')
+            return redirect(url_for('applications.view', id=application_id))
+
+        # Проверяем, что это не последний файл
+        if application.files.count() == 1:
+            flash('Нельзя удалить последний файл заявки. Удалите всю заявку.', 'error')
+            return redirect(url_for('applications.view', id=application_id))
+
+        # Удаляем физический файл
+        if os.path.exists(file_record.file_path):
+            os.remove(file_record.file_path)
+
+        # Удаляем запись из БД
+        db.session.delete(file_record)
+
+        # Удаляем чанки этого файла из векторного хранилища через FastAPI
+        try:
+            client = FastAPIClient()
+            # Используем document_id для удаления конкретного документа
+            document_id = f"doc_{file_record.filename.replace(' ', '_').replace('.', '_')}"
+            deleted_count = client.delete_document_chunks(str(application_id), document_id)
+            current_app.logger.info(f"Удалено {deleted_count} чанков документа {document_id}")
+        except Exception as e:
+            current_app.logger.error(f"Ошибка при удалении чанков из векторного хранилища: {e}")
+            # Продолжаем удаление даже если не удалось удалить из векторного хранилища
+
+        # Если у заявки есть результаты анализа, показываем предупреждение
+        if application.status == 'analyzed' and application.parameter_results.count() > 0:
+            flash('Файл удален. Рекомендуется заново выполнить анализ заявки.', 'warning')
+            # Можно изменить статус на indexed, чтобы показать, что нужен новый анализ
+            application.status = 'indexed'
+        else:
+            flash('Файл успешно удален', 'success')
+
+        db.session.commit()
+
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Ошибка при удалении файла: {str(e)}', 'error')
+        current_app.logger.error(f"Ошибка при удалении файла: {str(e)}")
+
+    return redirect(url_for('applications.view', id=application_id))
+
+
 @bp.route('/<int:id>/analyze')
 def analyze(id):
     """Запуск анализа заявки"""
     application = Application.query.get_or_404(id)
 
-    # Проверяем, что заявка готова к анализу
-    if application.status not in ['indexed', 'analyzed']:
+    # Проверяем, что заявка готова к анализу (добавляем 'error' в список допустимых статусов)
+    if application.status not in ['indexed', 'analyzed', 'error']:
         flash('Заявка не готова к анализу. Дождитесь завершения индексации.', 'error')
+        return redirect(url_for('applications.view', id=application.id))
+
+    # Дополнительная проверка для статуса error - должны быть файлы
+    if application.status == 'error' and application.files.count() == 0:
+        flash('Для анализа необходимо сначала загрузить документ.', 'error')
         return redirect(url_for('applications.view', id=application.id))
 
     # Проверяем наличие чек-листов
@@ -185,6 +248,9 @@ def analyze(id):
         return redirect(url_for('applications.view', id=application.id))
 
     try:
+        # Сбрасываем сообщение об ошибке перед новой попыткой
+        application.status_message = None
+
         # Запускаем задачу Celery для анализа
         from app.tasks.llm_tasks import process_parameters_task
         task = process_parameters_task.delay(application.id)
