@@ -133,7 +133,8 @@
             </div>
 
             <div class="form-actions">
-                <button type="submit" class="button">Выполнить поиск</button>
+                <button type="submit" id="search-button" class="button">Выполнить поиск</button>
+                <button type="button" id="stop-button" class="button button-danger" style="display: none;">Остановить поиск</button>
             </div>
         </form>
 
@@ -229,8 +230,13 @@
             const confidenceValue = document.getElementById('confidence-value');
             const confidenceText = document.getElementById('confidence-text');
 
+            // Кнопки управления
+            const searchButton = document.getElementById('search-button');
+            const stopButton = document.getElementById('stop-button');
+
             // Переменные для отслеживания задачи
             let searchTracker = null;
+            let currentTaskId = null;
 
             // Функция для обновления отображения настроек ререйтинга
             function updateRerankSettings() {
@@ -269,6 +275,18 @@
             function showResults(data) {
                 // Явно скрываем индикатор прогресса
                 document.getElementById('search-progress').style.display = 'none';
+
+                // Показываем кнопку поиска, скрываем кнопку остановки
+                searchButton.style.display = 'inline-block';
+                stopButton.style.display = 'none';
+
+                // Если поиск был отменен
+                if (data.status === 'cancelled') {
+                    resultsContainer.style.display = 'block';
+                    resultsStats.innerHTML = '<p class="alert alert-warning">Поиск был остановлен пользователем.</p>';
+                    searchResults.innerHTML = '';
+                    return;
+                }
 
                 // Показываем результаты
                 resultsContainer.style.display = 'block';
@@ -364,6 +382,51 @@
                 }
             }
 
+            // Функция для обработки ошибки с восстановлением интерфейса
+            function handleSearchError(error) {
+                // Восстанавливаем кнопки
+                searchButton.style.display = 'inline-block';
+                stopButton.style.display = 'none';
+
+                // Скрываем прогресс
+                document.getElementById('search-progress').style.display = 'none';
+
+                // Показываем ошибку
+                resultsContainer.style.display = 'block';
+                resultsStats.innerHTML = `<p class="alert alert-error">Ошибка при выполнении поиска: ${error.message || 'Неизвестная ошибка'}</p>`;
+                searchResults.innerHTML = '';
+            }
+
+            // Обработчик кнопки остановки
+            stopButton.addEventListener('click', function() {
+                if (currentTaskId) {
+                    // Отправляем запрос на остановку задачи
+                    fetch(`/search/cancel/${currentTaskId}`, {
+                        method: 'POST'
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        console.log('Задача остановлена:', data);
+
+                        // Останавливаем трекер
+                        if (searchTracker) {
+                            searchTracker._stopTracking();
+                        }
+
+                        // Показываем сообщение об отмене
+                        showResults({
+                            status: 'cancelled',
+                            count: 0,
+                            results: []
+                        });
+                    })
+                    .catch(error => {
+                        console.error('Ошибка при остановке задачи:', error);
+                        handleSearchError(error);
+                    });
+                }
+            });
+
             // Обработчик отправки формы
             searchForm.addEventListener('submit', function(e) {
                 e.preventDefault();
@@ -376,6 +439,10 @@
                 // Скрываем предыдущие результаты
                 resultsContainer.style.display = 'none';
                 llmResult.style.display = 'none';
+
+                // Переключаем кнопки
+                searchButton.style.display = 'none';
+                stopButton.style.display = 'inline-block';
 
                 // Формируем данные для отправки
                 const formData = new FormData(searchForm);
@@ -425,6 +492,7 @@
                     stagePrefix: "stage-",
                     stages: stages,
                     onComplete: showResults,
+                    onError: handleSearchError,
                     checkInterval: 500
                 });
 
@@ -436,18 +504,21 @@
                 .then(response => response.json())
                 .then(data => {
                     if (data.status === 'pending') {
+                        // Сохраняем ID задачи
+                        currentTaskId = data.task_id;
+
                         // Получен ID задачи - начинаем отслеживать прогресс
                         console.log("Начинаем отслеживание задачи", data.task_id);
                         searchTracker.startTracking(data.task_id);  // Используем task_id для отслеживания
                     } else if (data.status === 'error') {
                         // Показываем ошибку
                         console.error("Ошибка запуска задачи:", data);
-                        searchTracker.onError(data);
+                        handleSearchError(data);
                     }
                 })
                 .catch(error => {
                     console.error('Ошибка при запуске задачи поиска:', error);
-                    searchTracker.onError({
+                    handleSearchError({
                         message: `Ошибка при запуске задачи: ${error.message}`
                     });
                 });
@@ -464,6 +535,36 @@
     </script>
 
     <style>
+        /* Стили для кнопки остановки */
+        .button-danger {
+            background-color: #dc3545;
+            color: white;
+        }
+
+        .button-danger:hover {
+            background-color: #c82333;
+        }
+
+        /* Стили для уведомлений */
+        .alert {
+            padding: 15px;
+            margin-bottom: 20px;
+            border: 1px solid transparent;
+            border-radius: 4px;
+        }
+
+        .alert-warning {
+            color: #856404;
+            background-color: #fff3cd;
+            border-color: #ffeaa7;
+        }
+
+        .alert-error {
+            color: #721c24;
+            background-color: #f8d7da;
+            border-color: #f5c6cb;
+        }
+
         /* Стили для результатов поиска */
         .llm-result {
             margin-bottom: 20px;

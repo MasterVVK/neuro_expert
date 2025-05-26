@@ -2,6 +2,7 @@ from app import celery, create_app
 import logging
 import requests
 import time
+from celery.exceptions import Terminated, WorkerLostError
 
 logger = logging.getLogger(__name__)
 
@@ -13,7 +14,7 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
                          rerank_limit=None, use_llm=False, llm_params=None,
                          use_smart_search=False, vector_weight=0.5, text_weight=0.5,
                          hybrid_threshold=10):
-    """Асинхронная задача для семантического поиска через FastAPI"""
+    """Асинхронная задача для семантического поиска через FastAPI с поддержкой отмены"""
     # Создаем контекст приложения для работы с БД
     app = create_app()
 
@@ -22,6 +23,16 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
         start_time = time.time()
 
         try:
+            # Функция для проверки, была ли задача отменена
+            def check_if_cancelled():
+                # Проверяем статус задачи
+                result = celery.AsyncResult(task_id)
+                if result.state == 'REVOKED':
+                    raise Terminated("Задача была отменена пользователем")
+
+            # Проверяем отмену перед началом
+            check_if_cancelled()
+
             # Обновляем статус - начало
             self.update_state(state='PROGRESS', meta={
                 'status': 'progress',
@@ -29,6 +40,9 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
                 'stage': 'initializing',
                 'message': 'Инициализация поиска...'
             })
+
+            # Проверяем отмену после инициализации
+            check_if_cancelled()
 
             # Определяем метод поиска
             search_method = 'vector'
@@ -48,6 +62,9 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
                     'message': 'Выполнение векторного поиска...'
                 })
 
+            # Проверяем отмену перед вызовом FastAPI
+            check_if_cancelled()
+
             # Вызываем FastAPI для поиска
             response = requests.post(f"{FASTAPI_URL}/search", json={
                 "application_id": str(application_id),
@@ -66,6 +83,9 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
 
             search_results = response.json()["results"]
 
+            # Проверяем отмену после получения результатов
+            check_if_cancelled()
+
             # Если используется ререйтинг
             if use_reranker:
                 self.update_state(state='PROGRESS', meta={
@@ -74,6 +94,9 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
                     'stage': 'reranking',
                     'message': 'Применение ререйтинга...'
                 })
+
+            # Проверяем отмену перед обработкой LLM
+            check_if_cancelled()
 
             # Обработка через LLM если нужно
             llm_result = None
@@ -87,6 +110,9 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
 
                 # Форматируем контекст
                 context = format_documents_for_context(search_results)
+
+                # Проверяем отмену перед вызовом LLM
+                check_if_cancelled()
 
                 # Вызываем LLM через FastAPI
                 llm_response = requests.post(f"{FASTAPI_URL}/llm/process", json={
@@ -108,6 +134,9 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
                         'confidence': calculate_confidence(llm_text),
                         'raw_response': llm_text
                     }
+
+            # Проверяем отмену перед форматированием результатов
+            check_if_cancelled()
 
             # Форматируем результаты
             formatted_results = []
@@ -135,6 +164,9 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
                 'message': 'Завершение поиска...'
             })
 
+            # Последняя проверка отмены
+            check_if_cancelled()
+
             # Результат
             result = {
                 'status': 'success',
@@ -155,6 +187,19 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
             self.update_state(state='SUCCESS', meta=result)
 
             return result
+
+        except (Terminated, WorkerLostError) as e:
+            # Задача была отменена
+            logger.info(f"Задача поиска {task_id} была отменена")
+            cancelled_result = {
+                'status': 'cancelled',
+                'message': 'Поиск был отменен пользователем',
+                'execution_time': round(time.time() - start_time, 2),
+                'progress': 0,
+                'stage': 'cancelled'
+            }
+            self.update_state(state='REVOKED', meta=cancelled_result)
+            return cancelled_result
 
         except Exception as e:
             logger.error(f"Ошибка при поиске: {e}")

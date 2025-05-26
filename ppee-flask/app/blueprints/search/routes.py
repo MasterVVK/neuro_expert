@@ -3,6 +3,7 @@ from app.blueprints.search import bp
 from app.models import Application, Checklist, ChecklistParameter
 from app.tasks.search_tasks import semantic_search_task
 from app.services.fastapi_client import FastAPIClient
+from celery import current_app as celery_app
 
 
 @bp.route('/')
@@ -176,5 +177,27 @@ def check_status(task_id):
             'stage': 'unknown'
         }
 
-    current_app.logger.info(f"Статус задачи поиска {task_id}: {response.get('status')}, прогресс: {response.get('progress', 0)}%")
+    current_app.logger.info(
+        f"Статус задачи поиска {task_id}: {response.get('status')}, прогресс: {response.get('progress', 0)}%")
     return jsonify(response)
+
+
+@bp.route('/cancel/<task_id>', methods=['POST'])
+def cancel_search(task_id):
+    """Отменяет выполнение задачи поиска"""
+    try:
+        # Пытаемся отменить задачу через Celery
+        celery_app.control.revoke(task_id, terminate=True, signal='SIGKILL')
+
+        current_app.logger.info(f"Задача поиска {task_id} отменена")
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Задача успешно отменена'
+        })
+    except Exception as e:
+        current_app.logger.error(f"Ошибка при отмене задачи {task_id}: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'Не удалось отменить задачу: {str(e)}'
+        }), 500
