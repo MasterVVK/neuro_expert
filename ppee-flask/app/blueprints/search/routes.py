@@ -20,6 +20,9 @@ def index():
         current_app.logger.error(f"Ошибка при получении списка моделей: {str(e)}")
         available_models = ['gemma3:27b', 'llama3:8b', 'mistral:7b']
 
+    # Получаем модель по умолчанию из конфигурации
+    default_llm_model = current_app.config.get('DEFAULT_LLM_MODEL', 'gemma3:27b')
+
     # Получаем шаблон промпта из базы данных
     default_prompt = None
 
@@ -59,6 +62,7 @@ def index():
                            title='Семантический поиск',
                            applications=applications,
                            available_models=available_models,
+                           default_llm_model=default_llm_model,
                            default_prompt=default_prompt)
 
 
@@ -82,8 +86,11 @@ def execute_search():
     llm_params = None
 
     if use_llm:
+        # Получаем модель по умолчанию из конфигурации
+        default_llm_model = current_app.config.get('DEFAULT_LLM_MODEL', 'gemma3:27b')
+
         llm_params = {
-            'model_name': request.form.get('llm_model', 'gemma3:27b'),
+            'model_name': request.form.get('llm_model', default_llm_model),
             'prompt_template': request.form.get('llm_prompt_template', ''),
             'temperature': float(request.form.get('llm_temperature', 0.1)),
             'max_tokens': int(request.form.get('llm_max_tokens', 1000))

@@ -71,7 +71,7 @@
                 <label for="llm_model">Модель LLM</label>
                 <select id="llm_model" name="llm_model" required>
                     {% for model in available_models %}
-                        <option value="{{ model }}">{{ model }}</option>
+                        <option value="{{ model }}" {% if model == default_llm_model %}selected{% endif %}>{{ model }}</option>
                     {% endfor %}
                 </select>
             </div>

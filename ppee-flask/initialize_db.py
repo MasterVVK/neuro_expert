@@ -16,6 +16,9 @@ def init_db():
             db.session.add(admin)
             db.session.commit()  # Сохраняем изменения перед созданием чек-листа
 
+            # Получаем модель по умолчанию из конфигурации
+            default_llm_model = app.config.get('DEFAULT_LLM_MODEL', 'gemma3:27b')
+
             # Создаем тестовый чек-лист
             checklist = Checklist(name='Базовый чек-лист', description='Чек-лист для проверки документов ППЭЭ')
             db.session.add(checklist)
@@ -28,7 +31,7 @@ def init_db():
                 {
                     'name': 'Полное наименование юридического лица',
                     'search_query': 'полное наименование юридического лица',
-                    'llm_model': 'gemma3:27b',
+                    'llm_model': default_llm_model,
                     'llm_prompt_template': '''Ты эксперт по поиску информации в документах.
 
 Нужно найти значение для параметра: "{query}"
@@ -53,7 +56,7 @@ def init_db():
                 {
                     'name': 'ИНН организации',
                     'search_query': 'ИНН организации',
-                    'llm_model': 'gemma3:27b',
+                    'llm_model': default_llm_model,
                     'llm_prompt_template': '''Ты эксперт по поиску информации в документах.
 
 Нужно найти значение для параметра: "{query}"
@@ -78,7 +81,7 @@ def init_db():
                 {
                     'name': 'ОГРН организации',
                     'search_query': 'ОГРН организации',
-                    'llm_model': 'gemma3:27b',
+                    'llm_model': default_llm_model,
                     'llm_prompt_template': '''Ты эксперт по поиску информации в документах.
 
 Нужно найти значение для параметра: "{query}"

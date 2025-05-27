@@ -48,6 +48,8 @@ class Config:
     # FastAPI сервис
     FASTAPI_URL = os.environ.get('FASTAPI_URL') or 'http://localhost:8001'
 
+    DEFAULT_LLM_MODEL = os.environ.get('DEFAULT_LLM_MODEL') or 'gemma3:27b-it-qat'
+
 class DevelopmentConfig(Config):
     DEBUG = True
 

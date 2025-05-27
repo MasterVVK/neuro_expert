@@ -134,6 +134,9 @@ def create_parameter(id):
     if not available_models:
         available_models = ['gemma3:27b', 'llama3:8b', 'mistral:7b']
 
+    # Получаем модель по умолчанию из конфигурации
+    default_llm_model = current_app.config.get('DEFAULT_LLM_MODEL', 'gemma3:27b')
+
     # Шаблон промпта по умолчанию
     default_prompt = """Ты эксперт по поиску информации в документах.
 
@@ -158,6 +161,7 @@ def create_parameter(id):
                            title=f'Добавление параметра - {checklist.name}',
                            checklist=checklist,
                            available_models=available_models,
+                           default_llm_model=default_llm_model,
                            default_prompt=default_prompt)
 
 
