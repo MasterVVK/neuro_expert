@@ -278,6 +278,9 @@ def results(id):
             flash('Результаты анализа еще не готовы', 'info')
             return redirect(url_for('applications.view', id=application.id))
 
+        # Получаем маппинг имен документов
+        doc_names_mapping = application.get_document_names_mapping()
+
         # Получаем результаты по чек-листам
         checklist_results = {}
 
@@ -301,7 +304,8 @@ def results(id):
         return render_template('applications/results.html',
                                title=f'Результаты анализа - {application.name}',
                                application=application,
-                               checklist_results=checklist_results)
+                               checklist_results=checklist_results,
+                               doc_names_mapping=doc_names_mapping)
     except Exception as e:
         current_app.logger.error(f"Ошибка при просмотре результатов заявки {id}: {str(e)}")
         flash(f"Ошибка при просмотре результатов: {str(e)}", "error")
@@ -409,6 +413,9 @@ def view_chunks(id):
     try:
         application = Application.query.get_or_404(id)
 
+        # Получаем маппинг имен документов
+        doc_names_mapping = application.get_document_names_mapping()
+
         # Используем FastAPI клиент
         client = FastAPIClient()
 
@@ -422,7 +429,8 @@ def view_chunks(id):
                                title=f'Чанки заявки {application.name}',
                                application=application,
                                chunks=chunks,
-                               stats=stats)
+                               stats=stats,
+                               doc_names_mapping=doc_names_mapping)
     except Exception as e:
         current_app.logger.error(f"Ошибка при просмотре чанков заявки {id}: {str(e)}")
         flash(f"Ошибка при просмотре чанков: {str(e)}", "error")

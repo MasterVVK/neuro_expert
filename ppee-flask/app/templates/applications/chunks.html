@@ -55,6 +55,21 @@
                 </div>
 
                 <div class="filter-group">
+                    <label for="document-filter">Документ:</label>
+                    <select id="document-filter">
+                        <option value="all">Все документы</option>
+                        {% set documents = {} %}
+                        {% for chunk in chunks %}
+                            {% if chunk.metadata.document_id and chunk.metadata.document_id not in documents %}
+                                {% set doc_name = doc_names_mapping.get(chunk.metadata.document_id, chunk.metadata.document_id) %}
+                                {% set _ = documents.update({chunk.metadata.document_id: doc_name}) %}
+                                <option value="{{ chunk.metadata.document_id }}">{{ doc_name }}</option>
+                            {% endif %}
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="filter-group">
                     <label for="text-search">Поиск текста:</label>
                     <input type="text" id="text-search" placeholder="Введите текст для поиска">
                 </div>
@@ -68,13 +83,22 @@
             <h2>Список чанков ({{ chunks|length }})</h2>
             {% if chunks %}
                 {% for chunk in chunks %}
-                    <div class="chunk-item" data-content-type="{{ chunk.metadata.content_type }}" data-section="{{ chunk.metadata.section }}">
+                    <div class="chunk-item"
+                         data-content-type="{{ chunk.metadata.content_type }}"
+                         data-section="{{ chunk.metadata.section }}"
+                         data-document-id="{{ chunk.metadata.document_id }}">
                         <div class="chunk-header">
                             <span class="chunk-id">ID: {{ chunk.id }}</span>
-                            <span class="chunk-type badge">{{ chunk.metadata.content_type }}</span>
+                            {% if chunk.metadata.document_id %}
+                                {% set doc_name = doc_names_mapping.get(chunk.metadata.document_id, chunk.metadata.document_id) %}
+                                <span class="chunk-document badge badge-info" title="{{ chunk.metadata.document_id }}">
+                                    {{ doc_name }}
+                                </span>
+                            {% endif %}
                             {% if chunk.metadata.page_number %}
                                 <span class="chunk-page-number">Страница: {{ chunk.metadata.page_number }}</span>
                             {% endif %}
+                            <span class="chunk-type badge">{{ chunk.metadata.content_type }}</span>
                         </div>
 
                         <div class="chunk-section">
@@ -184,6 +208,10 @@
             background-color: #007bff;
         }
 
+        .badge-info {
+            background-color: #17a2b8;
+        }
+
         .chunk-section {
             margin-bottom: 10px;
         }
@@ -249,6 +277,7 @@
         document.addEventListener('DOMContentLoaded', function() {
             const contentTypeFilter = document.getElementById('content-type-filter');
             const sectionFilter = document.getElementById('section-filter');
+            const documentFilter = document.getElementById('document-filter');
             const textSearch = document.getElementById('text-search');
             const applyFiltersBtn = document.getElementById('apply-filters');
             const resetFiltersBtn = document.getElementById('reset-filters');
@@ -258,11 +287,13 @@
             applyFiltersBtn.addEventListener('click', function() {
                 const contentType = contentTypeFilter.value;
                 const section = sectionFilter.value;
+                const document = documentFilter.value;
                 const searchText = textSearch.value.toLowerCase();
 
                 chunkItems.forEach(item => {
                     const itemContentType = item.getAttribute('data-content-type');
                     const itemSection = item.getAttribute('data-section');
+                    const itemDocument = item.getAttribute('data-document-id');
                     const itemText = item.querySelector('.chunk-text').textContent.toLowerCase();
 
                     let showItem = true;
@@ -274,6 +305,11 @@
 
                     // Проверка фильтра раздела
                     if (section !== 'all' && itemSection !== section) {
+                        showItem = false;
+                    }
+
+                    // Проверка фильтра документа
+                    if (document !== 'all' && itemDocument !== document) {
                         showItem = false;
                     }
 
@@ -290,6 +326,7 @@
             resetFiltersBtn.addEventListener('click', function() {
                 contentTypeFilter.value = 'all';
                 sectionFilter.value = 'all';
+                documentFilter.value = 'all';
                 textSearch.value = '';
 
                 chunkItems.forEach(item => {

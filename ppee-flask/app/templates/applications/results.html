@@ -92,8 +92,10 @@
                                             <div class="search-result">
                                                 <p><strong>Документ {{ loop.index }}:</strong></p>
                                                 {% if doc.metadata %}
-                                                    <p><strong>Раздел:</strong> {{ doc.metadata.section or 'Не указан' }}</p>
-                                                    <p><strong>Тип:</strong> {{ doc.metadata.content_type or 'Не указан' }}</p>
+                                                    {% set doc_id = doc.metadata.document_id or '' %}
+                                                    {% set doc_name = doc_names_mapping.get(doc_id, doc_id) if doc_names_mapping else doc_id %}
+                                                    <p><strong>Файл:</strong> {{ doc_name or 'Не указан' }}</p>
+                                                    <p><strong>Страница:</strong> {{ doc.metadata.page_number or 'Не указана' }}</p>
                                                     {% if doc.score %}
                                                     <p><strong>Релевантность:</strong> {{ "%.4f"|format(doc.score) }}</p>
                                                     {% endif %}
@@ -126,8 +128,10 @@
                                         {% for doc in item.result.search_results %}
                                         <div class="search-result">
                                             <p><strong>Документ {{ loop.index }}:</strong></p>
-                                            <p><strong>Раздел:</strong> {{ doc.metadata.section }}</p>
-                                            <p><strong>Тип:</strong> {{ doc.metadata.content_type }}</p>
+                                            {% set doc_id = doc.metadata.document_id or '' %}
+                                            {% set doc_name = doc_names_mapping.get(doc_id, doc_id) if doc_names_mapping else doc_id %}
+                                            <p><strong>Файл:</strong> {{ doc_name or 'Не указан' }}</p>
+                                            <p><strong>Страница:</strong> {{ doc.metadata.page_number or 'Не указана' }}</p>
                                             <div class="text-scroll-container">
                                                 <div class="search-result-content text-container">
                                                     {{ doc.text }}
@@ -156,6 +160,8 @@
         html, body {
             overflow-x: hidden;
             max-width: 100%;
+        }
+
         /* Стили для уведомлений */
         .alert {
             padding: 15px;
