@@ -107,7 +107,13 @@ class FastAPIClient:
         try:
             response = requests.get(f"{self.base_url}/llm/models")
             response.raise_for_status()
-            return response.json()["models"]
+            all_models = response.json()["models"]
+
+            # Фильтруем модель bge-m3:latest
+            llm_models = [model for model in all_models if model != 'bge-m3:latest']
+
+            return llm_models
+
         except Exception as e:
             logger.error(f"Ошибка получения моделей: {e}")
             return []
@@ -131,8 +137,6 @@ class FastAPIClient:
         except Exception as e:
             logger.error(f"Ошибка получения результатов задачи: {e}")
             raise
-
-        # Добавьте этот метод в класс FastAPIClient в файле app/services/fastapi_client.py
 
     def get_system_stats(self) -> Dict[str, Any]:
         """Получает статистику использования системных ресурсов"""
