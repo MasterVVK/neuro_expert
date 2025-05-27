@@ -103,6 +103,10 @@ def execute_search():
         })
 
     try:
+        # Получаем маппинг имен документов
+        application = Application.query.get(application_id)
+        doc_names_mapping = application.get_document_names_mapping() if application else {}
+
         # Логируем запрос
         current_app.logger.info(
             f"Поиск: '{query}', Заявка: {application_id}, "
@@ -120,7 +124,8 @@ def execute_search():
             use_smart_search=use_smart_search,
             vector_weight=vector_weight,
             text_weight=text_weight,
-            hybrid_threshold=hybrid_threshold
+            hybrid_threshold=hybrid_threshold,
+            doc_names_mapping=doc_names_mapping  # Передаем маппинг
         )
 
         # Возвращаем ID задачи для последующего отслеживания

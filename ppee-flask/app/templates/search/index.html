@@ -366,8 +366,8 @@
                             <div class="result-header">
                                 <span class="result-position">${result.position}</span>
                                 <div class="result-meta">
-                                    <span class="result-section">Раздел: ${result.section}</span>
-                                    <span class="result-type">Тип: ${result.content_type}</span>
+                                    <span class="result-document">Документ: ${result.document_name}</span>
+                                    <span class="result-page">Страница: ${result.page_number || 'Не указана'}</span>
                                     ${searchTypeDisplay}
                                     ${scoreHtml}
                                 </div>
@@ -611,7 +611,7 @@
             flex-direction: column;
         }
 
-        .result-section, .result-type, .result-score, .result-score-rerank, .result-search-type {
+        .result-document, .result-page, .result-score, .result-score-rerank, .result-search-type {
             font-size: 0.9rem;
             color: #6c757d;
             margin-bottom: 3px;

@@ -13,7 +13,7 @@ FASTAPI_URL = "http://localhost:8001"
 def semantic_search_task(self, application_id, query_text, limit=5, use_reranker=False,
                          rerank_limit=None, use_llm=False, llm_params=None,
                          use_smart_search=False, vector_weight=0.5, text_weight=0.5,
-                         hybrid_threshold=10):
+                         hybrid_threshold=10, doc_names_mapping=None):
     """Асинхронная задача для семантического поиска через FastAPI с поддержкой отмены"""
     # Создаем контекст приложения для работы с БД
     app = create_app()
@@ -138,16 +138,26 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
             # Проверяем отмену перед форматированием результатов
             check_if_cancelled()
 
+            # Получаем маппинг имен документов, если не передан
+            doc_names_mapping = doc_names_mapping or {}
+
             # Форматируем результаты
             formatted_results = []
             for i, result in enumerate(search_results):
+                doc_id = result.get('metadata', {}).get('document_id', '')
                 formatted_result = {
                     'position': i + 1,
                     'text': result.get('text', ''),
-                    'section': result.get('metadata', {}).get('section', 'Неизвестно'),
-                    'content_type': result.get('metadata', {}).get('content_type', 'Неизвестно'),
+                    'document_id': doc_id,
+                    'document_name': doc_names_mapping.get(doc_id, 'Неизвестный документ'),
+                    'page_number': result.get('metadata', {}).get('page_number', 'Не указана'),
                     'score': round(float(result.get('score', 0.0)), 4),
-                    'search_type': result.get('search_type', 'vector')
+                    'search_type': result.get('search_type', 'vector'),
+                    # Сохраняем section и content_type для возможной отладки
+                    'metadata': {
+                        'section': result.get('metadata', {}).get('section'),
+                        'content_type': result.get('metadata', {}).get('content_type')
+                    }
                 }
 
                 # Добавляем rerank_score если есть

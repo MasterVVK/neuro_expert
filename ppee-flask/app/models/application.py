@@ -1,5 +1,6 @@
 from app import db
 from datetime import datetime
+import os
 
 # Связь между заявками и чек-листами
 application_checklists = db.Table('application_checklists',
@@ -46,6 +47,15 @@ class Application(db.Model):
             'error': 'Ошибка'
         }
         return status_map.get(self.status, self.status)
+
+    def get_document_names_mapping(self):
+        """Возвращает маппинг document_id -> original_filename"""
+        mapping = {}
+        for file in self.files:
+            # Генерируем document_id так же, как при индексации
+            doc_id = f"doc_{os.path.basename(file.file_path).replace(' ', '_').replace('.', '_')}"
+            mapping[doc_id] = file.original_filename
+        return mapping
 
 
 class File(db.Model):
