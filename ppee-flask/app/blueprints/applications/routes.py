@@ -204,15 +204,22 @@ def delete_file(id, file_id):
         deleted_count = client.delete_document_chunks(str(application.id), document_id)
         current_app.logger.info(f"Удалено {deleted_count} чанков из векторного хранилища")
 
+        # Проверяем количество файлов ДО удаления текущего
+        total_files_before_delete = File.query.filter_by(application_id=application.id).count()
+
         # Удаляем запись из БД
         db.session.delete(file)
 
-        # Проверяем, остались ли файлы у заявки
-        remaining_files = File.query.filter_by(application_id=application.id).count()
-        if remaining_files == 1:  # Учитываем, что текущий файл еще не удален из БД
-            # Если это был последний файл, сбрасываем статус заявки
+        # Если это был последний файл, сбрасываем статус заявки
+        if total_files_before_delete == 1:
+            # Это был последний файл, сбрасываем статус заявки
             application.status = 'created'
             application.status_message = 'Все файлы удалены'
+            current_app.logger.info(f"Последний файл удален, статус заявки {application.id} сброшен на 'created'")
+        else:
+            # Остались еще файлы, статус не меняем
+            remaining_files = total_files_before_delete - 1
+            current_app.logger.info(f"Удален файл, у заявки {application.id} остается еще {remaining_files} файл(ов)")
 
         db.session.commit()
 
