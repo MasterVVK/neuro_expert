@@ -14,6 +14,7 @@
                         <th>ID</th>
                         <th>Название</th>
                         <th>Параметры</th>
+                        <th>Используется в заявках</th>
                         <th>Дата создания</th>
                         <th>Действия</th>
                     </tr>
@@ -24,9 +25,33 @@
                         <td>{{ checklist.id }}</td>
                         <td>{{ checklist.name }}</td>
                         <td>{{ checklist.parameters.count() }}</td>
+                        <td>
+                            {% set app_count = checklist.applications.count() %}
+                            {% if app_count > 0 %}
+                                <span class="badge badge-info" title="Чек-лист используется в заявках">
+                                    {{ app_count }}
+                                </span>
+                            {% else %}
+                                <span class="badge badge-secondary">0</span>
+                            {% endif %}
+                        </td>
                         <td>{{ checklist.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
                         <td>
                             <a href="{{ url_for('checklists.view', id=checklist.id) }}" class="button button-small">Просмотр</a>
+                            {% if app_count == 0 %}
+                                <form method="post"
+                                      action="{{ url_for('checklists.delete', id=checklist.id) }}"
+                                      class="inline-form"
+                                      onsubmit="return confirm('Удалить чек-лист «{{ checklist.name }}»?');">
+                                    <button type="submit" class="button button-small button-danger">Удалить</button>
+                                </form>
+                            {% else %}
+                                <button class="button button-small button-danger"
+                                        disabled
+                                        title="Чек-лист используется в {{ app_count }} заявках и не может быть удален">
+                                    Удалить
+                                </button>
+                            {% endif %}
                         </td>
                     </tr>
                     {% endfor %}
@@ -36,4 +61,38 @@
     {% else %}
         <p class="empty-list">Нет чек-листов. <a href="{{ url_for('checklists.create') }}">Создать чек-лист</a></p>
     {% endif %}
+
+    <style>
+        .badge {
+            display: inline-block;
+            padding: 0.25em 0.6em;
+            font-size: 0.75em;
+            font-weight: 700;
+            line-height: 1;
+            text-align: center;
+            white-space: nowrap;
+            vertical-align: baseline;
+            border-radius: 0.25rem;
+        }
+
+        .badge-info {
+            color: #fff;
+            background-color: #17a2b8;
+        }
+
+        .badge-secondary {
+            color: #fff;
+            background-color: #6c757d;
+        }
+
+        .inline-form {
+            display: inline-block;
+            margin-left: 5px;
+        }
+
+        button[disabled] {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+    </style>
 {% endblock %}

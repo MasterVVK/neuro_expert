@@ -208,14 +208,36 @@ def delete(id):
     """Удаление чек-листа"""
     checklist = Checklist.query.get_or_404(id)
 
+    # Проверяем, используется ли чек-лист в заявках
+    applications_count = checklist.applications.count()
+
+    if applications_count > 0:
+        # Формируем сообщение об ошибке
+        error_message = f'Невозможно удалить чек-лист "{checklist.name}", так как он используется в {applications_count} '
+
+        # Правильное склонение слова "заявка"
+        if applications_count % 10 == 1 and applications_count % 100 != 11:
+            error_message += 'заявке'
+        elif applications_count % 10 in [2, 3, 4] and applications_count % 100 not in [12, 13, 14]:
+            error_message += 'заявках'
+        else:
+            error_message += 'заявках'
+
+        error_message += '. Сначала удалите чек-лист из всех заявок.'
+
+        flash(error_message, 'error')
+        return redirect(url_for('checklists.view', id=checklist.id))
+
     try:
+        # Если чек-лист не используется, удаляем его
         db.session.delete(checklist)
         db.session.commit()
-        flash('Чек-лист успешно удален', 'success')
+        flash(f'Чек-лист "{checklist.name}" успешно удален', 'success')
+        return redirect(url_for('checklists.index'))
     except Exception as e:
+        db.session.rollback()
         flash(f'Ошибка при удалении чек-листа: {str(e)}', 'error')
-
-    return redirect(url_for('checklists.index'))
+        return redirect(url_for('checklists.view', id=checklist.id))
 
 
 @bp.route('/parameters/<int:id>/delete', methods=['POST'])
