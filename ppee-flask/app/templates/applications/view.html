@@ -203,6 +203,7 @@
                         <th>Имя файла</th>
                         <th>Размер</th>
                         <th>Дата загрузки</th>
+                        <th>Действия</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -219,10 +220,37 @@
                                 {% endif %}
                             </td>
                             <td>{{ file.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+                            <td>
+                                {% if application.status in ['created', 'indexed', 'analyzed', 'error'] %}
+                                    <form method="post"
+                                          action="{{ url_for('applications.delete_file', id=application.id, file_id=file.id) }}"
+                                          class="inline-form"
+                                          onsubmit="return confirm('Удалить файл «{{ file.original_filename }}»? Это действие также удалит все связанные данные из поискового индекса.');">
+                                        <button type="submit" class="button button-small button-danger">Удалить</button>
+                                    </form>
+                                {% else %}
+                                    <button class="button button-small button-danger"
+                                            disabled
+                                            title="Нельзя удалить файл во время {{ application.get_status_display() }}">
+                                        Удалить
+                                    </button>
+                                {% endif %}
+                            </td>
                         </tr>
                     {% endfor %}
                 </tbody>
             </table>
+
+            {% if application.files.count() > 0 and application.status not in ['indexing', 'analyzing'] %}
+                <div class="file-note">
+                    <p class="form-note">
+                        <strong>Внимание:</strong> Удаление файла также удалит все связанные с ним данные из поискового индекса.
+                        {% if application.status == 'analyzed' %}
+                            После удаления файла может потребоваться повторный анализ заявки.
+                        {% endif %}
+                    </p>
+                </div>
+            {% endif %}
         {% else %}
             <p class="empty-list">Нет загруженных файлов. <a href="{{ url_for('applications.upload_file', id=application.id) }}">Загрузить файл</a></p>
         {% endif %}
@@ -455,6 +483,50 @@
 
         .data-table td {
             vertical-align: middle;
+        }
+
+        /* Стили для секции файлов */
+        .file-section {
+            background-color: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        .file-note {
+            margin-top: 15px;
+            padding: 10px 15px;
+            background-color: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 4px;
+        }
+
+        .file-note p {
+            margin: 0;
+            color: #856404;
+        }
+
+        /* Стили для таблицы файлов */
+        .data-table th:last-child,
+        .data-table td:last-child {
+            text-align: center;
+            width: 100px;
+        }
+
+        /* Убедимся, что кнопка удаления правильно отображается */
+        .button-danger {
+            background-color: #dc3545;
+            color: white;
+        }
+
+        .button-danger:hover:not([disabled]) {
+            background-color: #c82333;
+        }
+
+        .button-danger[disabled] {
+            background-color: #dc3545;
+            opacity: 0.6;
         }
     </style>
 {% endblock %}

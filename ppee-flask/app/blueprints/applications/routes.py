@@ -179,6 +179,52 @@ def upload_file(id):
                            application=application)
 
 
+@bp.route('/<int:id>/file/<int:file_id>/delete', methods=['POST'])
+def delete_file(id, file_id):
+    """Удаление файла из заявки"""
+    application = Application.query.get_or_404(id)
+    file = File.query.get_or_404(file_id)
+
+    # Проверяем, что файл принадлежит этой заявке
+    if file.application_id != application.id:
+        flash('Файл не принадлежит этой заявке', 'error')
+        return redirect(url_for('applications.view', id=application.id))
+
+    try:
+        # Удаляем физический файл
+        if os.path.exists(file.file_path):
+            os.remove(file.file_path)
+            current_app.logger.info(f"Удален файл: {file.file_path}")
+
+        # Формируем document_id для FastAPI (такой же как при индексации)
+        document_id = f"doc_{os.path.basename(file.file_path).replace(' ', '_').replace('.', '_')}"
+
+        # Удаляем чанки из векторного хранилища через FastAPI
+        client = FastAPIClient()
+        deleted_count = client.delete_document_chunks(str(application.id), document_id)
+        current_app.logger.info(f"Удалено {deleted_count} чанков из векторного хранилища")
+
+        # Удаляем запись из БД
+        db.session.delete(file)
+
+        # Проверяем, остались ли файлы у заявки
+        remaining_files = File.query.filter_by(application_id=application.id).count()
+        if remaining_files == 1:  # Учитываем, что текущий файл еще не удален из БД
+            # Если это был последний файл, сбрасываем статус заявки
+            application.status = 'created'
+            application.status_message = 'Все файлы удалены'
+
+        db.session.commit()
+
+        flash(f'Файл "{file.original_filename}" успешно удален', 'success')
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Ошибка при удалении файла: {str(e)}")
+        flash(f'Ошибка при удалении файла: {str(e)}', 'error')
+
+    return redirect(url_for('applications.view', id=application.id))
+
+
 @bp.route('/<int:id>/analyze')
 def analyze(id):
     """Запуск анализа заявки"""
