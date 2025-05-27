@@ -90,7 +90,7 @@
                                         {% if item.result.search_results %}
                                             {% for doc in item.result.search_results %}
                                             <div class="search-result">
-                                                <p><strong>Документ {{ loop.index }}:</strong></p>
+                                                <p><strong>Результат {{ loop.index }}:</strong></p>
                                                 {% if doc.metadata %}
                                                     {% set doc_id = doc.metadata.document_id or '' %}
                                                     {% set doc_name = doc_names_mapping.get(doc_id, doc_id) if doc_names_mapping else doc_id %}
@@ -127,7 +127,7 @@
                                         <h4>Результаты поиска (контекст):</h4>
                                         {% for doc in item.result.search_results %}
                                         <div class="search-result">
-                                            <p><strong>Документ {{ loop.index }}:</strong></p>
+                                            <p><strong>Результат {{ loop.index }}:</strong></p>
                                             {% set doc_id = doc.metadata.document_id or '' %}
                                             {% set doc_name = doc_names_mapping.get(doc_id, doc_id) if doc_names_mapping else doc_id %}
                                             <p><strong>Файл:</strong> {{ doc_name or 'Не указан' }}</p>
