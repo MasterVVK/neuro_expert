@@ -39,7 +39,7 @@ def index_document_task(self, application_id, file_id):
 
             if response.status_code == 200:
                 # Опрашиваем статус индексации через FastAPI
-                max_attempts = 300  # Максимум 5 минут (300 * 1 сек)
+                max_attempts = 1200  # Максимум 5 минут (300 * 1 сек)
                 attempt = 0
 
                 while attempt < max_attempts:
@@ -69,7 +69,7 @@ def index_document_task(self, application_id, file_id):
                             logger.info(f"Индексация заявки {application_id}: {progress}% - {message}")
 
                     # Ждем и повторяем
-                    time.sleep(1)
+                    time.sleep(2)
                     attempt += 1
 
                 # Если вышли по таймауту
