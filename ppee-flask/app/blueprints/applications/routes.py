@@ -524,3 +524,28 @@ def remove_checklist(id, checklist_id):
         flash('Чек-лист не найден в данной заявке', 'error')
 
     return redirect(url_for('applications.view', id=application.id))
+
+
+@bp.route('/<int:id>/api/stats')
+def api_stats(id):
+    """API endpoint для получения статистики заявки"""
+    try:
+        application = Application.query.get_or_404(id)
+
+        # Используем FastAPI клиент для получения статистики
+        client = FastAPIClient()
+        stats = client.get_application_stats(str(application.id))
+
+        return jsonify({
+            'status': 'success',
+            'total_chunks': stats.get('total_points', 0),
+            'content_types': stats.get('content_types', {}),
+            'application_id': id
+        })
+    except Exception as e:
+        current_app.logger.error(f"Ошибка при получении статистики заявки {id}: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e),
+            'total_chunks': 0
+        }), 500

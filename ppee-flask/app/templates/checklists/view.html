@@ -119,7 +119,11 @@
                                             Результатов: {{ parameter.search_limit }}
                                             {% if parameter.use_reranker %}
                                                 <br><span class="badge badge-success">Ререйтинг</span>
-                                                <span class="small">(лимит: {{ parameter.rerank_limit }})</span>
+                                                {% if parameter.rerank_limit == 9999 %}
+                                                    <br><span class="small">(все чанки)</span>
+                                                {% else %}
+                                                    <br><span class="small">(лимит: {{ parameter.rerank_limit }})</span>
+                                                {% endif %}
                                             {% endif %}
                                         </span>
                                     </td>

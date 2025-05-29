@@ -57,6 +57,7 @@
                     <option value="15">15</option>
                     <option value="20">20</option>
                     <option value="30">30</option>
+                    <option value="9999">Все чанки в заявке</option>
                 </select>
                 <p class="form-note">Количество документов, извлекаемых для применения ререйтинга</p>
             </div>
@@ -238,11 +239,47 @@
             let searchTracker = null;
             let currentTaskId = null;
 
+            // Добавляем переменные для динамического обновления опции "Все чанки"
+            const applicationSelect = document.getElementById('application_id');
+            const rerankLimitSelect = document.getElementById('rerank_limit');
+            const allChunksOption = rerankLimitSelect.querySelector('option[value="9999"]');
+
+            // Функция для обновления текста опции "Все чанки"
+            async function updateAllChunksOption() {
+                const applicationId = applicationSelect.value;
+
+                if (!applicationId || !allChunksOption) {
+                    return;
+                }
+
+                try {
+                    // Сохраняем исходный текст
+                    allChunksOption.textContent = 'Все чанки в заявке (загрузка...)';
+
+                    // Запрашиваем статистику
+                    const response = await fetch(`/applications/${applicationId}/api/stats`);
+                    if (response.ok) {
+                        const data = await response.json();
+                        const totalChunks = data.total_chunks || 0;
+                        allChunksOption.textContent = `Все чанки в заявке (${totalChunks})`;
+                    } else {
+                        allChunksOption.textContent = 'Все чанки в заявке';
+                    }
+                } catch (error) {
+                    console.error('Ошибка при получении количества чанков:', error);
+                    allChunksOption.textContent = 'Все чанки в заявке';
+                }
+            }
+
             // Функция для обновления отображения настроек ререйтинга
             function updateRerankSettings() {
                 if (useRerankerCheckbox.checked) {
                     rerankLimitContainer.style.display = 'block';
                     rerankingStage.style.display = '';
+                    // Обновляем количество чанков при показе настроек
+                    if (applicationSelect.value) {
+                        updateAllChunksOption();
+                    }
                 } else {
                     rerankLimitContainer.style.display = 'none';
                     rerankingStage.style.display = 'none';
@@ -523,6 +560,9 @@
                     });
                 });
             });
+
+            // Обновляем при смене заявки
+            applicationSelect.addEventListener('change', updateAllChunksOption);
 
             // Инициализация и установка обработчиков событий
             updateRerankSettings();

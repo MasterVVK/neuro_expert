@@ -33,6 +33,25 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
             # Проверяем отмену перед началом
             check_if_cancelled()
 
+            if use_reranker and rerank_limit == 9999:
+                # Получаем статистику заявки через FastAPI
+                try:
+                    logger.info(f"Получение количества чанков для заявки {application_id}")
+                    response = requests.get(f"{FASTAPI_URL}/applications/{application_id}/stats")
+                    if response.status_code == 200:
+                        stats = response.json()["stats"]
+                        total_chunks = stats.get("total_points", 100)  # fallback на 100
+                        rerank_limit = total_chunks
+                        logger.info(f"Использование всех {total_chunks} чанков для ререйтинга в заявке {application_id}")
+                    else:
+                        # Если не удалось получить статистику, используем большое значение
+                        rerank_limit = 1000
+                        logger.warning(f"Не удалось получить количество чанков для заявки {application_id}, используем {rerank_limit}")
+                except Exception as e:
+                    logger.error(f"Ошибка при получении статистики заявки: {e}")
+                    rerank_limit = 1000  # fallback
+
+
             # Обновляем статус - начало
             self.update_state(state='PROGRESS', meta={
                 'status': 'progress',
