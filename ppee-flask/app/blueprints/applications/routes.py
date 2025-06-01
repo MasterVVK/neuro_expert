@@ -263,16 +263,45 @@ def reindex_file(id, file_id):
         return redirect(url_for('applications.view', id=application.id))
 
     try:
+        # Удаляем старые чанки
+        client = FastAPIClient()
+        try:
+            deleted_count = client.delete_file_chunks(str(application.id), str(file_id))
+            current_app.logger.info(f"Удалено {deleted_count} чанков для файла {file_id}")
+            file.chunks_count = 0
+        except Exception as e:
+            current_app.logger.warning(f"Не удалось удалить чанки по file_id: {e}")
+            try:
+                document_id = f"doc_{os.path.basename(file.file_path).replace(' ', '_').replace('.', '_')}"
+                deleted_count = client.delete_document_chunks(str(application.id), document_id)
+                current_app.logger.info(f"Удалено {deleted_count} чанков по document_id")
+                file.chunks_count = 0
+            except Exception as e2:
+                current_app.logger.error(f"Не удалось удалить чанки: {e2}")
+
+        # Обновляем статус файла и заявки
+        file.indexing_status = 'pending'
+        file.error_message = None
+
+        # Обновляем статус заявки на "indexing" для показа прогресс-бара
+        application.status = 'indexing'
+        db.session.commit()
+
         # Запускаем переиндексацию
         task = index_document_task.delay(application.id, file.id)
+
+        # Сохраняем task_id для отслеживания прогресса
+        application.task_id = task.id
+        db.session.commit()
 
         flash(f'Запущена переиндексация файла "{file.original_filename}"', 'success')
 
     except Exception as e:
         flash(f'Ошибка при запуске переиндексации: {str(e)}', 'error')
 
-    return redirect(url_for('applications.view', id=application.id))
-
+    # Принудительная перезагрузка страницы с уникальным параметром
+    import time
+    return redirect(url_for('applications.view', id=application.id) + '?t=' + str(int(time.time())))
 
 @bp.route('/<int:id>/analyze')
 def analyze(id):
@@ -306,8 +335,9 @@ def analyze(id):
         application.status_message = str(e)
         db.session.commit()
 
-    return redirect(url_for('applications.view', id=application.id))
-
+    # Принудительная перезагрузка страницы с уникальным параметром
+    import time
+    return redirect(url_for('applications.view', id=application.id) + '?t=' + str(int(time.time())))
 
 @bp.route('/<int:id>/results')
 def results(id):

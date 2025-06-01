@@ -76,6 +76,28 @@ def index_document_task(self, application_id, file_id):
         db.session.commit()
 
         try:
+            # Удаляем старые чанки если они есть
+            if file.chunks_count > 0:
+                logger.info(f"Удаление существующих чанков ({file.chunks_count}) для файла {file_id}")
+
+                # Используем FastAPIClient для удаления
+                from app.services.fastapi_client import FastAPIClient
+                client = FastAPIClient()
+
+                try:
+                    deleted_count = client.delete_file_chunks(str(application_id), str(file_id))
+                    logger.info(f"Успешно удалено {deleted_count} чанков по file_id")
+                except Exception as e:
+                    logger.warning(f"Не удалось удалить по file_id: {e}")
+                    # Пробуем удалить по document_id как fallback
+                    document_id = f"doc_{os.path.basename(file.file_path).replace(' ', '_').replace('.', '_')}"
+                    try:
+                        deleted_count = client.delete_document_chunks(str(application_id), document_id)
+                        logger.info(f"Успешно удалено {deleted_count} чанков по document_id")
+                    except Exception as e2:
+                        logger.error(f"Не удалось удалить чанки: {e2}")
+                        # Продолжаем индексацию даже если удаление не удалось
+
             # ВАЖНО: Определяем, нужно ли удалять старые данные
             delete_existing = False
             if file.chunks_count > 0:
