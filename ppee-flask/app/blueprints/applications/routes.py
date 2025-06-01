@@ -12,6 +12,28 @@ from app.services.fastapi_client import FastAPIClient
 from app.utils.db_utils import save_analysis_results  # Импортируем из utils
 
 
+def update_application_status(application):
+    """Обновляет статус заявки на основе статусов файлов"""
+    file_statuses = [f.indexing_status for f in application.files]
+
+    if not file_statuses:
+        application.status = 'created'
+    elif all(s == 'completed' for s in file_statuses):
+        application.status = 'indexed'
+        application.status_message = f"Проиндексировано файлов: {len(file_statuses)}"
+    elif any(s == 'error' for s in file_statuses):
+        errors_count = file_statuses.count('error')
+        completed_count = file_statuses.count('completed')
+        application.status = 'indexed' if completed_count > 0 else 'error'
+        application.status_message = f"Успешно: {completed_count}, Ошибок: {errors_count}"
+    elif any(s == 'indexing' for s in file_statuses):
+        application.status = 'indexing'
+    else:
+        application.status = 'created'
+
+    db.session.commit()
+
+
 @bp.route('/')
 def index():
     """Страница со списком заявок"""
@@ -196,38 +218,58 @@ def delete_file(id, file_id):
             os.remove(file.file_path)
             current_app.logger.info(f"Удален файл: {file.file_path}")
 
-        # Формируем document_id для FastAPI (такой же как при индексации)
-        document_id = f"doc_{os.path.basename(file.file_path).replace(' ', '_').replace('.', '_')}"
-
-        # Удаляем чанки из векторного хранилища через FastAPI
+        # Удаляем чанки из векторного хранилища
         client = FastAPIClient()
-        deleted_count = client.delete_document_chunks(str(application.id), document_id)
-        current_app.logger.info(f"Удалено {deleted_count} чанков из векторного хранилища")
+        deleted_count = 0
 
-        # Проверяем количество файлов ДО удаления текущего
-        total_files_before_delete = File.query.filter_by(application_id=application.id).count()
+        # Пробуем удалить по file_id (новый метод)
+        try:
+            deleted_count = client.delete_file_chunks(str(application.id), str(file_id))
+            current_app.logger.info(f"Удалено {deleted_count} чанков по file_id")
+        except Exception as e:
+            # Если не поддерживается, пробуем по document_id (старый метод)
+            current_app.logger.warning(f"Не удалось удалить по file_id, пробуем по document_id: {e}")
+            document_id = f"doc_{os.path.basename(file.file_path).replace(' ', '_').replace('.', '_')}"
+            try:
+                deleted_count = client.delete_document_chunks(str(application.id), document_id)
+                current_app.logger.info(f"Удалено {deleted_count} чанков по document_id")
+            except Exception as e2:
+                current_app.logger.error(f"Не удалось удалить чанки: {e2}")
 
         # Удаляем запись из БД
         db.session.delete(file)
-
-        # Если это был последний файл, сбрасываем статус заявки
-        if total_files_before_delete == 1:
-            # Это был последний файл, сбрасываем статус заявки
-            application.status = 'created'
-            application.status_message = 'Все файлы удалены'
-            current_app.logger.info(f"Последний файл удален, статус заявки {application.id} сброшен на 'created'")
-        else:
-            # Остались еще файлы, статус не меняем
-            remaining_files = total_files_before_delete - 1
-            current_app.logger.info(f"Удален файл, у заявки {application.id} остается еще {remaining_files} файл(ов)")
-
         db.session.commit()
+
+        # Обновляем статус заявки
+        update_application_status(application)
 
         flash(f'Файл "{file.original_filename}" успешно удален', 'success')
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Ошибка при удалении файла: {str(e)}")
         flash(f'Ошибка при удалении файла: {str(e)}', 'error')
+
+    return redirect(url_for('applications.view', id=application.id))
+
+
+@bp.route('/<int:id>/file/<int:file_id>/reindex', methods=['POST'])
+def reindex_file(id, file_id):
+    """Переиндексация отдельного файла"""
+    application = Application.query.get_or_404(id)
+    file = File.query.get_or_404(file_id)
+
+    if file.application_id != application.id:
+        flash('Файл не принадлежит этой заявке', 'error')
+        return redirect(url_for('applications.view', id=application.id))
+
+    try:
+        # Запускаем переиндексацию
+        task = index_document_task.delay(application.id, file.id)
+
+        flash(f'Запущена переиндексация файла "{file.original_filename}"', 'success')
+
+    except Exception as e:
+        flash(f'Ошибка при запуске переиндексации: {str(e)}', 'error')
 
     return redirect(url_for('applications.view', id=application.id))
 

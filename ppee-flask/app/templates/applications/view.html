@@ -201,6 +201,8 @@
                 <thead>
                     <tr>
                         <th>Имя файла</th>
+                        <th>Статус</th>
+                        <th>Чанков</th>
                         <th>Размер</th>
                         <th>Дата загрузки</th>
                         <th>Действия</th>
@@ -210,6 +212,18 @@
                     {% for file in application.files.all() %}
                         <tr>
                             <td>{{ file.original_filename }}</td>
+                            <td>
+                                {% if file.indexing_status == 'completed' %}
+                                    <span class="status-badge status-success">✓ Проиндексирован</span>
+                                {% elif file.indexing_status == 'indexing' %}
+                                    <span class="status-badge status-indexing">⏳ Индексация...</span>
+                                {% elif file.indexing_status == 'error' %}
+                                    <span class="status-badge status-error" title="{{ file.error_message }}">✗ Ошибка</span>
+                                {% else %}
+                                    <span class="status-badge status-pending">⏸ Ожидание</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ file.chunks_count or '-' }}</td>
                             <td>
                                 {% if file.file_size < 1024 %}
                                     {{ file.file_size }} байт
@@ -221,7 +235,15 @@
                             </td>
                             <td>{{ file.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
                             <td>
-                                {% if application.status in ['created', 'indexed', 'analyzed', 'error'] %}
+                                {% if file.indexing_status == 'error' %}
+                                    <form method="post"
+                                          action="{{ url_for('applications.reindex_file', id=application.id, file_id=file.id) }}"
+                                          class="inline-form">
+                                        <button type="submit" class="button button-small button-warning">Переиндексировать</button>
+                                    </form>
+                                {% endif %}
+
+                                {% if file.indexing_status != 'indexing' %}
                                     <form method="post"
                                           action="{{ url_for('applications.delete_file', id=application.id, file_id=file.id) }}"
                                           class="inline-form"
@@ -231,15 +253,42 @@
                                 {% else %}
                                     <button class="button button-small button-danger"
                                             disabled
-                                            title="Нельзя удалить файл во время {{ application.get_status_display() }}">
+                                            title="Нельзя удалить файл во время индексации">
                                         Удалить
                                     </button>
                                 {% endif %}
                             </td>
                         </tr>
+
+                        <!-- Строка с деталями ошибки, если есть -->
+                        {% if file.indexing_status == 'error' and file.error_message %}
+                        <tr class="error-details-row">
+                            <td colspan="6">
+                                <div class="error-details">
+                                    <strong>Ошибка:</strong> {{ file.error_message }}
+                                </div>
+                            </td>
+                        </tr>
+                        {% endif %}
                     {% endfor %}
                 </tbody>
             </table>
+
+            <!-- Сводка по файлам -->
+            <div class="files-summary">
+                {% set completed_files = application.files.filter_by(indexing_status='completed').count() %}
+                {% set error_files = application.files.filter_by(indexing_status='error').count() %}
+                {% set total_files = application.files.count() %}
+
+                {% if total_files > 0 %}
+                    <p class="summary-text">
+                        <strong>Статистика индексации:</strong>
+                        Всего файлов: {{ total_files }},
+                        Успешно: {{ completed_files }},
+                        С ошибками: {{ error_files }}
+                    </p>
+                {% endif %}
+            </div>
 
             {% if application.files.count() > 0 and application.status not in ['indexing', 'analyzing'] %}
                 <div class="file-note">
@@ -512,6 +561,51 @@
         .data-table td:last-child {
             text-align: center;
             width: 100px;
+        }
+
+        /* Стили для статусов */
+        .status-pending {
+            background-color: #6c757d;
+        }
+
+        .status-indexing {
+            background-color: #ffc107;
+            color: #212529;
+        }
+
+        .status-success {
+            background-color: #28a745;
+        }
+
+        .button-warning {
+            background-color: #ffc107;
+            color: #212529;
+        }
+
+        .button-warning:hover {
+            background-color: #e0a800;
+        }
+
+        .error-details-row {
+            background-color: #fff5f5;
+        }
+
+        .error-details {
+            padding: 10px;
+            color: #721c24;
+            font-size: 0.9em;
+        }
+
+        .files-summary {
+            margin-top: 15px;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+        }
+
+        .summary-text {
+            margin: 0;
+            color: #495057;
         }
 
         /* Убедимся, что кнопка удаления правильно отображается */

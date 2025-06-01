@@ -58,6 +58,19 @@ class FastAPIClient:
             logger.error(f"Ошибка удаления чанков документа: {e}")
             raise
 
+    def delete_file_chunks(self, application_id: str, file_id: str) -> int:
+        """Удаляет чанки по file_id"""
+        try:
+            response = requests.delete(
+                f"{self.base_url}/applications/{application_id}/files/{file_id}/chunks"
+            )
+            response.raise_for_status()
+            result = response.json()
+            return result.get('deleted_count', 0)
+        except Exception as e:
+            logger.error(f"Ошибка удаления чанков файла: {e}")
+            raise
+
     def search(self, application_id: str, query: str, **kwargs) -> List[Dict[str, Any]]:
         """Выполняет поиск"""
         try:
@@ -118,10 +131,12 @@ class FastAPIClient:
             logger.error(f"Ошибка получения моделей: {e}")
             return []
 
+# В файле app/services/fastapi_client.py исправьте метод get_task_status:
+
     def get_task_status(self, task_id: str) -> Dict[str, Any]:
         """Получает статус задачи"""
         try:
-            response = requests.get(f"{self.base_url}/tasks/{task_id}/status")
+            response = requests.get(f"{self.base_url}/task/{task_id}/status")  # Исправлено: task вместо tasks
             response.raise_for_status()
             return response.json()
         except Exception as e:
@@ -131,7 +146,7 @@ class FastAPIClient:
     def get_task_results(self, task_id: str) -> Dict[str, Any]:
         """Получает результаты выполненной задачи"""
         try:
-            response = requests.get(f"{self.base_url}/tasks/{task_id}/results")
+            response = requests.get(f"{self.base_url}/task/{task_id}/results")  # Исправлено: task вместо tasks
             response.raise_for_status()
             return response.json()
         except Exception as e:

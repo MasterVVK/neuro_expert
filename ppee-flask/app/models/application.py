@@ -71,5 +71,13 @@ class File(db.Model):
     file_type = db.Column(db.String(50))  # document, attachment
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+    # Новые поля для отслеживания индексации
+    indexing_status = db.Column(db.String(50), default='pending')  # pending, indexing, completed, error
+    index_session_id = db.Column(db.String(36))  # UUID сессии индексации
+    chunks_count = db.Column(db.Integer, default=0)
+    error_message = db.Column(db.Text)
+    indexing_started_at = db.Column(db.DateTime)
+    indexing_completed_at = db.Column(db.DateTime)
+
     def __repr__(self):
         return f'<File {self.id}: {self.original_filename}>'
