@@ -163,3 +163,6 @@ data/
 arch/
 images/
 ppee-flask/app/uploads/
+ppee-flask/logs
+ppee-flask/migrations
+ppee-flask/uploads
