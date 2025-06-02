@@ -12,7 +12,6 @@ from qdrant_client.http import models  # Добавляем импорт для 
 from app.services.fastapi_client import FastAPIClient
 from app.utils.db_utils import save_analysis_results  # Импортируем из utils
 
-logger = logging.getLogger(__name__)
 
 def update_application_status(application):
     """Обновляет статус заявки на основе статусов файлов"""
@@ -470,16 +469,35 @@ def task_status(task_id):
 
         # Добавляем информацию о прогрессе анализа
         if application and application.status == 'analyzing':
-            # Добавляем информацию о прогрессе в ответ
-            progress = application.get_analysis_progress()
-            return jsonify({
-                'status': 'progress',
-                'progress': progress,
-                'message': f'Обработано параметров: {application.analysis_completed_params}/{application.analysis_total_params}',
-                'stage': 'analyze',
-                'completed_params': application.analysis_completed_params,
-                'total_params': application.analysis_total_params
-            })
+            # Получаем статус из FastAPI для получения детального сообщения
+            try:
+                client = FastAPIClient()
+                task_data = client.get_task_status(task_id)
+
+                # Извлекаем прогресс и сообщение из ответа FastAPI
+                progress = task_data.get('progress', 0)
+                message = task_data.get('message', '')
+
+                # ВАЖНО: Передаем полное сообщение из FastAPI
+                return jsonify({
+                    'status': 'progress',
+                    'progress': progress,
+                    'message': message,  # Полное сообщение с названием параметра
+                    'stage': 'analyze',
+                    'completed_params': application.analysis_completed_params,
+                    'total_params': application.analysis_total_params
+                })
+            except Exception as e:
+                # Fallback на базовую информацию из БД
+                progress = application.get_analysis_progress()
+                return jsonify({
+                    'status': 'progress',
+                    'progress': progress,
+                    'message': f'Обработано параметров: {application.analysis_completed_params}/{application.analysis_total_params}',
+                    'stage': 'analyze',
+                    'completed_params': application.analysis_completed_params,
+                    'total_params': application.analysis_total_params
+                })
 
         if application and application.status == 'error':
             # Если в БД статус error, сразу возвращаем ошибку
@@ -732,21 +750,16 @@ def api_stats(id):
 def partial_results(id):
     """Просмотр частичных результатов анализа заявки"""
     try:
-        # Вариант 1: Создаем новую сессию для этого запроса (самый безопасный)
-        db.session.close()
-
-        # Или Вариант 2: Обновляем только конкретную заявку
-        # application = Application.query.get_or_404(id)
-        # db.session.expire(application)
-        # for checklist in application.checklists:
-        #     db.session.expire(checklist)
-
         application = Application.query.get_or_404(id)
 
         # Проверяем, что заявка в процессе анализа или уже проанализирована
         if application.status not in ['analyzing', 'analyzed']:
             flash('Анализ еще не начат', 'info')
             return redirect(url_for('applications.view', id=application.id))
+
+        # ДОБАВЛЯЕМ: Принудительное обновление из БД
+        db.session.expire(application)
+        db.session.commit()
 
         # Получаем маппинг имен документов
         doc_names_mapping = application.get_document_names_mapping()
@@ -755,19 +768,16 @@ def partial_results(id):
         checklist_results = {}
         total_results = 0
 
-        # Получаем все результаты из БД для этой заявки
-        all_results = ParameterResult.query.filter_by(application_id=application.id).all()
-
-        # Создаем словарь для быстрого доступа
-        results_dict = {r.parameter_id: r for r in all_results}
-
         for checklist in application.checklists:
             parameters = checklist.parameters.all()
             parameter_results = []
 
             for parameter in parameters:
-                # Используем словарь вместо отдельных запросов к БД
-                result = results_dict.get(parameter.id)
+                # ВАЖНО: Используем свежий запрос для получения результатов
+                result = ParameterResult.query.filter_by(
+                    application_id=application.id,
+                    parameter_id=parameter.id
+                ).first()
 
                 if result:
                     parameter_results.append({
@@ -781,6 +791,35 @@ def partial_results(id):
                     'checklist': checklist,
                     'results': parameter_results
                 }
+
+        # Если нет результатов, но счетчик показывает что они должны быть
+        if total_results == 0 and application.analysis_completed_params > 0:
+            logger.warning(f"Несоответствие: счетчик показывает {application.analysis_completed_params} результатов, но в БД найдено 0")
+
+            # Попробуем еще раз с принудительным обновлением
+            db.session.close()
+            db.session = db.create_scoped_session()
+
+            # Повторяем запрос
+            application = Application.query.get(id)
+            for checklist in application.checklists:
+                for parameter in checklist.parameters.all():
+                    result = ParameterResult.query.filter_by(
+                        application_id=application.id,
+                        parameter_id=parameter.id
+                    ).first()
+
+                    if result:
+                        if checklist.id not in checklist_results:
+                            checklist_results[checklist.id] = {
+                                'checklist': checklist,
+                                'results': []
+                            }
+                        checklist_results[checklist.id]['results'].append({
+                            'parameter': parameter,
+                            'result': result
+                        })
+                        total_results += 1
 
         # Определяем заголовок страницы
         if application.status == 'analyzing':

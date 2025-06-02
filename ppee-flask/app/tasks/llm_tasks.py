@@ -163,14 +163,16 @@ def process_parameters_task(self, application_id):
                                         db.session.add(fresh_app)
                                         db.session.commit()
 
-                                        # Передаем данные в update_state
+                                        # ИСПРАВЛЕНИЕ: Передаем все необходимые данные в update_state
                                         self.update_state(
                                             state='PROGRESS',
                                             meta={
                                                 'current': fresh_app.analysis_completed_params,
                                                 'total': total_params,
-                                                'status': message,
-                                                'message': message,
+                                                'progress': progress,  # ВАЖНО: передаем прогресс из FastAPI
+                                                'status': 'progress',  # ВАЖНО: добавляем статус
+                                                'message': message,    # ВАЖНО: передаем полное сообщение
+                                                'stage': 'analyze',    # ВАЖНО: указываем стадию
                                                 'completed_params': fresh_app.analysis_completed_params,
                                                 'total_params': total_params
                                             }
