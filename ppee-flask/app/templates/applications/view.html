@@ -236,10 +236,24 @@
                         const message = `Обработано параметров: ${data.completed_params}/${data.total_params}`;
                         document.getElementById('analyzing-status-message').textContent = message;
 
-                        // Обновляем кнопку частичных результатов если она есть
-                        const partialResultsBtn = document.querySelector('.partial-results-btn');
+                        // Обновляем кнопку частичных результатов
+                        const partialResultsBtn = document.getElementById('partial-results-button');
                         if (partialResultsBtn) {
-                            partialResultsBtn.textContent = `Смотреть частичные результаты (${data.completed_params}/${data.total_params})`;
+                            // Показываем кнопку если есть хотя бы один результат
+                            // Добавляем небольшую задержку чтобы результаты успели сохраниться в БД
+                            if (data.completed_params > 0) {
+                                // Обновляем текст сразу
+                                partialResultsBtn.textContent = `Смотреть частичные результаты (${data.completed_params}/${data.total_params})`;
+
+                                // Показываем кнопку с задержкой если она еще скрыта
+                                if (partialResultsBtn.style.display === 'none') {
+                                    setTimeout(function() {
+                                        partialResultsBtn.style.display = 'inline-block';
+                                    }, 2000); // Задержка 2 секунды для сохранения в БД
+                                }
+                            } else {
+                                partialResultsBtn.style.display = 'none';
+                            }
                         }
                     }
                 }
@@ -273,12 +287,13 @@
                 {% endif %}
             {% elif application.status == 'analyzing' %}
                 <button class="button" disabled>Выполняется анализ...</button>
-                {% if application.analysis_completed_params > 0 %}
-                    <a href="{{ url_for('applications.partial_results', id=application.id) }}"
-                       class="button button-primary partial-results-btn">
-                        Смотреть частичные результаты ({{ application.analysis_completed_params }}/{{ application.analysis_total_params }})
-                    </a>
-                {% endif %}
+                <!-- Всегда показываем кнопку, но изначально скрытой если нет результатов -->
+                <a href="{{ url_for('applications.partial_results', id=application.id) }}"
+                   class="button button-primary partial-results-btn"
+                   id="partial-results-button"
+                   {% if application.analysis_completed_params == 0 %}style="display: none;"{% endif %}>
+                    Смотреть частичные результаты ({{ application.analysis_completed_params }}/{{ application.analysis_total_params }})
+                </a>
             {% elif application.status == 'indexing' %}
                 <button class="button" disabled>Выполняется индексация...</button>
             {% elif application.status == 'error' %}
@@ -774,6 +789,26 @@
             padding: 10px 15px;
             border-radius: 4px;
             margin-bottom: 15px;
+        }
+
+        /* Анимация для кнопки частичных результатов */
+        .partial-results-btn {
+            transition: opacity 0.3s ease-in-out, transform 0.3s ease;
+        }
+
+        .partial-results-btn:not([style*="display: none"]) {
+            animation: fadeIn 0.3s ease-in-out;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(-5px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
     </style>
 {% endblock %}

@@ -2,6 +2,7 @@ import os
 from flask import render_template, redirect, url_for, flash, request, current_app, jsonify
 from werkzeug.utils import secure_filename
 import uuid
+import logging
 
 from app import db
 from app.models import Application, File, Checklist, ParameterResult
@@ -11,6 +12,7 @@ from qdrant_client.http import models  # Добавляем импорт для 
 from app.services.fastapi_client import FastAPIClient
 from app.utils.db_utils import save_analysis_results  # Импортируем из utils
 
+logger = logging.getLogger(__name__)
 
 def update_application_status(application):
     """Обновляет статус заявки на основе статусов файлов"""
@@ -730,6 +732,15 @@ def api_stats(id):
 def partial_results(id):
     """Просмотр частичных результатов анализа заявки"""
     try:
+        # Вариант 1: Создаем новую сессию для этого запроса (самый безопасный)
+        db.session.close()
+
+        # Или Вариант 2: Обновляем только конкретную заявку
+        # application = Application.query.get_or_404(id)
+        # db.session.expire(application)
+        # for checklist in application.checklists:
+        #     db.session.expire(checklist)
+
         application = Application.query.get_or_404(id)
 
         # Проверяем, что заявка в процессе анализа или уже проанализирована
@@ -744,12 +755,20 @@ def partial_results(id):
         checklist_results = {}
         total_results = 0
 
+        # Получаем все результаты из БД для этой заявки
+        all_results = ParameterResult.query.filter_by(application_id=application.id).all()
+
+        # Создаем словарь для быстрого доступа
+        results_dict = {r.parameter_id: r for r in all_results}
+
         for checklist in application.checklists:
             parameters = checklist.parameters.all()
             parameter_results = []
 
             for parameter in parameters:
-                result = parameter.results.filter_by(application_id=application.id).first()
+                # Используем словарь вместо отдельных запросов к БД
+                result = results_dict.get(parameter.id)
+
                 if result:
                     parameter_results.append({
                         'parameter': parameter,

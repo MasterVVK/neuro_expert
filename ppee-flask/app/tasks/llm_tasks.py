@@ -38,9 +38,10 @@ def save_single_result(application_id, parameter_id, result_data):
             db.session.add(param_result)
 
         db.session.commit()
+        logger.info(f"Результат сохранен для параметра {parameter_id}")
         return True
     except Exception as e:
-        logger.error(f"Ошибка при сохранении результата: {e}")
+        logger.error(f"Ошибка при сохранении результата для параметра {parameter_id}: {e}")
         db.session.rollback()
         return False
 
@@ -132,35 +133,57 @@ def process_parameters_task(self, application_id):
                             if match:
                                 completed_params = int(match.group(1))
 
+                                # Добавляем задержку чтобы FastAPI успел сохранить результат
+                                time.sleep(2)
+
+                                # Пытаемся получить результаты (только через /results endpoint)
                                 try:
-                                    # Используем отдельную транзакцию для обновления
-                                    with db.session.begin_nested():
-                                        # Перечитываем заявку для актуальных данных
-                                        fresh_app = db.session.query(Application).filter_by(id=application_id).with_for_update().first()
-                                        if fresh_app:
-                                            # -1 потому что параметр еще обрабатывается
-                                            fresh_app.analysis_completed_params = completed_params - 1
-                                            db.session.commit()
+                                    results_response = requests.get(f"{FASTAPI_URL}/tasks/{task_id}/results")
 
-                                            # Передаем оригинальное сообщение в update_state
-                                            self.update_state(
-                                                state='PROGRESS',
-                                                meta={
-                                                    'current': completed_params - 1,
-                                                    'total': total_params,
-                                                    'status': message,  # Используем оригинальное сообщение из FastAPI
-                                                    'message': message  # Добавляем также в поле message для совместимости
-                                                }
-                                            )
+                                    if results_response.status_code == 200:
+                                        results_data = results_response.json()
+                                        if 'results' in results_data:
+                                            # Сохраняем новые результаты
+                                            for result in results_data['results']:
+                                                param_id = result['parameter_id']
+                                                if param_id not in saved_params:
+                                                    if save_single_result(application_id, param_id, result):
+                                                        saved_params.add(param_id)
 
-                                            logger.info(f"Заявка {application_id}: обновлен прогресс {completed_params - 1}/{total_params}")
+                                except Exception as e:
+                                    logger.error(f"Ошибка при получении результатов: {e}")
+
+                                # Обновляем счетчик
+                                try:
+                                    fresh_app = Application.query.get(application_id)
+                                    if fresh_app:
+                                        # Обновляем счетчик на основе реально сохраненных результатов
+                                        fresh_app.analysis_completed_params = len(saved_params)
+
+                                        db.session.add(fresh_app)
+                                        db.session.commit()
+
+                                        # Передаем данные в update_state
+                                        self.update_state(
+                                            state='PROGRESS',
+                                            meta={
+                                                'current': fresh_app.analysis_completed_params,
+                                                'total': total_params,
+                                                'status': message,
+                                                'message': message,
+                                                'completed_params': fresh_app.analysis_completed_params,
+                                                'total_params': total_params
+                                            }
+                                        )
+
+                                        logger.info(f"Заявка {application_id}: обновлен прогресс {fresh_app.analysis_completed_params}/{total_params}")
                                 except Exception as e:
                                     logger.error(f"Ошибка обновления прогресса для заявки {application_id}: {e}")
                                     db.session.rollback()
 
                         # Проверяем, завершена ли задача
                         if status_data.get('status') == 'SUCCESS':
-                            # Получаем финальные результаты
+                            # Получаем финальные результаты (на случай если что-то пропустили)
                             results_response = requests.get(f"{FASTAPI_URL}/tasks/{task_id}/results")
 
                             if results_response.status_code == 200:
@@ -172,52 +195,23 @@ def process_parameters_task(self, application_id):
                                         if param_id not in saved_params:
                                             if save_single_result(application_id, param_id, result):
                                                 saved_params.add(param_id)
-                                                application.analysis_completed_params = len(saved_params)
-                                                db.session.commit()
 
                             # Обновляем финальный статус
-                            application.status = "analyzed"
-                            application.status_message = "Анализ завершен успешно"
-                            application.analysis_completed_at = datetime.utcnow()
-                            db.session.commit()
+                            final_app = Application.query.get(application_id)
+                            if final_app:
+                                final_app.status = "analyzed"
+                                final_app.status_message = "Анализ завершен успешно"
+                                final_app.analysis_completed_at = datetime.utcnow()
+                                final_app.analysis_completed_params = len(saved_params)
+                                db.session.commit()
 
-                            logger.info(f"Анализ заявки {application_id} завершен успешно")
+                            logger.info(f"Анализ заявки {application_id} завершен успешно. Сохранено {len(saved_params)} результатов")
                             logger.info(f"[TASK {self.request.id}] Завершение анализа заявки {application_id}")
                             return {"status": "success", "message": "Анализ завершен"}
 
                         elif status_data.get('status') == 'FAILURE':
                             # Произошла ошибка
                             raise Exception(status_data.get('message', 'Ошибка анализа'))
-
-                    # Периодически проверяем промежуточные результаты
-                    if attempt % 5 == 0:  # Каждые 5 секунд
-                        # Пытаемся получить промежуточные результаты
-                        try:
-                            results_response = requests.get(f"{FASTAPI_URL}/tasks/{task_id}/intermediate-results")
-                            if results_response.status_code == 200:
-                                results_data = results_response.json()
-                                if 'results' in results_data:
-                                    # Сохраняем новые результаты
-                                    new_results_count = 0
-                                    for result in results_data['results']:
-                                        param_id = result['parameter_id']
-                                        if param_id not in saved_params:
-                                            if save_single_result(application_id, param_id, result):
-                                                saved_params.add(param_id)
-                                                new_results_count += 1
-                                                logger.info(f"Сохранен результат для параметра {param_id}")
-
-                                    # Обновляем счетчик только если сохранили новые результаты
-                                    if new_results_count > 0:
-                                        # Перечитываем заявку для актуальных данных
-                                        fresh_app = db.session.query(Application).filter_by(id=application_id).first()
-                                        if fresh_app:
-                                            fresh_app.analysis_completed_params = len(saved_params)
-                                            db.session.commit()
-                                            logger.info(f"Обновлено в БД: сохранено {len(saved_params)}/{total_params} результатов")
-
-                        except Exception as e:
-                            logger.debug(f"Не удалось получить промежуточные результаты: {e}")
 
                     # Ждем и повторяем
                     time.sleep(1)
@@ -231,9 +225,11 @@ def process_parameters_task(self, application_id):
 
         except Exception as e:
             logger.error(f"Ошибка при анализе: {e}")
-            application.status = "error"
-            application.status_message = str(e)
-            application.last_operation = 'analyzing'
-            db.session.commit()
+            error_app = Application.query.get(application_id)
+            if error_app:
+                error_app.status = "error"
+                error_app.status_message = str(e)
+                error_app.last_operation = 'analyzing'
+                db.session.commit()
             logger.info(f"[TASK {self.request.id}] Ошибка анализа заявки {application_id}: {e}")
             return {"status": "error", "message": str(e)}
