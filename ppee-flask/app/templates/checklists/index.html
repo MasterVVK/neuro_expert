@@ -35,7 +35,7 @@
                                 <span class="badge badge-secondary">0</span>
                             {% endif %}
                         </td>
-                        <td>{{ checklist.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+                        <td>{{ checklist.created_at|to_moscow_time|strftime('%d.%m.%Y %H:%M') }}</td>
                         <td>
                             <a href="{{ url_for('checklists.view', id=checklist.id) }}" class="button button-small">Просмотр</a>
                             {% if app_count == 0 %}

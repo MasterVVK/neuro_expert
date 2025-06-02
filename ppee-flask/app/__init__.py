@@ -82,7 +82,7 @@ def register_blueprints(app):
     from app.blueprints.llm_management import bp as llm_bp
     from app.blueprints.auth import bp as auth_bp
     from app.blueprints.search import bp as search_bp
-    from app.blueprints.stats import bp as stats_bp  # ДОБАВЬТЕ ЭТУ СТРОКУ
+    from app.blueprints.stats import bp as stats_bp
 
     app.register_blueprint(main_bp)
     app.register_blueprint(applications_bp)
@@ -90,15 +90,116 @@ def register_blueprints(app):
     app.register_blueprint(llm_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(search_bp)
-    app.register_blueprint(stats_bp)  # ДОБАВЬТЕ ЭТУ СТРОКУ
+    app.register_blueprint(stats_bp)
 
 
 def register_template_filters(app):
     """Регистрация пользовательских фильтров для шаблонов"""
-    
+
     @app.template_filter('nl2br')
     def nl2br_filter(s):
         """Заменяет переносы строк на HTML-тег <br>"""
         if not s:
             return ""
         return s.replace('\n', '<br>')
+
+    @app.template_filter('to_moscow_time')
+    def to_moscow_time_filter(dt):
+        """Конвертирует UTC время в московское"""
+        if dt:
+            from pytz import timezone
+            utc = timezone('UTC')
+            moscow = timezone('Europe/Moscow')
+            # Если datetime не имеет информации о часовом поясе, считаем что это UTC
+            if dt.tzinfo is None:
+                dt = utc.localize(dt)
+            return dt.astimezone(moscow)
+        return dt
+
+    @app.template_filter('strftime')
+    def strftime_filter(dt, format='%d.%m.%Y %H:%M'):
+        """Форматирует datetime объект в строку"""
+        if dt:
+            return dt.strftime(format)
+        return ''
+
+    @app.template_filter('format_datetime')
+    def format_datetime_filter(dt, format='%d.%m.%Y %H:%M', timezone='Europe/Moscow', show_tz=True):
+        """
+        Универсальный фильтр для форматирования даты/времени
+
+        Args:
+            dt: datetime объект
+            format: формат вывода
+            timezone: целевой часовой пояс
+            show_tz: показывать ли аббревиатуру часового пояса
+        """
+        if not dt:
+            return ''
+
+        from pytz import timezone as tz
+
+        # Конвертируем в нужный часовой пояс
+        utc = tz('UTC')
+        target_tz = tz(timezone)
+
+        if dt.tzinfo is None:
+            dt = utc.localize(dt)
+
+        dt_converted = dt.astimezone(target_tz)
+
+        # Форматируем
+        result = dt_converted.strftime(format)
+
+        # Добавляем часовой пояс если нужно
+        if show_tz:
+            tz_abbr = dt_converted.strftime('%Z')  # Получаем аббревиатуру (MSK, MSD и т.д.)
+            result += f' {tz_abbr}'
+
+        return result
+
+    @app.template_filter('time_ago')
+    def time_ago_filter(dt, timezone='Europe/Moscow'):
+        """
+        Показывает, сколько времени прошло с момента события
+        Например: "5 минут назад", "2 часа назад", "вчера"
+        """
+        if not dt:
+            return ''
+
+        from datetime import datetime
+        from pytz import timezone as tz
+
+        # Конвертируем в московское время для правильного расчета
+        utc = tz('UTC')
+        moscow = tz(timezone)
+
+        if dt.tzinfo is None:
+            dt = utc.localize(dt)
+
+        dt_moscow = dt.astimezone(moscow)
+        now_moscow = datetime.now(moscow)
+
+        diff = now_moscow - dt_moscow
+
+        seconds = diff.total_seconds()
+
+        if seconds < 60:
+            return 'только что'
+        elif seconds < 3600:
+            minutes = int(seconds / 60)
+            return f'{minutes} мин. назад'
+        elif seconds < 86400:
+            hours = int(seconds / 3600)
+            return f'{hours} ч. назад'
+        elif seconds < 172800:
+            return 'вчера'
+        else:
+            days = int(seconds / 86400)
+            if days < 7:
+                return f'{days} дн. назад'
+            elif days < 30:
+                weeks = int(days / 7)
+                return f'{weeks} нед. назад'
+            else:
+                return dt_moscow.strftime('%d.%m.%Y')

@@ -51,12 +51,12 @@
 
             <div class="info-row">
                 <div class="info-label">Создана:</div>
-                <div class="info-value">{{ application.created_at.strftime('%d.%m.%Y %H:%M') }}</div>
+                <div class="info-value">{{ application.created_at|to_moscow_time|strftime('%d.%m.%Y %H:%M') }} МСК</div>
             </div>
 
             <div class="info-row">
                 <div class="info-label">Обновлена:</div>
-                <div class="info-value">{{ application.updated_at.strftime('%d.%m.%Y %H:%M') }}</div>
+                <div class="info-value">{{ application.updated_at|to_moscow_time|strftime('%d.%m.%Y %H:%M') }} МСК</div>
             </div>
         </div>
     </div>
@@ -343,7 +343,7 @@
                                     {{ (file.file_size / (1024 * 1024)) | round(1) }} Мб
                                 {% endif %}
                             </td>
-                            <td>{{ file.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+                            <td>{{ file.created_at|to_moscow_time|strftime('%d.%m.%Y %H:%M') }}</td>
                             <td>
                                 {% if file.indexing_status == 'error' %}
                                     <form method="post"

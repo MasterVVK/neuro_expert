@@ -34,13 +34,13 @@
 
             <div class="info-row">
                 <div class="info-label">Дата создания:</div>
-                <div class="info-value">{{ checklist.created_at.strftime('%d.%m.%Y %H:%M') }}</div>
+                <div class="info-value">{{ checklist.created_at|to_moscow_time|strftime('%d.%m.%Y %H:%M') }} МСК</div>
             </div>
 
             {% if checklist.updated_at != checklist.created_at %}
             <div class="info-row">
                 <div class="info-label">Последнее обновление:</div>
-                <div class="info-value">{{ checklist.updated_at.strftime('%d.%m.%Y %H:%M') }}</div>
+                <div class="info-value">{{ checklist.updated_at|to_moscow_time|strftime('%d.%m.%Y %H:%M') }} МСК</div>
             </div>
             {% endif %}
 
