@@ -310,13 +310,13 @@ def reindex_file(id, file_id):
     import time
     return redirect(url_for('applications.view', id=application.id) + '?t=' + str(int(time.time())))
 
+
 @bp.route('/<int:id>/analyze')
 def analyze(id):
     """Запуск анализа заявки"""
     application = Application.query.get_or_404(id)
 
     # Проверяем, что заявка готова к анализу
-    # ИЗМЕНЕНО: добавлен статус 'error' с проверкой наличия проиндексированных файлов
     if application.status == 'error':
         # При ошибке проверяем, есть ли проиндексированные файлы
         if application.files.filter_by(indexing_status='completed').count() == 0:
@@ -332,14 +332,34 @@ def analyze(id):
         return redirect(url_for('applications.view', id=application.id))
 
     try:
+        # ДОБАВИТЬ: Очистка старых результатов перед новым анализом
+        # Получаем все параметры из чек-листов заявки
+        param_ids = []
+        for checklist in application.checklists:
+            for param in checklist.parameters.all():
+                param_ids.append(param.id)
+
+        # Удаляем старые результаты только если есть параметры
+        if param_ids:
+            deleted_count = ParameterResult.query.filter(
+                ParameterResult.application_id == application.id,
+                ParameterResult.parameter_id.in_(param_ids)
+            ).delete(synchronize_session=False)
+
+            # Сбрасываем счетчик выполненных параметров
+            application.analysis_completed_params = 0
+
+            db.session.commit()
+            current_app.logger.info(f"Удалено {deleted_count} старых результатов перед анализом заявки {id}")
+
         # Запускаем задачу Celery для анализа
         from app.tasks.llm_tasks import process_parameters_task
         task = process_parameters_task.delay(application.id)
 
         # Сохраняем ID задачи в базе данных
         application.task_id = task.id
-        application.status = 'analyzing'  # Обновляем статус на 'analyzing'
-        application.last_operation = 'analyzing'  # ДОБАВЛЕНО
+        application.status = 'analyzing'
+        application.last_operation = 'analyzing'
         db.session.commit()
 
         flash('Анализ заявки успешно запущен. Это может занять некоторое время.', 'success')
@@ -347,7 +367,7 @@ def analyze(id):
         flash(f'Ошибка при запуске анализа: {str(e)}', 'error')
         application.status = 'error'
         application.status_message = str(e)
-        application.last_operation = 'analyzing'  # ДОБАВЛЕНО - даже при ошибке запоминаем, что пытались анализировать
+        application.last_operation = 'analyzing'
         db.session.commit()
 
     # Принудительная перезагрузка страницы с уникальным параметром
@@ -530,7 +550,7 @@ def task_status(task_id):
                 'progress': 100 if application.status in ['indexed', 'analyzed'] else 0,
                 'message': application.status_message or 'Обработка...'
             })
-        
+
 # ОБРАТНАЯ СОВМЕСТИМОСТЬ: Сохраняем старый маршрут, перенаправляя на новый
 @bp.route('/<int:id>/status')
 def status(id):

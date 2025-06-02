@@ -4,6 +4,7 @@ from datetime import datetime
 import logging
 import requests
 import time
+import re
 
 logger = logging.getLogger(__name__)
 FASTAPI_URL = "http://localhost:8001"
@@ -51,9 +52,14 @@ def process_parameters_task(self, application_id):
     app = create_app()
 
     with app.app_context():
-        application = Application.query.get(application_id)
+        # Используем свежий запрос к БД для избежания проблем с кешированием
+        application = db.session.query(Application).filter_by(id=application_id).first()
+
         if not application:
             return {'status': 'error', 'message': f"Заявка с ID {application_id} не найдена"}
+
+        # Логируем начало задачи
+        logger.info(f"[TASK {self.request.id}] Начало анализа заявки {application_id}")
 
         # Обновляем статус
         task_id = self.request.id
@@ -116,7 +122,41 @@ def process_parameters_task(self, application_id):
                         if status_data.get('status') == 'PROGRESS':
                             progress = status_data.get('progress', 0)
                             message = status_data.get('message', '')
+
+                            # Сохраняем оригинальное сообщение из FastAPI
                             logger.info(f"Анализ заявки {application_id}: {progress}% - {message}")
+
+                            # Парсинг сообщения для извлечения прогресса
+                            # Формат сообщения: "Анализ параметра X/Y: название"
+                            match = re.search(r'Анализ параметра (\d+)/(\d+):', message)
+                            if match:
+                                completed_params = int(match.group(1))
+
+                                try:
+                                    # Используем отдельную транзакцию для обновления
+                                    with db.session.begin_nested():
+                                        # Перечитываем заявку для актуальных данных
+                                        fresh_app = db.session.query(Application).filter_by(id=application_id).with_for_update().first()
+                                        if fresh_app:
+                                            # -1 потому что параметр еще обрабатывается
+                                            fresh_app.analysis_completed_params = completed_params - 1
+                                            db.session.commit()
+
+                                            # Передаем оригинальное сообщение в update_state
+                                            self.update_state(
+                                                state='PROGRESS',
+                                                meta={
+                                                    'current': completed_params - 1,
+                                                    'total': total_params,
+                                                    'status': message,  # Используем оригинальное сообщение из FastAPI
+                                                    'message': message  # Добавляем также в поле message для совместимости
+                                                }
+                                            )
+
+                                            logger.info(f"Заявка {application_id}: обновлен прогресс {completed_params - 1}/{total_params}")
+                                except Exception as e:
+                                    logger.error(f"Ошибка обновления прогресса для заявки {application_id}: {e}")
+                                    db.session.rollback()
 
                         # Проверяем, завершена ли задача
                         if status_data.get('status') == 'SUCCESS':
@@ -142,6 +182,7 @@ def process_parameters_task(self, application_id):
                             db.session.commit()
 
                             logger.info(f"Анализ заявки {application_id} завершен успешно")
+                            logger.info(f"[TASK {self.request.id}] Завершение анализа заявки {application_id}")
                             return {"status": "success", "message": "Анализ завершен"}
 
                         elif status_data.get('status') == 'FAILURE':
@@ -152,19 +193,29 @@ def process_parameters_task(self, application_id):
                     if attempt % 5 == 0:  # Каждые 5 секунд
                         # Пытаемся получить промежуточные результаты
                         try:
-                            results_response = requests.get(f"{FASTAPI_URL}/tasks/{task_id}/results")
+                            results_response = requests.get(f"{FASTAPI_URL}/tasks/{task_id}/intermediate-results")
                             if results_response.status_code == 200:
                                 results_data = results_response.json()
                                 if 'results' in results_data:
                                     # Сохраняем новые результаты
+                                    new_results_count = 0
                                     for result in results_data['results']:
                                         param_id = result['parameter_id']
                                         if param_id not in saved_params:
                                             if save_single_result(application_id, param_id, result):
                                                 saved_params.add(param_id)
-                                                application.analysis_completed_params = len(saved_params)
-                                                db.session.commit()
-                                                logger.info(f"Сохранен результат для параметра {param_id} ({len(saved_params)}/{total_params})")
+                                                new_results_count += 1
+                                                logger.info(f"Сохранен результат для параметра {param_id}")
+
+                                    # Обновляем счетчик только если сохранили новые результаты
+                                    if new_results_count > 0:
+                                        # Перечитываем заявку для актуальных данных
+                                        fresh_app = db.session.query(Application).filter_by(id=application_id).first()
+                                        if fresh_app:
+                                            fresh_app.analysis_completed_params = len(saved_params)
+                                            db.session.commit()
+                                            logger.info(f"Обновлено в БД: сохранено {len(saved_params)}/{total_params} результатов")
+
                         except Exception as e:
                             logger.debug(f"Не удалось получить промежуточные результаты: {e}")
 
@@ -184,4 +235,5 @@ def process_parameters_task(self, application_id):
             application.status_message = str(e)
             application.last_operation = 'analyzing'
             db.session.commit()
+            logger.info(f"[TASK {self.request.id}] Ошибка анализа заявки {application_id}: {e}")
             return {"status": "error", "message": str(e)}
