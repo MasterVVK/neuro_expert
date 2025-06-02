@@ -446,6 +446,19 @@ def task_status(task_id):
                     'stage': 'error'
                 })
 
+        # Добавляем информацию о прогрессе анализа
+        if application and application.status == 'analyzing':
+            # Добавляем информацию о прогрессе в ответ
+            progress = application.get_analysis_progress()
+            return jsonify({
+                'status': 'progress',
+                'progress': progress,
+                'message': f'Обработано параметров: {application.analysis_completed_params}/{application.analysis_total_params}',
+                'stage': 'analyze',
+                'completed_params': application.analysis_completed_params,
+                'total_params': application.analysis_total_params
+            })
+
         if application and application.status == 'error':
             # Если в БД статус error, сразу возвращаем ошибку
             return jsonify({
@@ -517,7 +530,7 @@ def task_status(task_id):
                 'progress': 100 if application.status in ['indexed', 'analyzed'] else 0,
                 'message': application.status_message or 'Обработка...'
             })
-
+        
 # ОБРАТНАЯ СОВМЕСТИМОСТЬ: Сохраняем старый маршрут, перенаправляя на новый
 @bp.route('/<int:id>/status')
 def status(id):
@@ -692,3 +705,57 @@ def api_stats(id):
             'message': str(e),
             'total_chunks': 0
         }), 500
+
+@bp.route('/<int:id>/partial_results')
+def partial_results(id):
+    """Просмотр частичных результатов анализа заявки"""
+    try:
+        application = Application.query.get_or_404(id)
+
+        # Проверяем, что заявка в процессе анализа или уже проанализирована
+        if application.status not in ['analyzing', 'analyzed']:
+            flash('Анализ еще не начат', 'info')
+            return redirect(url_for('applications.view', id=application.id))
+
+        # Получаем маппинг имен документов
+        doc_names_mapping = application.get_document_names_mapping()
+
+        # Получаем результаты по чек-листам
+        checklist_results = {}
+        total_results = 0
+
+        for checklist in application.checklists:
+            parameters = checklist.parameters.all()
+            parameter_results = []
+
+            for parameter in parameters:
+                result = parameter.results.filter_by(application_id=application.id).first()
+                if result:
+                    parameter_results.append({
+                        'parameter': parameter,
+                        'result': result
+                    })
+                    total_results += 1
+
+            if parameter_results:  # Добавляем только если есть результаты
+                checklist_results[checklist.id] = {
+                    'checklist': checklist,
+                    'results': parameter_results
+                }
+
+        # Определяем заголовок страницы
+        if application.status == 'analyzing':
+            title = f'Частичные результаты анализа - {application.name} ({total_results}/{application.analysis_total_params})'
+        else:
+            title = f'Результаты анализа - {application.name}'
+
+        return render_template('applications/results.html',
+                               title=title,
+                               application=application,
+                               checklist_results=checklist_results,
+                               doc_names_mapping=doc_names_mapping,
+                               partial_results=True if application.status == 'analyzing' else False)
+    except Exception as e:
+        current_app.logger.error(f"Ошибка при просмотре частичных результатов заявки {id}: {str(e)}")
+        flash(f"Ошибка при просмотре результатов: {str(e)}", "error")
+        return redirect(url_for('applications.index'))

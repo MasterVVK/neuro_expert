@@ -2,7 +2,13 @@
 
 {% block content %}
     <div class="page-header">
-        <h1>Результаты анализа</h1>
+        <h1>
+            {% if partial_results %}
+                Частичные результаты анализа ({{ application.analysis_completed_params }}/{{ application.analysis_total_params }})
+            {% else %}
+                Результаты анализа
+            {% endif %}
+        </h1>
         <a href="{{ url_for('applications.view', id=application.id) }}" class="button button-secondary">Назад к заявке</a>
     </div>
 
@@ -12,6 +18,20 @@
         <div class="results-summary">
             <p>Статус: <span class="status-badge status-{{ application.status }}">{{ application.get_status_display() }}</span></p>
             <p>Проанализировано чек-листов: {{ checklist_results|length }}</p>
+            {% if partial_results %}
+                <p class="partial-results-note">
+                    <strong>Внимание:</strong> Это частичные результаты. Анализ продолжается...
+                    <br>Обработано параметров: {{ application.analysis_completed_params }} из {{ application.analysis_total_params }}
+                </p>
+
+                <!-- Добавляем автообновление для частичных результатов -->
+                <script>
+                    // Автоматически обновляем страницу каждые 30 секунд
+                    setTimeout(function() {
+                        window.location.reload();
+                    }, 30000);
+                </script>
+            {% endif %}
         </div>
 
         <div class="view-options">
@@ -407,6 +427,19 @@
         .confidence-value[style*="width: 65%"],
         .confidence-value[style*="width: 66%"] {
             background-color: #ffc107; /* Желтый для средней уверенности */
+        }
+
+        .partial-results-note {
+            background-color: #fff3cd;
+            border: 1px solid #ffeaa7;
+            color: #856404;
+            padding: 10px 15px;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+
+        .partial-results-note strong {
+            color: #664d03;
         }
     </style>
 

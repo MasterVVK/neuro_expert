@@ -15,6 +15,7 @@ class TaskProgressTracker {
         this.stagePrefix = options.stagePrefix || 'stage-';
         this.onComplete = options.onComplete || this._defaultOnComplete.bind(this);
         this.onError = options.onError || this._defaultOnError.bind(this);
+        this.onProgress = options.onProgress || null;  // Новый обработчик прогресса
         this.checkInterval = options.checkInterval || 2000;
         this.maxAttempts = options.maxAttempts || 100;
         this.stages = options.stages || [];
@@ -152,6 +153,11 @@ class TaskProgressTracker {
             const stageInfo = data.stage || data.substatus || data.status;
             if (stageInfo) {
                 this.updateStages(stageInfo);
+            }
+
+            // Вызываем обработчик прогресса если он определен
+            if (this.onProgress && typeof this.onProgress === 'function') {
+                this.onProgress(data);
             }
 
             // Проверяем, не завершена ли задача по прогрессу

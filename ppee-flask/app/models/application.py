@@ -26,6 +26,12 @@ class Application(db.Model):
     task_id = db.Column(db.String(36), nullable=True)  # ID задачи Celery
     last_operation = db.Column(db.String(50))  # 'indexing' или 'analyzing'
 
+    # Новые поля для отслеживания прогресса анализа
+    analysis_total_params = db.Column(db.Integer, default=0)
+    analysis_completed_params = db.Column(db.Integer, default=0)
+    analysis_started_at = db.Column(db.DateTime)
+    analysis_completed_at = db.Column(db.DateTime)
+
     # Отношения
     user = db.relationship('User', backref=db.backref('applications', lazy='dynamic'))
     files = db.relationship('File', backref='application', lazy='dynamic', cascade='all, delete-orphan')
@@ -37,16 +43,27 @@ class Application(db.Model):
     def __repr__(self):
         return f'<Application {self.id}: {self.name}>'
 
+    def get_analysis_progress(self):
+        """Возвращает прогресс анализа в процентах"""
+        if self.analysis_total_params == 0:
+            return 0
+        return int((self.analysis_completed_params / self.analysis_total_params) * 100)
+
     def get_status_display(self):
         """Возвращает отображаемое значение статуса"""
         status_map = {
             'created': 'Создана',
             'indexing': 'Индексация',
             'indexed': 'Проиндексирована',
-            'analyzing': 'Анализ',
+            'analyzing': f'Анализ ({self.analysis_completed_params}/{self.analysis_total_params})',
             'analyzed': 'Проанализирована',
             'error': 'Ошибка'
         }
+
+        # Для статуса analyzing показываем прогресс
+        if self.status == 'analyzing' and self.analysis_total_params > 0:
+            return f'Анализ ({self.analysis_completed_params}/{self.analysis_total_params})'
+
         return status_map.get(self.status, self.status)
 
     def get_document_names_mapping(self):
