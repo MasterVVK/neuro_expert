@@ -60,7 +60,7 @@ def process_parameters_task(self, application_id):
 
             if response.status_code == 200:
                 # Опрашиваем статус анализа через FastAPI
-                max_attempts = 600  # Максимум 10 минут
+                max_attempts = 1200  # Максимум 20 минут
                 attempt = 0
 
                 while attempt < max_attempts:
