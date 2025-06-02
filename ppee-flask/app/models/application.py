@@ -24,6 +24,7 @@ class Application(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     task_id = db.Column(db.String(36), nullable=True)  # ID задачи Celery
+    last_operation = db.Column(db.String(50))  # 'indexing' или 'analyzing'
 
     # Отношения
     user = db.relationship('User', backref=db.backref('applications', lazy='dynamic'))

@@ -170,11 +170,13 @@ def upload_file(id):
                 original_filename=original_filename,
                 file_path=file_path,
                 file_size=file_size,
-                file_type=file_type
+                file_type=file_type,
+                indexing_status='indexing'  # ИЗМЕНЕНО: сразу устанавливаем 'indexing' вместо 'pending'
             )
 
             # Обновляем статус заявки
             application.status = 'indexing'
+            application.last_operation = 'indexing'
             db.session.add(file_record)
             db.session.commit()
 
@@ -191,6 +193,8 @@ def upload_file(id):
                 flash(f'Ошибка при индексации файла: {str(e)}', 'error')
                 application.status = 'error'
                 application.status_message = str(e)
+                file_record.indexing_status = 'error'  # ДОБАВЛЕНО: меняем статус файла на error
+                file_record.error_message = str(e)     # ДОБАВЛЕНО: сохраняем сообщение об ошибке
                 db.session.commit()
                 current_app.logger.error(f"Ошибка при индексации файла: {str(e)}")
 
@@ -199,7 +203,6 @@ def upload_file(id):
     return render_template('applications/upload.html',
                            title=f'Загрузка файла - {application.name}',
                            application=application)
-
 
 @bp.route('/<int:id>/file/<int:file_id>/delete', methods=['POST'])
 def delete_file(id, file_id):
@@ -263,29 +266,29 @@ def reindex_file(id, file_id):
         return redirect(url_for('applications.view', id=application.id))
 
     try:
-        # Удаляем старые чанки
+        # СНАЧАЛА обновляем статус файла на 'indexing'
+        file.indexing_status = 'indexing'  # Изменено с 'pending' на 'indexing'
+        file.error_message = None
+        file.chunks_count = 0
+
+        # Обновляем статус заявки на "indexing" для показа прогресс-бара
+        application.status = 'indexing'
+        application.last_operation = 'indexing'
+        db.session.commit()  # Важно! Сохраняем изменения до удаления чанков
+
+        # ЗАТЕМ удаляем старые чанки
         client = FastAPIClient()
         try:
             deleted_count = client.delete_file_chunks(str(application.id), str(file_id))
             current_app.logger.info(f"Удалено {deleted_count} чанков для файла {file_id}")
-            file.chunks_count = 0
         except Exception as e:
             current_app.logger.warning(f"Не удалось удалить чанки по file_id: {e}")
             try:
                 document_id = f"doc_{os.path.basename(file.file_path).replace(' ', '_').replace('.', '_')}"
                 deleted_count = client.delete_document_chunks(str(application.id), document_id)
                 current_app.logger.info(f"Удалено {deleted_count} чанков по document_id")
-                file.chunks_count = 0
             except Exception as e2:
                 current_app.logger.error(f"Не удалось удалить чанки: {e2}")
-
-        # Обновляем статус файла и заявки
-        file.indexing_status = 'pending'
-        file.error_message = None
-
-        # Обновляем статус заявки на "indexing" для показа прогресс-бара
-        application.status = 'indexing'
-        db.session.commit()
 
         # Запускаем переиндексацию
         task = index_document_task.delay(application.id, file.id)
@@ -298,6 +301,10 @@ def reindex_file(id, file_id):
 
     except Exception as e:
         flash(f'Ошибка при запуске переиндексации: {str(e)}', 'error')
+        # При ошибке возвращаем статус обратно
+        file.indexing_status = 'error'
+        file.error_message = str(e)
+        db.session.commit()
 
     # Принудительная перезагрузка страницы с уникальным параметром
     import time
@@ -309,7 +316,13 @@ def analyze(id):
     application = Application.query.get_or_404(id)
 
     # Проверяем, что заявка готова к анализу
-    if application.status not in ['indexed', 'analyzed']:
+    # ИЗМЕНЕНО: добавлен статус 'error' с проверкой наличия проиндексированных файлов
+    if application.status == 'error':
+        # При ошибке проверяем, есть ли проиндексированные файлы
+        if application.files.filter_by(indexing_status='completed').count() == 0:
+            flash('Нет успешно проиндексированных файлов для анализа.', 'error')
+            return redirect(url_for('applications.view', id=application.id))
+    elif application.status not in ['indexed', 'analyzed']:
         flash('Заявка не готова к анализу. Дождитесь завершения индексации.', 'error')
         return redirect(url_for('applications.view', id=application.id))
 
@@ -326,6 +339,7 @@ def analyze(id):
         # Сохраняем ID задачи в базе данных
         application.task_id = task.id
         application.status = 'analyzing'  # Обновляем статус на 'analyzing'
+        application.last_operation = 'analyzing'  # ДОБАВЛЕНО
         db.session.commit()
 
         flash('Анализ заявки успешно запущен. Это может занять некоторое время.', 'success')
@@ -333,6 +347,7 @@ def analyze(id):
         flash(f'Ошибка при запуске анализа: {str(e)}', 'error')
         application.status = 'error'
         application.status_message = str(e)
+        application.last_operation = 'analyzing'  # ДОБАВЛЕНО - даже при ошибке запоминаем, что пытались анализировать
         db.session.commit()
 
     # Принудительная перезагрузка страницы с уникальным параметром
@@ -414,7 +429,33 @@ def delete(id):
 def task_status(task_id):
     """Возвращает текущий статус задачи через FastAPI"""
     try:
-        # Используем FastAPI клиент для получения статуса
+        # Сначала проверяем статус в БД
+        application = Application.query.filter_by(task_id=task_id).first()
+
+        # Проверяем ошибки индексации файлов
+        if application and application.status == 'indexing':
+            # Проверяем, есть ли файлы с ошибками
+            error_files = application.files.filter_by(indexing_status='error').all()
+            if error_files:
+                # Если есть файлы с ошибками при индексации, возвращаем ошибку
+                error_messages = [f.error_message for f in error_files if f.error_message]
+                return jsonify({
+                    'status': 'error',
+                    'message': error_messages[0] if error_messages else 'Ошибка при индексации файла',
+                    'progress': 0,
+                    'stage': 'error'
+                })
+
+        if application and application.status == 'error':
+            # Если в БД статус error, сразу возвращаем ошибку
+            return jsonify({
+                'status': 'error',
+                'message': application.status_message or 'Произошла ошибка',
+                'progress': 0,
+                'stage': 'error'
+            })
+
+        # Если не error, проверяем через FastAPI как обычно
         client = FastAPIClient()
         task_data = client.get_task_status(task_id)
 
@@ -449,14 +490,33 @@ def task_status(task_id):
         if not application:
             return jsonify({'status': 'error', 'message': 'Задача не найдена'}), 404
 
-        # Возвращаем статус из БД
-        return jsonify({
-            'status': application.status,
-            'application_status': application.status,
-            'progress': 100 if application.status in ['indexed', 'analyzed'] else 0,
-            'message': application.status_message or 'Обработка...'
-        })
+        # Проверяем ошибки файлов даже если статус заявки не error
+        if application.status == 'indexing':
+            error_files = application.files.filter_by(indexing_status='error').all()
+            if error_files:
+                error_messages = [f.error_message for f in error_files if f.error_message]
+                return jsonify({
+                    'status': 'error',
+                    'message': error_messages[0] if error_messages else 'Ошибка при индексации',
+                    'progress': 0,
+                    'stage': 'error'
+                })
 
+        # Возвращаем статус из БД
+        if application.status == 'error':
+            return jsonify({
+                'status': 'error',
+                'message': application.status_message or 'Произошла ошибка',
+                'progress': 0,
+                'stage': 'error'
+            })
+        else:
+            return jsonify({
+                'status': application.status,
+                'application_status': application.status,
+                'progress': 100 if application.status in ['indexed', 'analyzed'] else 0,
+                'message': application.status_message or 'Обработка...'
+            })
 
 # ОБРАТНАЯ СОВМЕСТИМОСТЬ: Сохраняем старый маршрут, перенаправляя на новый
 @bp.route('/<int:id>/status')
@@ -608,8 +668,19 @@ def api_stats(id):
         client = FastAPIClient()
         stats = client.get_application_stats(str(application.id))
 
+        # Добавляем информацию о статусе заявки и файлов
+        files_info = {
+            'total': application.files.count(),
+            'completed': application.files.filter_by(indexing_status='completed').count(),
+            'indexing': application.files.filter_by(indexing_status='indexing').count(),
+            'error': application.files.filter_by(indexing_status='error').count(),
+            'pending': application.files.filter_by(indexing_status='pending').count()
+        }
+
         return jsonify({
             'status': 'success',
+            'application_status': application.status,  # Добавляем статус заявки
+            'files_status': files_info,  # Добавляем статусы файлов
             'total_chunks': stats.get('total_points', 0),
             'content_types': stats.get('content_types', {}),
             'application_id': id

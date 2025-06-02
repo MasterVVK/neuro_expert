@@ -38,7 +38,7 @@
             </div>
 
             {% if application.status_message %}
-            <div class="info-row">
+            <div class="info-row {% if application.status == 'error' %}error-highlight{% endif %}">
                 <div class="info-label">Сообщение:</div>
                 <div class="info-value">{{ application.status_message }}</div>
             </div>
@@ -62,7 +62,7 @@
     </div>
 
     <!-- Блок индикации прогресса индексации -->
-    {% if application.status == 'indexing' %}
+    {% if application.status == 'indexing' or (application.status == 'indexed' and application.files.filter_by(indexing_status='indexing').count() > 0) %}
     <div class="indexing-progress-container" id="indexing-progress-container">
         <h3>Индексация документа</h3>
         <div class="progress">
@@ -97,6 +97,39 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', function() {
+            // Периодически проверяем статус заявки в БД
+            let statusCheckInterval;
+            const initialStatus = '{{ application.status }}';
+
+            function checkApplicationStatus() {
+                fetch('{{ url_for("applications.api_stats", id=application.id) }}')
+                .then(response => response.json())
+                .then(data => {
+                    // Проверяем статусы файлов
+                    if (data.files_status) {
+                        const indexingCount = data.files_status.indexing || 0;
+                        const errorCount = data.files_status.error || 0;
+                        const completedCount = data.files_status.completed || 0;
+
+                        // Если нет индексирующихся файлов и есть хотя бы один завершенный или с ошибкой
+                        if (indexingCount === 0 && (errorCount > 0 || completedCount > 0)) {
+                            console.log('Индексация завершена, перезагружаем страницу');
+                            console.log(`Файлов с ошибками: ${errorCount}, успешно: ${completedCount}`);
+                            clearInterval(statusCheckInterval);
+                            setTimeout(function() {
+                                window.location.reload();
+                            }, 500);
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('Ошибка проверки статуса:', error);
+                });
+            }
+
+            // Проверяем статус каждые 10 секунд
+            statusCheckInterval = setInterval(checkApplicationStatus, 10000);
+
             // Создаем экземпляр трекера прогресса для индексации
             const indexingTracker = new TaskProgressTracker({
                 statusUrl: "/applications/status",  // Используем URL без ID заявки
@@ -106,8 +139,15 @@
                 stagePrefix: "stage-",
                 stages: ["prepare", "convert", "split", "index", "complete"],
                 onComplete: function(data) {
-                    // При завершении просто перезагружаем страницу
+                    clearInterval(statusCheckInterval);
                     window.location.reload();
+                },
+                onError: function(data) {
+                    clearInterval(statusCheckInterval);
+                    console.log('Ошибка индексации, перезагружаем страницу');
+                    setTimeout(function() {
+                        window.location.reload();
+                    }, 1000);
                 },
                 checkInterval: 2000
             });
@@ -146,6 +186,28 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', function() {
+            // Периодически проверяем статус заявки в БД
+            let statusCheckInterval;
+
+            function checkApplicationStatus() {
+                fetch('{{ url_for("applications.api_stats", id=application.id) }}')
+                .then(response => response.json())
+                .then(data => {
+                    // Проверяем, изменился ли статус заявки
+                    if (data.application_status && data.application_status !== 'analyzing') {
+                        console.log('Статус анализа изменился, перезагружаем страницу');
+                        clearInterval(statusCheckInterval);
+                        window.location.reload();
+                    }
+                })
+                .catch(error => {
+                    console.error('Ошибка проверки статуса:', error);
+                });
+            }
+
+            // Проверяем статус каждые 10 секунд
+            statusCheckInterval = setInterval(checkApplicationStatus, 10000);
+
             // Создаем экземпляр трекера прогресса для анализа
             const analyzingTracker = new TaskProgressTracker({
                 statusUrl: "/applications/status",  // Используем URL без ID заявки
@@ -156,8 +218,15 @@
                 stagePrefix: "analyzing-stage-",
                 stages: ["prepare", "analyze", "complete"],
                 onComplete: function(data) {
-                    // При завершении просто перезагружаем страницу
+                    clearInterval(statusCheckInterval);
                     window.location.reload();
+                },
+                onError: function(data) {
+                    clearInterval(statusCheckInterval);
+                    console.log('Ошибка анализа, перезагружаем страницу');
+                    setTimeout(function() {
+                        window.location.reload();
+                    }, 1000);
                 },
                 checkInterval: 2000
             });
@@ -172,18 +241,59 @@
     <div class="action-panel">
         <h2>Действия</h2>
         <div class="button-group">
+            {% set total_files = application.files.count() %}
+            {% set completed_files_count = application.files.filter_by(indexing_status='completed').count() %}
+            {% set all_files_indexed = total_files > 0 and total_files == completed_files_count %}
+
             {% if application.status == 'created' %}
                 <a href="{{ url_for('applications.upload_file', id=application.id) }}" class="button button-primary">Загрузить документ</a>
             {% elif application.status in ['indexed', 'analyzed'] %}
-                <a href="{{ url_for('applications.analyze', id=application.id) }}" class="button button-success">Анализировать</a>
+                {% if all_files_indexed %}
+                    <a href="{{ url_for('applications.analyze', id=application.id) }}" class="button button-success">Анализировать</a>
+                {% else %}
+                    <button class="button button-success" disabled title="Не все файлы успешно проиндексированы">Анализировать</button>
+                {% endif %}
                 <a href="{{ url_for('applications.upload_file', id=application.id) }}" class="button button-primary">Загрузить еще документы</a>
-                <a href="{{ url_for('applications.view_chunks', id=application.id) }}" class="button button-primary">Просмотр чанков</a>
+                {% if completed_files_count > 0 %}
+                    <a href="{{ url_for('applications.view_chunks', id=application.id) }}" class="button button-primary">Просмотр чанков</a>
+                {% endif %}
             {% elif application.status == 'analyzing' %}
                 <button class="button" disabled>Выполняется анализ...</button>
             {% elif application.status == 'indexing' %}
                 <button class="button" disabled>Выполняется индексация...</button>
             {% elif application.status == 'error' %}
-                <a href="{{ url_for('applications.upload_file', id=application.id) }}" class="button button-primary">Попробовать снова</a>
+                {% if application.last_operation == 'analyzing' %}
+                    <!-- Ошибка при анализе -->
+                    {% if all_files_indexed %}
+                        <a href="{{ url_for('applications.analyze', id=application.id) }}" class="button button-warning">Повторить анализ</a>
+                        <a href="{{ url_for('applications.view_chunks', id=application.id) }}" class="button button-primary">Просмотр чанков</a>
+                    {% else %}
+                        <button class="button button-warning" disabled title="Не все файлы успешно проиндексированы">Повторить анализ</button>
+                    {% endif %}
+                    <a href="{{ url_for('applications.upload_file', id=application.id) }}" class="button button-primary">Загрузить еще документы</a>
+                {% elif application.last_operation == 'indexing' %}
+                    <!-- Ошибка при индексации -->
+                    {% if all_files_indexed %}
+                        <!-- Все файлы успешно проиндексированы -->
+                        <a href="{{ url_for('applications.analyze', id=application.id) }}" class="button button-success">Анализировать файлы</a>
+                        <a href="{{ url_for('applications.view_chunks', id=application.id) }}" class="button button-primary">Просмотр чанков</a>
+                    {% elif completed_files_count > 0 %}
+                        <!-- Частично проиндексировано -->
+                        <button class="button button-success" disabled title="Не все файлы успешно проиндексированы">Анализировать</button>
+                        <a href="{{ url_for('applications.view_chunks', id=application.id) }}" class="button button-primary">Просмотр чанков</a>
+                    {% endif %}
+                    <a href="{{ url_for('applications.upload_file', id=application.id) }}" class="button button-primary">Загрузить новый документ</a>
+                {% else %}
+                    <!-- Неизвестная ошибка или старая заявка без last_operation -->
+                    {% if all_files_indexed %}
+                        <a href="{{ url_for('applications.analyze', id=application.id) }}" class="button button-warning">Попробовать анализ</a>
+                        <a href="{{ url_for('applications.view_chunks', id=application.id) }}" class="button button-primary">Просмотр чанков</a>
+                    {% elif completed_files_count > 0 %}
+                        <button class="button button-warning" disabled title="Не все файлы успешно проиндексированы">Попробовать анализ</button>
+                        <a href="{{ url_for('applications.view_chunks', id=application.id) }}" class="button button-primary">Просмотр чанков</a>
+                    {% endif %}
+                    <a href="{{ url_for('applications.upload_file', id=application.id) }}" class="button button-primary">Загрузить файл</a>
+                {% endif %}
             {% endif %}
 
             {% if application.status == 'analyzed' %}
@@ -621,6 +731,29 @@
         .button-danger[disabled] {
             background-color: #dc3545;
             opacity: 0.6;
+        }
+
+        /* Стиль для выделения сообщения об ошибке */
+        .error-highlight {
+            background-color: #fff5f5;
+            border-left: 4px solid #dc3545;
+            padding-left: 10px;
+            margin-left: -10px;
+        }
+
+        .error-highlight .info-value {
+            color: #721c24;
+            font-weight: 500;
+        }
+
+        /* Стиль для сообщения об ошибке (удаляем, так как больше не используется) */
+        .error-info {
+            color: #856404;
+            background-color: #fff3cd;
+            border: 1px solid #ffeaa7;
+            padding: 10px 15px;
+            border-radius: 4px;
+            margin-bottom: 15px;
         }
     </style>
 {% endblock %}

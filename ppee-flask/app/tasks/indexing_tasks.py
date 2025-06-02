@@ -18,21 +18,30 @@ def update_application_status(application):
 
     if not file_statuses:
         application.status = 'created'
-    elif all(s == 'completed' for s in file_statuses):
-        application.status = 'indexed'
-        application.status_message = f"Проиндексировано файлов: {len(file_statuses)}"
+    elif any(s == 'indexing' for s in file_statuses):
+        # Хотя бы один файл еще индексируется
+        application.status = 'indexing'
     elif any(s == 'error' for s in file_statuses):
+        # Есть файлы с ошибками (приоритет над успешной индексацией)
         errors_count = file_statuses.count('error')
         completed_count = file_statuses.count('completed')
-        application.status = 'indexed' if completed_count > 0 else 'error'
-        application.status_message = f"Успешно: {completed_count}, Ошибок: {errors_count}"
-    elif any(s == 'indexing' for s in file_statuses):
-        application.status = 'indexing'
+
+        # Всегда устанавливаем статус 'error' если есть хотя бы одна ошибка
+        application.status = 'error'
+        application.last_operation = 'indexing'  # Добавляем, чтобы знать, что ошибка при индексации
+
+        if completed_count > 0:
+            application.status_message = f"Индексация завершена с ошибками. Успешно: {completed_count}, Ошибок: {errors_count}"
+        else:
+            application.status_message = f"Ошибка индексации всех файлов ({errors_count})"
+    elif all(s == 'completed' for s in file_statuses):
+        # Все файлы успешно проиндексированы
+        application.status = 'indexed'
+        application.status_message = f"Успешно проиндексировано файлов: {len(file_statuses)}"
     else:
         application.status = 'created'
 
     db.session.commit()
-
 
 def get_file_chunks_count(application_id, file_id):
     """Получает количество чанков для файла через FastAPI"""
