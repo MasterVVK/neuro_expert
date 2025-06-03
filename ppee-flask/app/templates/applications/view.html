@@ -242,11 +242,11 @@
                             const currentParam = match[1];
                             const totalParams = match[2];
                             const paramName = match[3];
-                            message = `Обработано параметров: ${currentParam}/${totalParams}: ${paramName}`;
+                            message = `Обработка параметра: ${currentParam}/${totalParams}: ${paramName}`;
                         }
                     } else if (data.completed_params !== undefined && data.total_params !== undefined) {
                         // Fallback на простое сообщение если нет детальной информации
-                        message = `Обработано параметров: ${data.completed_params}/${data.total_params}`;
+                        message = `Обработка параметра: ${data.completed_params}/${data.total_params}`;
                     }
 
                     // Обновляем текстовое сообщение
@@ -260,6 +260,28 @@
                     if (progressBar && data.progress !== undefined) {
                         progressBar.style.width = data.progress + '%';
                         progressBar.setAttribute('aria-valuenow', data.progress);
+                    }
+
+                    // ДОБАВЛЕНО: Обновляем статус-бейдж на странице
+                    if (data.completed_params !== undefined && data.total_params !== undefined) {
+                        // Находим все элементы со статус-бейджем
+                        const statusBadges = document.querySelectorAll('.status-badge.status-analyzing');
+                        statusBadges.forEach(badge => {
+                            badge.textContent = `Анализ (${data.completed_params}/${data.total_params})`;
+                        });
+
+                        // Также обновляем в информационной панели, если статус отображается там
+                        const infoRows = document.querySelectorAll('.info-row');
+                        infoRows.forEach(row => {
+                            const label = row.querySelector('.info-label');
+                            const value = row.querySelector('.info-value');
+                            if (label && label.textContent.includes('Статус:') && value) {
+                                const statusBadge = value.querySelector('.status-badge.status-analyzing');
+                                if (statusBadge) {
+                                    statusBadge.textContent = `Анализ (${data.completed_params}/${data.total_params})`;
+                                }
+                            }
+                        });
                     }
 
                     // Обновляем кнопку частичных результатов
