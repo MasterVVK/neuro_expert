@@ -450,6 +450,65 @@ def delete(id):
 def task_status(task_id):
     """Возвращает текущий статус задачи через FastAPI"""
     try:
+        # Сначала проверяем статус Celery задачи напрямую
+        from app import celery
+        celery_task = celery.AsyncResult(task_id)
+
+        # Логируем состояние Celery задачи для отладки
+        current_app.logger.debug(f"Celery task {task_id} state: {celery_task.state}")
+
+        # Если задача в состоянии PROGRESS, возвращаем данные из Celery
+        if celery_task.state == 'PROGRESS':
+            info = celery_task.info or {}
+            return jsonify({
+                'status': 'progress',
+                'progress': info.get('progress', 0),
+                'message': info.get('message', 'Выполнение...'),
+                'stage': info.get('stage', 'processing'),
+                'current': info.get('current', 0),
+                'total': info.get('total', 100)
+            })
+
+        # Если задача завершена успешно в Celery
+        elif celery_task.state == 'SUCCESS':
+            # Проверяем, есть ли результат
+            result = celery_task.result
+            if isinstance(result, dict):
+                # Если результат - словарь, используем его данные
+                return jsonify({
+                    'status': 'success',
+                    'progress': 100,
+                    'message': result.get('message', 'Задача успешно завершена'),
+                    'stage': 'complete',
+                    **result  # Добавляем все дополнительные данные из результата
+                })
+            else:
+                return jsonify({
+                    'status': 'success',
+                    'progress': 100,
+                    'message': 'Задача успешно завершена',
+                    'stage': 'complete'
+                })
+
+        # Если задача завершилась с ошибкой в Celery
+        elif celery_task.state == 'FAILURE':
+            error_info = celery_task.info
+            error_message = 'Неизвестная ошибка'
+
+            if error_info:
+                if isinstance(error_info, dict):
+                    error_message = error_info.get('message', str(error_info))
+                else:
+                    error_message = str(error_info)
+
+            return jsonify({
+                'status': 'error',
+                'message': error_message,
+                'progress': 0,
+                'stage': 'error'
+            })
+
+        # Если Celery задача PENDING или неизвестна, проверяем БД и FastAPI
         # Сначала проверяем статус в БД
         application = Application.query.filter_by(task_id=task_id).first()
 
@@ -538,6 +597,8 @@ def task_status(task_id):
         return jsonify(response_data)
 
     except Exception as e:
+        current_app.logger.error(f"Ошибка при получении статуса задачи {task_id}: {str(e)}")
+
         # Если не удалось получить статус из FastAPI, проверяем БД
         application = Application.query.filter_by(task_id=task_id).first()
         if not application:

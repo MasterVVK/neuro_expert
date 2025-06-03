@@ -15,12 +15,13 @@ class TaskProgressTracker {
         this.stagePrefix = options.stagePrefix || 'stage-';
         this.onComplete = options.onComplete || this._defaultOnComplete.bind(this);
         this.onError = options.onError || this._defaultOnError.bind(this);
-        this.onProgress = options.onProgress || null;  // Новый обработчик прогресса
+        this.onProgress = options.onProgress || null;
         this.checkInterval = options.checkInterval || 2000;
         this.maxAttempts = options.maxAttempts || 100;
         this.stages = options.stages || [];
         this.checkIntervalId = null;
         this.taskId = null;
+        this.lastProgress = -1; // Для отслеживания изменений прогресса
     }
 
     /**
@@ -57,13 +58,7 @@ class TaskProgressTracker {
         }
 
         // Устанавливаем начальный прогресс
-        if (this.progressBar) {
-            this.progressBar.style.width = '0%';
-            this.progressBar.setAttribute('aria-valuenow', 0);
-        }
-        if (this.statusMessage) {
-            this.statusMessage.textContent = 'Запуск задачи...';
-        }
+        this._updateProgress(0, 'Запуск задачи...');
 
         // Устанавливаем начальные состояния этапов
         this.updateStages('starting');
@@ -118,26 +113,47 @@ class TaskProgressTracker {
         // Выводим отладочную информацию
         console.log("Получен ответ о статусе:", data);
 
-        // Определяем состояние задачи и соответствующую обработку
+        // ВАЖНО: Всегда обновляем прогресс, если он есть в данных
+        if (typeof data.progress === 'number') {
+            const progress = Math.min(100, Math.max(0, data.progress)); // Ограничиваем от 0 до 100
+
+            // Обновляем прогресс только если он изменился
+            if (progress !== this.lastProgress) {
+                console.log(`Обновление прогресса: ${this.lastProgress}% -> ${progress}%`);
+                this.lastProgress = progress;
+                this._updateProgress(progress, data.message || 'Выполнение...');
+            }
+        }
+
+        // Обновляем этап, если указан
+        const stageInfo = data.stage || data.substatus || data.status;
+        if (stageInfo && stageInfo !== 'pending') {
+            this.updateStages(stageInfo);
+        }
+
+        // Вызываем пользовательский обработчик прогресса
+        if (this.onProgress && typeof this.onProgress === 'function') {
+            this.onProgress(data);
+        }
+
+        // Определяем состояние задачи
         const isExplicitSuccess =
             data.status === 'success' ||
             data.state === 'SUCCESS' ||
             (data.progress === 100 && data.stage === 'complete');
 
-        // Проверяем индикаторы ошибки
         const isError =
             data.status === 'error' ||
             data.state === 'FAILURE' ||
+            data.status === 'cancelled' ||
             (data.message && data.message.toLowerCase().includes('ошибка'));
 
-        // Обработка различных статусов задачи
+        // Обработка различных статусов
         if (isError) {
-            // Случай ошибки
             this._stopTracking();
             this.onError(data);
         }
         else if (isExplicitSuccess) {
-            // Явное указание на успешное завершение
             this._completeTask(data);
         }
         else if (data.status === 'pending') {
@@ -145,20 +161,8 @@ class TaskProgressTracker {
             this._updateProgress(5, data.message || 'Задача ожидает выполнения...');
             this.updateStages('starting');
         }
-        else if (data.status === 'progress') {
-            // Задача выполняется, обновляем прогресс
-            this._updateProgress(data.progress || 0, data.message || 'Выполняется...');
-
-            // Обновляем этап, если указан
-            const stageInfo = data.stage || data.substatus || data.status;
-            if (stageInfo) {
-                this.updateStages(stageInfo);
-            }
-
-            // Вызываем обработчик прогресса если он определен
-            if (this.onProgress && typeof this.onProgress === 'function') {
-                this.onProgress(data);
-            }
+        else if (data.status === 'progress' || data.status === 'PROGRESS') {
+            // Задача выполняется - прогресс уже обновлен выше
 
             // Проверяем, не завершена ли задача по прогрессу
             if (data.progress >= 100) {
@@ -176,40 +180,6 @@ class TaskProgressTracker {
                 stage: 'complete'
             });
         }
-        else {
-            // Неизвестный статус, проверяем прогресс
-            if (data.progress >= 100) {
-                console.log("Задача завершена по прогрессу при неизвестном статусе");
-                this._completeTask(data);
-            } else {
-                console.warn('Неизвестный статус задачи:', data.status);
-                // Обновляем прогресс, если он указан
-                if (data.progress) {
-                    this._updateProgress(data.progress, data.message || 'Выполнение задачи...');
-                }
-            }
-        }
-    }
-
-    /**
-     * Принудительно завершает отслеживание задачи
-     *
-     * @param {string} message - Сообщение о причине завершения
-     */
-    _forceComplete(message) {
-        console.warn(`Принудительное завершение отслеживания: ${message}`);
-
-        // Останавливаем отслеживание
-        this._stopTracking();
-
-        // Показываем сообщение пользователю
-        this.onError({
-            status: 'error',
-            message: message
-        });
-
-        // Перезагружаем страницу
-        window.location.reload();
     }
 
     /**
@@ -225,10 +195,8 @@ class TaskProgressTracker {
 
         // Обновляем отображение этапов
         if (this.stages && this.stages.length > 0) {
-            // Используем последний этап в списке или явно указанный этап
             const finalStage = data.stage || 'complete';
             this.updateStages(finalStage);
-            // Помечаем все этапы как завершенные
             this._markAllStagesCompleted();
         }
 
@@ -246,18 +214,31 @@ class TaskProgressTracker {
      * @param {string} message - Сообщение о текущем статусе
      */
     _updateProgress(progress, message) {
-        // Ограничиваем прогресс до 99% перед явным завершением
-        if (progress > 99 && this.checkIntervalId) {
-            progress = 99;
-        }
+        // Убеждаемся, что прогресс в допустимых пределах
+        progress = Math.min(100, Math.max(0, progress));
+
+        console.log(`_updateProgress вызван: ${progress}%, сообщение: "${message}"`);
 
         if (this.progressBar) {
+            // Обновляем ширину прогресс-бара
             this.progressBar.style.width = `${progress}%`;
             this.progressBar.setAttribute('aria-valuenow', progress);
+
+            // Добавляем текст прогресса внутрь бара, если его нет
+            if (progress > 0 && !this.progressBar.textContent) {
+                this.progressBar.textContent = `${progress}%`;
+            } else if (progress > 0) {
+                this.progressBar.textContent = `${progress}%`;
+            }
+
+            console.log(`Прогресс-бар обновлен до ${progress}%`);
+        } else {
+            console.warn('Элемент прогресс-бара не найден!');
         }
 
         if (this.statusMessage && message) {
             this.statusMessage.textContent = message;
+            console.log(`Сообщение статуса обновлено: "${message}"`);
         }
     }
 
@@ -277,7 +258,6 @@ class TaskProgressTracker {
      * @param {string} currentStage - Текущий этап
      */
     updateStages(currentStage) {
-        // Если этапы не определены, пропускаем
         if (!this.stages || this.stages.length === 0) {
             return;
         }
@@ -290,7 +270,6 @@ class TaskProgressTracker {
         this.stages.forEach(stage => {
             const stageElement = document.getElementById(`${this.stagePrefix}${stage}`);
 
-            // Пропускаем, если элемент не существует или скрыт
             if (!stageElement || stageElement.style.display === 'none') {
                 return;
             }
@@ -312,7 +291,6 @@ class TaskProgressTracker {
             }
         });
 
-        // Если нужного этапа нет в списке, помечаем последний как активный
         if (!stageFound && this.stages.length > 0 && currentStage === 'complete') {
             const lastStage = this.stages[this.stages.length - 1];
             const lastStageElement = document.getElementById(`${this.stagePrefix}${lastStage}`);
@@ -343,7 +321,6 @@ class TaskProgressTracker {
             }
         });
 
-        // Если есть этап 'complete', делаем его активным
         const completeStage = document.getElementById(`${this.stagePrefix}complete`);
         if (completeStage && completeStage.style.display !== 'none') {
             completeStage.classList.remove('completed');
@@ -358,16 +335,13 @@ class TaskProgressTracker {
     _defaultOnComplete(data) {
         console.log('Задача успешно завершена:', data);
 
-        // Скрываем прогресс-контейнер
         if (this.progressContainer) {
             this.progressContainer.style.display = 'none';
         }
 
-        // Показываем контейнер с результатами
         if (this.resultsContainer) {
             this.resultsContainer.style.display = 'block';
         } else {
-            // Если контейнера результатов нет, перезагружаем страницу
             console.log("Контейнер результатов не найден, перезагружаем страницу...");
             window.location.reload();
         }
@@ -379,12 +353,10 @@ class TaskProgressTracker {
     _defaultOnError(data) {
         console.error('Ошибка выполнения задачи:', data);
 
-        // Сразу скрываем прогресс-контейнер в случае ошибки
         if (this.progressContainer) {
             this.progressContainer.style.display = 'none';
         }
 
-        // Создаем и показываем сообщение об ошибке
         const errorContainer = document.createElement('div');
         errorContainer.className = 'error-container';
         errorContainer.innerHTML = `
@@ -395,7 +367,6 @@ class TaskProgressTracker {
             </div>
         `;
 
-        // Добавляем контейнер после прогресс-контейнера
         if (this.progressContainer && this.progressContainer.parentNode) {
             this.progressContainer.parentNode.insertBefore(errorContainer, this.progressContainer.nextSibling);
         }
