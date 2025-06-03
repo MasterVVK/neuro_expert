@@ -241,18 +241,33 @@
                         if (match) {
                             const currentParam = match[1];
                             const totalParams = match[2];
-                            const paramName = match[3];
-                            message = `Обработка параметра: ${currentParam}/${totalParams}: ${paramName}`;
+                            let paramName = match[3];
+
+                            // ИЗМЕНЕНИЕ: Убираем дублирующую информацию о модели из названия параметра
+                            paramName = paramName.replace(/\s*\[Модель: .+?\]\s*$/, '');
+
+                            // ИЗМЕНЕНИЕ: Проверяем есть ли информация о модели
+                            let displayMessage = `Обработка параметра: ${currentParam}/${totalParams}: ${paramName}`;
+
+                            // Извлекаем информацию о модели из сообщения
+                            const modelMatch = message.match(/\[Модель: (.+?)\]/);
+                            if (modelMatch) {
+                                const modelName = modelMatch[1];
+                                // Добавляем цветной badge с моделью
+                                displayMessage = `<span style="color: #6f42c1; font-weight: bold;">[${modelName}]</span> ${displayMessage}`;
+                            }
+
+                            message = displayMessage;
                         }
                     } else if (data.completed_params !== undefined && data.total_params !== undefined) {
                         // Fallback на простое сообщение если нет детальной информации
                         message = `Обработка параметра: ${data.completed_params}/${data.total_params}`;
                     }
 
-                    // Обновляем текстовое сообщение
+                    // Обновляем текстовое сообщение (используем innerHTML для поддержки HTML)
                     const statusMessageElement = document.getElementById('analyzing-status-message');
                     if (statusMessageElement) {
-                        statusMessageElement.textContent = message;
+                        statusMessageElement.innerHTML = message;  // Изменено с textContent на innerHTML
                     }
 
                     // ИСПРАВЛЕНИЕ 2: Обновляем прогресс-бар

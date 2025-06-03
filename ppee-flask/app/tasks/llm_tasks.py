@@ -72,10 +72,18 @@ def process_parameters_task(self, application_id):
         checklist_items = []
         total_params = 0
 
+        # ИЗМЕНЕНИЕ: Сначала собираем все параметры в словарь по моделям
+        params_by_model = {}
+
         for checklist in application.checklists:
             for param in checklist.parameters.all():
                 total_params += 1
-                checklist_items.append({
+
+                model_name = param.llm_model
+                if model_name not in params_by_model:
+                    params_by_model[model_name] = []
+
+                params_by_model[model_name].append({
                     "id": param.id,
                     "name": param.name,
                     "search_query": param.search_query,
@@ -88,6 +96,11 @@ def process_parameters_task(self, application_id):
                     "llm_max_tokens": param.llm_max_tokens
                 })
 
+        # ИЗМЕНЕНИЕ: Теперь формируем список параметров, сгруппированный по моделям
+        for model_name in sorted(params_by_model.keys()):  # Сортируем для предсказуемости
+            checklist_items.extend(params_by_model[model_name])
+            logger.info(f"Модель {model_name}: {len(params_by_model[model_name])} параметров")
+
         application.analysis_total_params = total_params
         application.analysis_completed_params = 0
         db.session.commit()
@@ -97,7 +110,7 @@ def process_parameters_task(self, application_id):
             response = requests.post(f"{FASTAPI_URL}/analyze", json={
                 "task_id": task_id,
                 "application_id": str(application_id),
-                "checklist_items": checklist_items,
+                "checklist_items": checklist_items,  # Теперь отсортированы по моделям
                 "llm_params": {
                     "temperature": 0.1,
                     "max_tokens": 1000,
@@ -111,6 +124,7 @@ def process_parameters_task(self, application_id):
                 max_attempts = 1200  # Максимум 20 минут
                 attempt = 0
                 saved_params = set()  # Для отслеживания уже сохраненных параметров
+                current_model = None  # ИЗМЕНЕНИЕ: Отслеживаем текущую модель
 
                 while attempt < max_attempts:
                     # Получаем статус задачи через FastAPI
@@ -127,11 +141,18 @@ def process_parameters_task(self, application_id):
                             # Сохраняем оригинальное сообщение из FastAPI
                             logger.info(f"Анализ заявки {application_id}: {progress}% - {message}")
 
-                            # Парсинг сообщения для извлечения прогресса
-                            # Формат сообщения: "Анализ параметра X/Y: название"
+                            # ИЗМЕНЕНИЕ: Определяем текущую модель по индексу
                             match = re.search(r'Анализ параметра (\d+)/(\d+):', message)
                             if match:
                                 completed_params = int(match.group(1))
+
+                                # Определяем какая модель сейчас обрабатывается
+                                if completed_params > 0 and completed_params <= len(checklist_items):
+                                    param_index = completed_params - 1
+                                    new_model = checklist_items[param_index]['llm_model']
+                                    if new_model != current_model:
+                                        current_model = new_model
+                                        logger.info(f"Переключение на модель: {current_model}")
 
                                 # Добавляем задержку чтобы FastAPI успел сохранить результат
                                 time.sleep(2)
@@ -163,16 +184,20 @@ def process_parameters_task(self, application_id):
                                         db.session.add(fresh_app)
                                         db.session.commit()
 
-                                        # ИСПРАВЛЕНИЕ: Передаем все необходимые данные в update_state
+                                        # ИЗМЕНЕНИЕ: Добавляем информацию о текущей модели в сообщение
+                                        enhanced_message = message
+                                        if current_model:
+                                            enhanced_message = f"{message} [Модель: {current_model}]"
+
                                         self.update_state(
                                             state='PROGRESS',
                                             meta={
                                                 'current': fresh_app.analysis_completed_params,
                                                 'total': total_params,
-                                                'progress': progress,  # ВАЖНО: передаем прогресс из FastAPI
-                                                'status': 'progress',  # ВАЖНО: добавляем статус
-                                                'message': message,    # ВАЖНО: передаем полное сообщение
-                                                'stage': 'analyze',    # ВАЖНО: указываем стадию
+                                                'progress': progress,
+                                                'status': 'progress',
+                                                'message': enhanced_message,  # Сообщение с моделью
+                                                'stage': 'analyze',
                                                 'completed_params': fresh_app.analysis_completed_params,
                                                 'total_params': total_params
                                             }
