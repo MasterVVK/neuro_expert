@@ -85,6 +85,17 @@ def index_document_task(self, application_id, file_id):
         db.session.commit()
 
         try:
+            # ДОБАВЛЯЕМ: Начальное обновление прогресса
+            self.update_state(
+                state='PROGRESS',
+                meta={
+                    'status': 'progress',
+                    'progress': 0,
+                    'stage': 'prepare',
+                    'message': 'Подготовка к индексации...'
+                }
+            )
+
             # Удаляем старые чанки если они есть
             if file.chunks_count > 0:
                 logger.info(f"Удаление существующих чанков ({file.chunks_count}) для файла {file_id}")
@@ -105,27 +116,36 @@ def index_document_task(self, application_id, file_id):
                         logger.info(f"Успешно удалено {deleted_count} чанков по document_id")
                     except Exception as e2:
                         logger.error(f"Не удалось удалить чанки: {e2}")
-                        # Продолжаем индексацию даже если удаление не удалось
 
-            # ВАЖНО: Определяем, нужно ли удалять старые данные
+            # Определяем, нужно ли удалять старые данные
             delete_existing = False
             if file.chunks_count > 0:
-                # Если у файла уже есть чанки, удаляем их перед новой индексацией
                 logger.info(f"Обнаружены существующие чанки ({file.chunks_count}), будут удалены")
                 delete_existing = True
 
             # Генерируем document_id для совместимости
             document_id = f"doc_{os.path.basename(file.file_path).replace(' ', '_').replace('.', '_')}"
 
+            # ДОБАВЛЯЕМ: Обновление прогресса перед отправкой
+            self.update_state(
+                state='PROGRESS',
+                meta={
+                    'status': 'progress',
+                    'progress': 10,
+                    'stage': 'prepare',
+                    'message': 'Отправка документа на обработку...'
+                }
+            )
+
             # Отправляем запрос в FastAPI для начала индексации
             response = requests.post(f"{FASTAPI_URL}/index", json={
                 "task_id": task_id,
                 "application_id": str(application_id),
                 "document_path": file.file_path,
-                "document_id": document_id,  # Передаем явно для совместимости
+                "document_id": document_id,
                 "delete_existing": delete_existing,
                 "metadata": {
-                    "file_id": str(file_id),  # ВАЖНО: передаем file_id в метаданных
+                    "file_id": str(file_id),
                     "index_session_id": index_session_id,
                     "original_filename": file.original_filename
                 }
@@ -145,7 +165,6 @@ def index_document_task(self, application_id, file_id):
 
                         if status_data.get('status') == 'SUCCESS':
                             # Индексация завершена успешно
-                            # Получаем количество проиндексированных чанков
                             chunks_count = get_file_chunks_count(application_id, file_id)
 
                             file.indexing_status = 'completed'
@@ -157,6 +176,17 @@ def index_document_task(self, application_id, file_id):
 
                             db.session.commit()
 
+                            # ДОБАВЛЯЕМ: Финальное обновление прогресса
+                            self.update_state(
+                                state='SUCCESS',
+                                meta={
+                                    'status': 'success',
+                                    'progress': 100,
+                                    'stage': 'complete',
+                                    'message': f"Индексация завершена. Создано чанков: {chunks_count}"
+                                }
+                            )
+
                             logger.info(f"Индексация файла {file_id} заявки {application_id} завершена успешно: {chunks_count} чанков")
                             return {"status": "success", "message": "Индексация завершена", "chunks_count": chunks_count}
 
@@ -164,10 +194,23 @@ def index_document_task(self, application_id, file_id):
                             # Произошла ошибка
                             raise Exception(status_data.get('message', 'Ошибка индексации'))
 
-                        # Логируем прогресс
+                        # ВАЖНО: Транслируем прогресс из FastAPI в Celery
                         elif status_data.get('status') == 'PROGRESS':
                             progress = status_data.get('progress', 0)
                             message = status_data.get('message', '')
+                            stage = status_data.get('stage', 'index')
+
+                            # Обновляем состояние задачи в Celery
+                            self.update_state(
+                                state='PROGRESS',
+                                meta={
+                                    'status': 'progress',
+                                    'progress': progress,
+                                    'stage': stage,
+                                    'message': message
+                                }
+                            )
+
                             logger.info(f"Индексация файла {file_id} заявки {application_id}: {progress}% - {message}")
 
                     # Ждем и повторяем
@@ -189,5 +232,16 @@ def index_document_task(self, application_id, file_id):
 
             # Обновляем статус заявки
             update_application_status(application)
+
+            # ДОБАВЛЯЕМ: Обновление состояния при ошибке
+            self.update_state(
+                state='FAILURE',
+                meta={
+                    'status': 'error',
+                    'progress': 0,
+                    'stage': 'error',
+                    'message': str(e)
+                }
+            )
 
             return {"status": "error", "message": str(e)}
