@@ -639,7 +639,7 @@ def view_chunks(id):
         stats = client.get_application_stats(str(application.id))
 
         # Получаем чанки
-        chunks = client.get_application_chunks(str(application.id), limit=500)
+        chunks = client.get_application_chunks(str(application.id), limit=1000)
 
         return render_template('applications/chunks.html',
                                title=f'Чанки заявки {application.name}',

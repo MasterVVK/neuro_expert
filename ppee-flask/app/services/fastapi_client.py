@@ -22,7 +22,7 @@ class FastAPIClient:
             logger.error(f"Ошибка получения статистики: {e}")
             raise
 
-    def get_application_chunks(self, application_id: str, limit: int = 500) -> List[Dict[str, Any]]:
+    def get_application_chunks(self, application_id: str, limit: int = 1000) -> List[Dict[str, Any]]:
         """Получает чанки заявки"""
         try:
             response = requests.get(
