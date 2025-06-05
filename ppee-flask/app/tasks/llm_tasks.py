@@ -194,7 +194,7 @@ def process_parameters_task(self, application_id):
                         'status': 'progress',
                         'progress': 50 + int((completed_params / total_params) * 45),
                         'stage': 'analyze',
-                        'message': f'Этап 2/2: Обработка через {model_name} ({len(param_group)} запросов)...'
+                        'message': f'Этап 2/2: Обработка через {model_name} (запросов:{len(param_group)} )'
                     }
                 )
 
@@ -252,7 +252,7 @@ def process_parameters_task(self, application_id):
                                         'status': 'progress',
                                         'progress': 50 + int((completed_params / total_params) * 45),
                                         'stage': 'analyze',
-                                        'message': f'Анализ параметра {completed_params}/{total_params}: {current_param_name} [Модель: {model_name}]',
+                                        'message': f'Проанализирован параметр {completed_params}/{total_params}: {current_param_name} [Модель: {model_name}]',
                                         'completed_params': completed_params,
                                         'total_params': total_params
                                     }
