@@ -12,6 +12,8 @@ from qdrant_client.http import models  # Добавляем импорт для 
 from app.services.fastapi_client import FastAPIClient
 from app.utils.db_utils import save_analysis_results  # Импортируем из utils
 
+logger = logging.getLogger(__name__)
+
 
 def update_application_status(application):
     """Обновляет статус заявки на основе статусов файлов"""
@@ -444,6 +446,48 @@ def delete(id):
         flash(f'Ошибка при удалении заявки: {str(e)}', 'error')
 
     return redirect(url_for('applications.index'))
+
+
+@bp.route('/<int:id>/stop_analysis', methods=['POST'])
+def stop_analysis(id):
+    """Остановка анализа заявки"""
+    application = Application.query.get_or_404(id)
+
+    # Проверяем, что заявка в процессе анализа
+    if application.status != 'analyzing':
+        flash('Заявка не находится в процессе анализа', 'warning')
+        return redirect(url_for('applications.view', id=application.id))
+
+    try:
+        # Отменяем задачу через Celery
+        if application.task_id:
+            from app import celery
+            celery.control.revoke(application.task_id, terminate=True, signal='SIGKILL')
+            current_app.logger.info(f"Остановлен анализ заявки {id}, task_id: {application.task_id}")
+
+        # Обновляем статус заявки
+        if application.analysis_completed_params > 0:
+            # Если есть частичные результаты
+            application.status = 'analyzed'
+            application.status_message = f'Анализ остановлен пользователем. Обработано параметров: {application.analysis_completed_params} из {application.analysis_total_params}'
+        else:
+            # Если нет результатов
+            application.status = 'indexed'
+            application.status_message = 'Анализ остановлен пользователем'
+
+        application.last_operation = 'analyzing'
+        db.session.commit()
+
+        if application.analysis_completed_params > 0:
+            flash(f'Анализ остановлен. Сохранено результатов: {application.analysis_completed_params} из {application.analysis_total_params}', 'info')
+        else:
+            flash('Анализ остановлен', 'info')
+
+    except Exception as e:
+        flash(f'Ошибка при остановке анализа: {str(e)}', 'error')
+        current_app.logger.error(f"Ошибка при остановке анализа заявки {id}: {str(e)}")
+
+    return redirect(url_for('applications.view', id=application.id))
 
 
 @bp.route('/status/<task_id>')

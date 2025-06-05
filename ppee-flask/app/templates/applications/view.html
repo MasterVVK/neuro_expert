@@ -208,6 +208,31 @@
             // Проверяем статус каждые 10 секунд
             statusCheckInterval = setInterval(checkApplicationStatus, 10000);
 
+            // Обработчик кнопки остановки анализа
+            const stopButton = document.getElementById('stop-analysis-button');
+            if (stopButton) {
+                stopButton.addEventListener('click', function() {
+                    if (confirm('Вы уверены, что хотите остановить анализ? Уже обработанные результаты будут сохранены.')) {
+                        // Отправляем POST запрос на остановку анализа
+                        fetch('{{ url_for("applications.stop_analysis", id=application.id) }}', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/x-www-form-urlencoded',
+                            }
+                        })
+                        .then(response => {
+                            if (response.redirected) {
+                                window.location.href = response.url;
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Ошибка при остановке анализа:', error);
+                            alert('Ошибка при остановке анализа');
+                        });
+                    }
+                });
+            }
+
             // Создаем экземпляр трекера прогресса для анализа
             const analyzingTracker = new TaskProgressTracker({
                 statusUrl: "/applications/status",  // Используем URL без ID заявки
@@ -352,7 +377,8 @@
                     <a href="{{ url_for('applications.view_chunks', id=application.id) }}" class="button button-primary">Просмотр чанков</a>
                 {% endif %}
             {% elif application.status == 'analyzing' %}
-                <button class="button" disabled>Выполняется анализ...</button>
+                <!-- Кнопка остановки анализа -->
+                <button type="button" id="stop-analysis-button" class="button button-danger">Остановить анализ</button>
                 <!-- Всегда показываем кнопку, но изначально скрытой если нет результатов -->
                 <a href="{{ url_for('applications.partial_results', id=application.id) }}"
                    class="button button-primary partial-results-btn"

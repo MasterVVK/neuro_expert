@@ -5,6 +5,7 @@ import logging
 import requests
 import time
 import re
+from celery.exceptions import Terminated, WorkerLostError
 
 logger = logging.getLogger(__name__)
 FASTAPI_URL = "http://localhost:8001"
@@ -127,6 +128,28 @@ def process_parameters_task(self, application_id):
                 current_model = None  # ИЗМЕНЕНИЕ: Отслеживаем текущую модель
 
                 while attempt < max_attempts:
+                    # Проверяем, не была ли задача отменена
+                    if self.request.called_directly:
+                        # Задача вызвана напрямую, не через воркер
+                        pass
+                    else:
+                        # Проверяем статус задачи в Celery
+                        from celery import current_app as celery_app
+                        task_state = celery_app.AsyncResult(task_id).state
+                        if task_state == 'REVOKED':
+                            logger.info(f"Задача анализа {task_id} была отменена пользователем")
+                            # Обновляем статус заявки
+                            final_app = Application.query.get(application_id)
+                            if final_app:
+                                if len(saved_params) > 0:
+                                    final_app.status = "analyzed"
+                                    final_app.status_message = f"Анализ остановлен. Сохранено результатов: {len(saved_params)}"
+                                else:
+                                    final_app.status = "indexed"
+                                    final_app.status_message = "Анализ остановлен пользователем"
+                                db.session.commit()
+                            return {"status": "cancelled", "message": "Анализ остановлен пользователем"}
+
                     # Получаем статус задачи через FastAPI
                     status_response = requests.get(f"{FASTAPI_URL}/tasks/{task_id}/status")
 
@@ -249,6 +272,22 @@ def process_parameters_task(self, application_id):
 
             else:
                 raise Exception(f"FastAPI вернул ошибку: {response.text}")
+
+        except (Terminated, WorkerLostError) as e:
+            # Задача была отменена
+            logger.info(f"Задача анализа заявки {application_id} была отменена: {e}")
+            error_app = Application.query.get(application_id)
+            if error_app:
+                saved_count = ParameterResult.query.filter_by(application_id=application_id).count()
+                if saved_count > 0:
+                    error_app.status = "analyzed"
+                    error_app.status_message = f"Анализ остановлен. Обработано параметров: {saved_count}"
+                else:
+                    error_app.status = "indexed"
+                    error_app.status_message = "Анализ остановлен пользователем"
+                error_app.last_operation = 'analyzing'
+                db.session.commit()
+            return {"status": "cancelled", "message": "Анализ остановлен пользователем"}
 
         except Exception as e:
             logger.error(f"Ошибка при анализе: {e}")
