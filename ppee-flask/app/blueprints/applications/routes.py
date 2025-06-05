@@ -523,6 +523,7 @@ def task_status(task_id):
 
                 progress = 0
                 message = ''
+                stage = 'prepare'  # Значение по умолчанию
 
                 # Проверяем состояние задачи
                 if task.state == 'PROGRESS':
@@ -530,6 +531,7 @@ def task_status(task_id):
                     if isinstance(task.info, dict):
                         progress = task.info.get('progress', 0)
                         message = task.info.get('message', '')
+                        stage = task.info.get('stage', 'prepare')  # ИСПРАВЛЕНО: берем stage из данных задачи!
 
                 # Если не получили прогресс, используем расчет из БД
                 if progress == 0 and application.analysis_total_params > 0:
@@ -539,12 +541,12 @@ def task_status(task_id):
                 if not message:
                     message = f'Обработано параметров: {application.analysis_completed_params}/{application.analysis_total_params}'
 
-                # ВАЖНО: Передаем полное сообщение
+                # ВАЖНО: Передаем полное сообщение и правильную стадию
                 return jsonify({
                     'status': 'progress',
                     'progress': progress,
                     'message': message,  # Полное сообщение с названием параметра
-                    'stage': 'analyze',
+                    'stage': stage,  # ИСПРАВЛЕНО: передаем правильную стадию из Celery
                     'completed_params': application.analysis_completed_params,
                     'total_params': application.analysis_total_params
                 })
@@ -556,7 +558,7 @@ def task_status(task_id):
                     'status': 'progress',
                     'progress': progress,
                     'message': f'Обработано параметров: {application.analysis_completed_params}/{application.analysis_total_params}',
-                    'stage': 'analyze',
+                    'stage': 'analyze',  # Fallback значение
                     'completed_params': application.analysis_completed_params,
                     'total_params': application.analysis_total_params
                 })

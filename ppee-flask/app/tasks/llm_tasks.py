@@ -166,7 +166,7 @@ def process_parameters_task(self, application_id):
                 meta={
                     'status': 'progress',
                     'progress': 45,
-                    'stage': 'llm_processing',
+                    'stage': 'analyze',
                     'message': 'Этап 2/2: Группировка запросов по моделям...'
                 }
             )
