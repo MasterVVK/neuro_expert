@@ -139,7 +139,7 @@
             </div>
         </form>
 
-        <!-- Индикатор прогресса для поиска -->
+        <!-- Индикатор прогресса для поиска (БЕЗ СТАДИЙ) -->
         <div id="search-progress" class="search-progress" style="display: none;">
             <h3>Выполнение поиска</h3>
             <div class="progress">
@@ -147,38 +147,6 @@
                      role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" style="width: 0%"></div>
             </div>
             <p id="status-message">Выполняется поиск...</p>
-
-            <!-- Горизонтальный статус бар -->
-            <div class="indexing-stages" id="progress-stages">
-                <div class="stage" id="stage-starting">
-                    <span class="stage-dot"></span>
-                    <span class="stage-label">Инициализация</span>
-                </div>
-                <div class="stage" id="stage-initializing">
-                    <span class="stage-dot"></span>
-                    <span class="stage-label">Подготовка</span>
-                </div>
-                <div class="stage" id="stage-vector_search">
-                    <span class="stage-dot"></span>
-                    <span class="stage-label">Векторный<br>поиск</span>
-                </div>
-                <div class="stage" id="stage-hybrid_search" style="display: none;">
-                    <span class="stage-dot"></span>
-                    <span class="stage-label">Гибридный<br>поиск</span>
-                </div>
-                <div class="stage" id="stage-reranking" style="display: none;">
-                    <span class="stage-dot"></span>
-                    <span class="stage-label">Ререйтинг</span>
-                </div>
-                <div class="stage" id="stage-llm_processing" style="display: none;">
-                    <span class="stage-dot"></span>
-                    <span class="stage-label">Обработка<br>LLM</span>
-                </div>
-                <div class="stage" id="stage-finishing">
-                    <span class="stage-dot"></span>
-                    <span class="stage-label">Завершение</span>
-                </div>
-            </div>
         </div>
 
         <!-- Контейнер для результатов -->
@@ -213,13 +181,10 @@
             const rerankLimitContainer = document.querySelector('.rerank-limit-container');
             const useLlmCheckbox = document.getElementById('use_llm');
             const llmSettings = document.getElementById('llm-settings');
-            const rerankingStage = document.getElementById('stage-reranking');
-            const llmProcessingStage = document.getElementById('stage-llm_processing');
 
             // Элементы для гибридного поиска
             const useSmartSearchCheckbox = document.getElementById('use_smart_search');
             const hybridSettings = document.getElementById('hybrid-settings');
-            const hybridSearchStage = document.getElementById('stage-hybrid_search');
 
             // Элементы формы и результатов
             const searchForm = document.getElementById('search-form');
@@ -275,14 +240,12 @@
             function updateRerankSettings() {
                 if (useRerankerCheckbox.checked) {
                     rerankLimitContainer.style.display = 'block';
-                    rerankingStage.style.display = '';
                     // Обновляем количество чанков при показе настроек
                     if (applicationSelect.value) {
                         updateAllChunksOption();
                     }
                 } else {
                     rerankLimitContainer.style.display = 'none';
-                    rerankingStage.style.display = 'none';
                 }
             }
 
@@ -290,10 +253,8 @@
             function updateLlmSettings() {
                 if (useLlmCheckbox.checked) {
                     llmSettings.style.display = 'block';
-                    llmProcessingStage.style.display = '';
                 } else {
                     llmSettings.style.display = 'none';
-                    llmProcessingStage.style.display = 'none';
                 }
             }
 
@@ -301,16 +262,14 @@
             function updateHybridSettings() {
                 if (useSmartSearchCheckbox.checked) {
                     hybridSettings.style.display = 'block';
-                    hybridSearchStage.style.display = '';
                 } else {
                     hybridSettings.style.display = 'none';
-                    hybridSearchStage.style.display = 'none';
                 }
             }
 
             // Функция для отображения результатов
             function showResults(data) {
-                // Явно скрываем индикатор прогресса
+                // Скрываем прогресс
                 document.getElementById('search-progress').style.display = 'none';
 
                 // Показываем кнопку поиска, скрываем кнопку остановки
@@ -487,47 +446,13 @@
                 // Показываем прогресс-контейнер
                 document.getElementById('search-progress').style.display = 'block';
 
-                // Определяем, какие этапы будут отображаться
-                const stages = ["starting", "initializing"];
-
-                // Определяем этап поиска в зависимости от настроек
-                if (useSmartSearchCheckbox.checked) {
-                    // Для умного поиска добавляем этапы в зависимости от длины запроса
-                    const query = formData.get('query');
-                    const threshold = parseInt(formData.get('hybrid_threshold') || 10);
-
-                    if (query.length < threshold) {
-                        stages.push("hybrid_search");
-                    } else {
-                        stages.push("vector_search");
-                    }
-                } else {
-                    // Иначе всегда векторный поиск
-                    stages.push("vector_search");
-                }
-
-                if (useRerankerCheckbox.checked) {
-                    stages.push("reranking");
-                }
-
-                if (useLlmCheckbox.checked) {
-                    stages.push("llm_processing");
-                }
-
-                stages.push("finishing");
-
-                // Выводим информацию о выбранных этапах в консоль для отладки
-                console.log("Выбранные этапы:", stages);
-
                 // Создаем новый трекер прогресса для поиска
                 searchTracker = new TaskProgressTracker({
-                    statusUrl: "/search/status",  // URL для статуса задачи
+                    statusUrl: "/search/status",
                     progressBarId: "progress-bar",
                     statusMessageId: "status-message",
                     progressContainerId: "search-progress",
                     resultsContainerId: "results-container",
-                    stagePrefix: "stage-",
-                    stages: stages,
                     onComplete: showResults,
                     onError: handleSearchError,
                     checkInterval: 500
@@ -546,7 +471,7 @@
 
                         // Получен ID задачи - начинаем отслеживать прогресс
                         console.log("Начинаем отслеживание задачи", data.task_id);
-                        searchTracker.startTracking(data.task_id);  // Используем task_id для отслеживания
+                        searchTracker.startTracking(data.task_id);
                     } else if (data.status === 'error') {
                         // Показываем ошибку
                         console.error("Ошибка запуска задачи:", data);
@@ -716,6 +641,92 @@
 
         .error-message button {
             margin-top: 10px;
+        }
+
+        /* Стили для прогресс-бара поиска */
+        .search-progress {
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        .progress {
+            height: 20px;
+            margin: 15px 0;
+            background-color: #e9ecef;
+            border-radius: 0.25rem;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            color: #fff;
+            text-align: center;
+            background-color: #007bff;
+            transition: width .6s ease;
+        }
+
+        .progress-bar-striped {
+            background-image: linear-gradient(45deg,rgba(255,255,255,.15) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.15) 50%,rgba(255,255,255,.15) 75%,transparent 75%,transparent);
+            background-size: 1rem 1rem;
+        }
+
+        .progress-bar-animated {
+            animation: progress-bar-stripes 1s linear infinite;
+        }
+
+        @keyframes progress-bar-stripes {
+            from { background-position: 1rem 0 }
+            to { background-position: 0 0 }
+        }
+
+        /* Стили для результатов поиска */
+            margin-bottom: 10px;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+        }
+
+        .no-results {
+            padding: 20px;
+            text-align: center;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+        }
+
+        /* Стиль для отображения уверенности */
+        .confidence-bar {
+            position: relative;
+            height: 20px;
+            background-color: #e9ecef;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .confidence-value {
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100%;
+            background-color: #28a745;
+            transition: width 0.3s ease;
+        }
+
+        .confidence-bar span {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            text-align: center;
+            line-height: 20px;
+            color: white;
+            font-weight: bold;
+            text-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
+            z-index: 1;
         }
     </style>
 {% endblock %}

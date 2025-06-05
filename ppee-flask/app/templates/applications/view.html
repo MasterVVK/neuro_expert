@@ -61,7 +61,7 @@
         </div>
     </div>
 
-    <!-- Блок индикации прогресса индексации -->
+    <!-- Блок индикации прогресса индексации (БЕЗ СТАДИЙ) -->
     {% if application.status == 'indexing' or (application.status == 'indexed' and application.files.filter_by(indexing_status='indexing').count() > 0) %}
     <div class="indexing-progress-container" id="indexing-progress-container">
         <h3>Индексация документа</h3>
@@ -70,29 +70,6 @@
                  role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" style="width: 0%"></div>
         </div>
         <p id="status-message">Выполняется индексация документа. Пожалуйста, подождите...</p>
-
-        <div class="indexing-stages">
-            <div class="stage" id="stage-prepare">
-                <span class="stage-dot"></span>
-                <span class="stage-label">Подготовка</span>
-            </div>
-            <div class="stage" id="stage-convert">
-                <span class="stage-dot"></span>
-                <span class="stage-label">Конвертация</span>
-            </div>
-            <div class="stage" id="stage-split">
-                <span class="stage-dot"></span>
-                <span class="stage-label">Разделение</span>
-            </div>
-            <div class="stage" id="stage-index">
-                <span class="stage-dot"></span>
-                <span class="stage-label">Индексация</span>
-            </div>
-            <div class="stage" id="stage-complete">
-                <span class="stage-dot"></span>
-                <span class="stage-label">Завершение</span>
-            </div>
-        </div>
     </div>
 
     <script>
@@ -132,12 +109,10 @@
 
             // Создаем экземпляр трекера прогресса для индексации
             const indexingTracker = new TaskProgressTracker({
-                statusUrl: "/applications/status",  // Используем URL без ID заявки
+                statusUrl: "/applications/status",
                 progressBarId: "indexing-progress",
                 statusMessageId: "status-message",
                 progressContainerId: "indexing-progress-container",
-                stagePrefix: "stage-",
-                stages: ["prepare", "convert", "split", "index", "complete"],
                 onComplete: function(data) {
                     clearInterval(statusCheckInterval);
                     window.location.reload();
@@ -152,13 +127,13 @@
                 checkInterval: 2000
             });
 
-            // Начинаем отслеживание - передаем task_id, а не ID заявки
+            // Начинаем отслеживание
             indexingTracker.startTracking("{{ application.task_id }}");
         });
     </script>
     {% endif %}
 
-    <!-- Блок индикации прогресса анализа -->
+    <!-- Блок индикации прогресса анализа (БЕЗ СТАДИЙ) -->
     {% if application.status == 'analyzing' %}
     <div class="analyzing-progress-container" id="analyzing-progress-container">
         <h3>Анализ документа</h3>
@@ -167,25 +142,6 @@
                  role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" style="width: 0%"></div>
         </div>
         <p id="analyzing-status-message">Выполняется анализ документа. Пожалуйста, подождите...</p>
-
-        <div class="indexing-stages">
-            <div class="stage" id="analyzing-stage-prepare">
-                <span class="stage-dot"></span>
-                <span class="stage-label">Подготовка</span>
-            </div>
-            <div class="stage" id="analyzing-stage-search">
-                <span class="stage-dot"></span>
-                <span class="stage-label">Поиск</span>
-            </div>
-            <div class="stage" id="analyzing-stage-analyze">
-                <span class="stage-dot"></span>
-                <span class="stage-label">Анализ</span>
-            </div>
-            <div class="stage" id="analyzing-stage-complete">
-                <span class="stage-dot"></span>
-                <span class="stage-label">Завершение</span>
-            </div>
-        </div>
     </div>
 
     <script>
@@ -244,8 +200,6 @@
                 statusMessageId: "analyzing-status-message",
                 progressContainerId: "analyzing-progress-container",
                 resultsContainerId: null,
-                stagePrefix: "analyzing-stage-",
-                stages: ["prepare", "search", "analyze", "complete"],
                 onComplete: function(data) {
                     clearInterval(statusCheckInterval);
                     window.location.reload();
@@ -260,42 +214,6 @@
                 checkInterval: 2000,
                 // Добавляем обработчик обновления прогресса
                 onProgress: function(data) {
-                    // Обновляем стадии в зависимости от прогресса
-                    const stages = ['prepare', 'search', 'analyze', 'complete'];
-                    let currentStage = 'prepare';
-
-                    // Определяем текущую стадию на основе data.stage
-                    if (data.stage === 'search') {
-                        currentStage = 'search';
-                    } else if (data.stage === 'llm_processing' || data.stage === 'grouping') {
-                        currentStage = 'analyze';
-                    } else if (data.stage === 'complete') {
-                        currentStage = 'complete';
-                    }
-
-                    // Обновляем визуализацию стадий
-                    stages.forEach((stage, index) => {
-                        const stageElement = document.getElementById(`analyzing-stage-${stage}`);
-                        if (stageElement) {
-                            const currentIndex = stages.indexOf(currentStage);
-                            const stageIndex = index;
-
-                            if (stageIndex < currentIndex) {
-                                // Завершенная стадия
-                                stageElement.classList.remove('active');
-                                stageElement.classList.add('completed');
-                            } else if (stageIndex === currentIndex) {
-                                // Активная стадия
-                                stageElement.classList.add('active');
-                                stageElement.classList.remove('completed');
-                            } else {
-                                // Будущая стадия
-                                stageElement.classList.remove('active');
-                                stageElement.classList.remove('completed');
-                            }
-                        }
-                    });
-
                     // Обновляем сообщение
                     let message = data.message || '';
 
@@ -352,7 +270,7 @@
                 }
             });
 
-            // Начинаем отслеживание - передаем task_id заявки
+            // Начинаем отслеживание
             analyzingTracker.startTracking("{{ application.task_id }}");
         });
     </script>
@@ -610,7 +528,7 @@
     </div>
 
     <style>
-        /* Стили для горизонтального статус-бара */
+        /* Стили для прогресс-баров */
         .indexing-progress-container, .analyzing-progress-container {
             background-color: #f8f9fa;
             border-radius: 8px;
@@ -651,67 +569,6 @@
             to { background-position: 0 0 }
         }
 
-        /* Стили для этапов */
-        .indexing-stages {
-            display: flex;
-            justify-content: space-between;
-            margin-top: 20px;
-            position: relative;
-        }
-
-        .indexing-stages:before {
-            content: '';
-            position: absolute;
-            top: 6px;
-            left: 25px;
-            right: 25px;
-            height: 2px;
-            background: #dee2e6;
-            z-index: 0;
-        }
-
-        .stage {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            position: relative;
-            z-index: 1;
-            width: 70px;
-        }
-
-        .stage-dot {
-            width: 14px;
-            height: 14px;
-            border-radius: 50%;
-            background-color: #dee2e6;
-            border: 2px solid #fff;
-            margin-bottom: 8px;
-        }
-
-        .stage.active .stage-dot {
-            background-color: #007bff;
-            box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
-        }
-
-        .stage.completed .stage-dot {
-            background-color: #28a745;
-        }
-
-        .stage-label {
-            font-size: 12px;
-            text-align: center;
-            color: #6c757d;
-        }
-
-        .stage.active .stage-label {
-            color: #007bff;
-            font-weight: bold;
-        }
-
-        .stage.completed .stage-label {
-            color: #28a745;
-        }
-
         /* Стили для контейнера ошибок */
         .error-container {
             margin: 20px 0;
@@ -734,7 +591,15 @@
             margin-top: 10px;
         }
 
-        /* Дополнительные стили для секции чек-листов */
+        /* Стили для секций */
+        .file-section, .checklist-section {
+            background-color: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
         .section-header {
             display: flex;
             justify-content: space-between;
@@ -746,60 +611,15 @@
             margin: 0;
         }
 
-        .checklist-note {
-            margin-top: 15px;
-        }
-
-        .alert-info {
-            background-color: #d1ecf1;
-            border-color: #bee5eb;
-            color: #0c5460;
-            padding: 10px 15px;
-            border-radius: 4px;
-            border: 1px solid transparent;
-        }
-
-        .inline-form {
-            display: inline-block;
-            margin-left: 5px;
-        }
-
-        .button-small {
-            padding: 5px 10px;
-            font-size: 0.9em;
-        }
-
-        .data-table td {
-            vertical-align: middle;
-        }
-
-        /* Стили для секции файлов */
-        .file-section {
-            background-color: white;
-            border-radius: 8px;
-            padding: 20px;
-            margin-bottom: 20px;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-        }
-
-        .file-note {
-            margin-top: 15px;
-            padding: 10px 15px;
-            background-color: #fff3cd;
-            border: 1px solid #ffeaa7;
-            border-radius: 4px;
-        }
-
-        .file-note p {
-            margin: 0;
-            color: #856404;
-        }
-
-        /* Стили для таблицы файлов */
+        /* Стили для таблиц */
         .data-table th:last-child,
         .data-table td:last-child {
             text-align: center;
             width: 100px;
+        }
+
+        .data-table td {
+            vertical-align: middle;
         }
 
         /* Стили для статусов */
@@ -816,6 +636,7 @@
             background-color: #28a745;
         }
 
+        /* Стили для кнопок */
         .button-warning {
             background-color: #ffc107;
             color: #212529;
@@ -825,29 +646,6 @@
             background-color: #e0a800;
         }
 
-        .error-details-row {
-            background-color: #fff5f5;
-        }
-
-        .error-details {
-            padding: 10px;
-            color: #721c24;
-            font-size: 0.9em;
-        }
-
-        .files-summary {
-            margin-top: 15px;
-            padding: 10px;
-            background-color: #f8f9fa;
-            border-radius: 4px;
-        }
-
-        .summary-text {
-            margin: 0;
-            color: #495057;
-        }
-
-        /* Убедимся, что кнопка удаления правильно отображается */
         .button-danger {
             background-color: #dc3545;
             color: white;
@@ -862,7 +660,40 @@
             opacity: 0.6;
         }
 
-        /* Стиль для выделения сообщения об ошибке */
+        .button-small {
+            padding: 5px 10px;
+            font-size: 0.9em;
+        }
+
+        .inline-form {
+            display: inline-block;
+            margin-left: 5px;
+        }
+
+        /* Стили для уведомлений и ошибок */
+        .file-note {
+            margin-top: 15px;
+            padding: 10px 15px;
+            background-color: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 4px;
+        }
+
+        .file-note p {
+            margin: 0;
+            color: #856404;
+        }
+
+        .error-details-row {
+            background-color: #fff5f5;
+        }
+
+        .error-details {
+            padding: 10px;
+            color: #721c24;
+            font-size: 0.9em;
+        }
+
         .error-highlight {
             background-color: #fff5f5;
             border-left: 4px solid #dc3545;
@@ -875,14 +706,31 @@
             font-weight: 500;
         }
 
-        /* Стиль для сообщения об ошибке (удаляем, так как больше не используется) */
-        .error-info {
-            color: #856404;
-            background-color: #fff3cd;
-            border: 1px solid #ffeaa7;
+        /* Стили для сводки по файлам */
+        .files-summary {
+            margin-top: 15px;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+        }
+
+        .summary-text {
+            margin: 0;
+            color: #495057;
+        }
+
+        /* Стили для чек-листов */
+        .checklist-note {
+            margin-top: 15px;
+        }
+
+        .alert-info {
+            background-color: #d1ecf1;
+            border-color: #bee5eb;
+            color: #0c5460;
             padding: 10px 15px;
             border-radius: 4px;
-            margin-bottom: 15px;
+            border: 1px solid transparent;
         }
 
         /* Анимация для кнопки частичных результатов */
