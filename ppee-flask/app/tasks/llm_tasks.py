@@ -49,7 +49,7 @@ def save_single_result(application_id, parameter_id, result_data):
 
 @celery.task(bind=True)
 def process_parameters_task(self, application_id):
-    """Асинхронная задача для обработки параметров с потоковым сохранением"""
+    """Двухэтапная обработка: сначала поиск для всех, потом LLM по группам"""
     # Создаем контекст приложения для работы с БД
     app = create_app()
 
@@ -69,225 +69,225 @@ def process_parameters_task(self, application_id):
         application.task_id = task_id
         application.analysis_started_at = datetime.utcnow()
 
-        # Собираем параметры и устанавливаем общее количество
-        checklist_items = []
-        total_params = 0
-
-        # ИЗМЕНЕНИЕ: Сначала собираем все параметры в словарь по моделям
-        params_by_model = {}
-
+        # Собираем все параметры
+        all_params = []
         for checklist in application.checklists:
             for param in checklist.parameters.all():
-                total_params += 1
+                all_params.append(param)
 
-                model_name = param.llm_model
-                if model_name not in params_by_model:
-                    params_by_model[model_name] = []
-
-                params_by_model[model_name].append({
-                    "id": param.id,
-                    "name": param.name,
-                    "search_query": param.search_query,
-                    "search_limit": param.search_limit,
-                    "use_reranker": param.use_reranker,
-                    "rerank_limit": param.rerank_limit,
-                    "llm_model": param.llm_model,
-                    "llm_prompt_template": param.llm_prompt_template,
-                    "llm_temperature": param.llm_temperature,
-                    "llm_max_tokens": param.llm_max_tokens
-                })
-
-        # ИЗМЕНЕНИЕ: Теперь формируем список параметров, сгруппированный по моделям
-        for model_name in sorted(params_by_model.keys()):  # Сортируем для предсказуемости
-            checklist_items.extend(params_by_model[model_name])
-            logger.info(f"Модель {model_name}: {len(params_by_model[model_name])} параметров")
-
+        total_params = len(all_params)
         application.analysis_total_params = total_params
         application.analysis_completed_params = 0
         db.session.commit()
 
         try:
-            # Отправляем в FastAPI для начала анализа
-            response = requests.post(f"{FASTAPI_URL}/analyze", json={
-                "task_id": task_id,
-                "application_id": str(application_id),
-                "checklist_items": checklist_items,  # Теперь отсортированы по моделям
-                "llm_params": {
-                    "temperature": 0.1,
-                    "max_tokens": 1000,
-                    "use_smart_search": True,
-                    "hybrid_threshold": 10
+            # ЭТАП 1: Поиск и подготовка промптов для всех параметров
+            logger.info(f"Этап 1: Поиск для {total_params} параметров")
+
+            self.update_state(
+                state='PROGRESS',
+                meta={
+                    'status': 'progress',
+                    'progress': 5,
+                    'stage': 'search',
+                    'message': f'Этап 1/2: Поиск информации для всех параметров (0/{total_params})...'
                 }
-            })
+            )
 
-            if response.status_code == 200:
-                # Опрашиваем статус анализа через FastAPI
-                max_attempts = 2200  # Максимум 20 минут
-                attempt = 0
-                saved_params = set()  # Для отслеживания уже сохраненных параметров
-                current_model = None  # ИЗМЕНЕНИЕ: Отслеживаем текущую модель
+            # Словарь для хранения подготовленных данных
+            prepared_requests = {}  # {param_id: {search_results, prompt, model, ...}}
 
-                while attempt < max_attempts:
-                    # Проверяем, не была ли задача отменена
-                    if self.request.called_directly:
-                        # Задача вызвана напрямую, не через воркер
-                        pass
+            # Выполняем поиск для каждого параметра
+            for i, param in enumerate(all_params):
+                # Обновляем прогресс
+                search_progress = 5 + int((i / total_params) * 40)
+                self.update_state(
+                    state='PROGRESS',
+                    meta={
+                        'status': 'progress',
+                        'progress': search_progress,
+                        'stage': 'search',
+                        'message': f'Этап 1/2: Поиск ({i + 1}/{total_params}): {param.name}'
+                    }
+                )
+
+                # Выполняем поиск
+                try:
+                    search_response = requests.post(f"{FASTAPI_URL}/search", json={
+                        "application_id": str(application_id),
+                        "query": param.search_query,
+                        "limit": param.search_limit,
+                        "use_reranker": param.use_reranker,
+                        "rerank_limit": param.rerank_limit if param.use_reranker else None,
+                        "use_smart_search": True,
+                        "vector_weight": 0.5,
+                        "text_weight": 0.5,
+                        "hybrid_threshold": 10
+                    })
+
+                    if search_response.status_code == 200:
+                        search_results = search_response.json()["results"]
+
+                        # Форматируем контекст
+                        context = format_documents_for_context(search_results)
+
+                        # Подготавливаем промпт
+                        prompt = param.llm_prompt_template.format(
+                            query=param.search_query,
+                            context=context
+                        )
+
+                        # Сохраняем подготовленные данные
+                        prepared_requests[param.id] = {
+                            'param': param,
+                            'search_results': search_results,
+                            'prompt': prompt,
+                            'model': param.llm_model,
+                            'temperature': param.llm_temperature,
+                            'max_tokens': param.llm_max_tokens
+                        }
+
+                        logger.info(f"Поиск завершен для параметра {param.id}: {param.name}")
                     else:
-                        # Проверяем статус задачи в Celery
-                        from celery import current_app as celery_app
-                        task_state = celery_app.AsyncResult(task_id).state
-                        if task_state == 'REVOKED':
-                            logger.info(f"Задача анализа {task_id} была отменена пользователем")
-                            # Обновляем статус заявки
-                            final_app = Application.query.get(application_id)
-                            if final_app:
-                                if len(saved_params) > 0:
-                                    final_app.status = "analyzed"
-                                    final_app.status_message = f"Анализ остановлен. Сохранено результатов: {len(saved_params)}"
-                                else:
-                                    final_app.status = "indexed"
-                                    final_app.status_message = "Анализ остановлен пользователем"
-                                db.session.commit()
-                            return {"status": "cancelled", "message": "Анализ остановлен пользователем"}
+                        logger.error(f"Ошибка поиска для параметра {param.id}: {search_response.text}")
 
-                    # Получаем статус задачи через FastAPI
-                    status_response = requests.get(f"{FASTAPI_URL}/tasks/{task_id}/status")
+                except Exception as e:
+                    logger.error(f"Ошибка при поиске для параметра {param.id}: {e}")
 
-                    if status_response.status_code == 200:
-                        status_data = status_response.json()
+                # Проверяем отмену
+                if check_if_cancelled(self):
+                    return handle_cancellation(application_id)
 
-                        # Логируем прогресс
-                        if status_data.get('status') == 'PROGRESS':
-                            progress = status_data.get('progress', 0)
-                            message = status_data.get('message', '')
+            # ЭТАП 2: Группируем по моделям и обрабатываем через LLM
+            logger.info(f"Этап 2: Обработка через LLM")
 
-                            # Сохраняем оригинальное сообщение из FastAPI
-                            logger.info(f"Анализ заявки {application_id}: {progress}% - {message}")
+            self.update_state(
+                state='PROGRESS',
+                meta={
+                    'status': 'progress',
+                    'progress': 45,
+                    'stage': 'llm_processing',
+                    'message': 'Этап 2/2: Группировка запросов по моделям...'
+                }
+            )
 
-                            # ИЗМЕНЕНИЕ: Определяем текущую модель по индексу
-                            match = re.search(r'Анализ параметра (\d+)/(\d+):', message)
-                            if match:
-                                completed_params = int(match.group(1))
+            # Группируем подготовленные запросы по моделям
+            model_groups = {}
+            for param_id, data in prepared_requests.items():
+                model = data['model']
+                if model not in model_groups:
+                    model_groups[model] = []
+                model_groups[model].append((param_id, data))
 
-                                # Определяем какая модель сейчас обрабатывается
-                                if completed_params > 0 and completed_params <= len(checklist_items):
-                                    param_index = completed_params - 1
-                                    new_model = checklist_items[param_index]['llm_model']
-                                    if new_model != current_model:
-                                        current_model = new_model
-                                        logger.info(f"Переключение на модель: {current_model}")
+            logger.info(f"Запросы сгруппированы по моделям: {list(model_groups.keys())}")
 
-                                # Добавляем задержку чтобы FastAPI успел сохранить результат
-                                time.sleep(2)
+            # Обрабатываем каждую группу
+            completed_params = 0
 
-                                # Пытаемся получить результаты (только через /results endpoint)
-                                try:
-                                    results_response = requests.get(f"{FASTAPI_URL}/tasks/{task_id}/results")
+            for model_name, param_group in model_groups.items():
+                logger.info(f"Обработка {len(param_group)} параметров через модель {model_name}")
 
-                                    if results_response.status_code == 200:
-                                        results_data = results_response.json()
-                                        if 'results' in results_data:
-                                            # Сохраняем новые результаты
-                                            for result in results_data['results']:
-                                                param_id = result['parameter_id']
-                                                if param_id not in saved_params:
-                                                    if save_single_result(application_id, param_id, result):
-                                                        saved_params.add(param_id)
+                # Обновляем прогресс
+                self.update_state(
+                    state='PROGRESS',
+                    meta={
+                        'status': 'progress',
+                        'progress': 50 + int((completed_params / total_params) * 45),
+                        'stage': 'analyze',
+                        'message': f'Этап 2/2: Обработка через {model_name} ({len(param_group)} запросов)...'
+                    }
+                )
 
-                                except Exception as e:
-                                    logger.error(f"Ошибка при получении результатов: {e}")
+                # Обрабатываем каждый параметр в группе
+                for param_id, data in param_group:
+                    try:
+                        # Отправляем запрос к LLM
+                        llm_response = requests.post(f"{FASTAPI_URL}/llm/process", json={
+                            "model_name": model_name,
+                            "prompt": data['prompt'],
+                            "context": "",  # Контекст уже включен в промпт
+                            "parameters": {
+                                'temperature': data['temperature'],
+                                'max_tokens': data['max_tokens'],
+                                'search_query': data['param'].search_query
+                            },
+                            "query": data['param'].search_query
+                        })
 
-                                # Обновляем счетчик
-                                try:
-                                    fresh_app = Application.query.get(application_id)
-                                    if fresh_app:
-                                        # Обновляем счетчик на основе реально сохраненных результатов
-                                        fresh_app.analysis_completed_params = len(saved_params)
+                        if llm_response.status_code == 200:
+                            llm_text = llm_response.json()["response"]
 
-                                        db.session.add(fresh_app)
-                                        db.session.commit()
+                            # Извлекаем значение и рассчитываем уверенность
+                            value = extract_value_from_response(llm_text, data['param'].search_query)
+                            confidence = calculate_confidence(llm_text)
 
-                                        # ИЗМЕНЕНИЕ: Добавляем информацию о текущей модели в сообщение
-                                        enhanced_message = message
-                                        if current_model:
-                                            enhanced_message = f"{message} [Модель: {current_model}]"
+                            # Сохраняем результат
+                            result_data = {
+                                'parameter_id': param_id,
+                                'value': value,
+                                'confidence': confidence,
+                                'search_results': data['search_results'],
+                                'llm_request': {
+                                    'prompt': data['prompt'],
+                                    'model': model_name,
+                                    'temperature': data['temperature'],
+                                    'max_tokens': data['max_tokens'],
+                                    'response': llm_text
+                                }
+                            }
 
-                                        self.update_state(
-                                            state='PROGRESS',
-                                            meta={
-                                                'current': fresh_app.analysis_completed_params,
-                                                'total': total_params,
-                                                'progress': progress,
-                                                'status': 'progress',
-                                                'message': enhanced_message,  # Сообщение с моделью
-                                                'stage': 'analyze',
-                                                'completed_params': fresh_app.analysis_completed_params,
-                                                'total_params': total_params
-                                            }
-                                        )
+                            # Сохраняем в БД
+                            if save_single_result(application_id, param_id, result_data):
+                                completed_params += 1
 
-                                        logger.info(f"Заявка {application_id}: обновлен прогресс {fresh_app.analysis_completed_params}/{total_params}")
-                                except Exception as e:
-                                    logger.error(f"Ошибка обновления прогресса для заявки {application_id}: {e}")
-                                    db.session.rollback()
-
-                        # Проверяем, завершена ли задача
-                        if status_data.get('status') == 'SUCCESS':
-                            # Получаем финальные результаты (на случай если что-то пропустили)
-                            results_response = requests.get(f"{FASTAPI_URL}/tasks/{task_id}/results")
-
-                            if results_response.status_code == 200:
-                                results_data = results_response.json()
-                                if 'results' in results_data:
-                                    # Сохраняем все результаты (на случай если что-то пропустили)
-                                    for result in results_data['results']:
-                                        param_id = result['parameter_id']
-                                        if param_id not in saved_params:
-                                            if save_single_result(application_id, param_id, result):
-                                                saved_params.add(param_id)
-
-                            # Обновляем финальный статус
-                            final_app = Application.query.get(application_id)
-                            if final_app:
-                                final_app.status = "analyzed"
-                                final_app.status_message = "Анализ завершен успешно"
-                                final_app.analysis_completed_at = datetime.utcnow()
-                                final_app.analysis_completed_params = len(saved_params)
+                                # Обновляем счетчик в заявке
+                                application.analysis_completed_params = completed_params
                                 db.session.commit()
 
-                            logger.info(f"Анализ заявки {application_id} завершен успешно. Сохранено {len(saved_params)} результатов")
-                            logger.info(f"[TASK {self.request.id}] Завершение анализа заявки {application_id}")
-                            return {"status": "success", "message": "Анализ завершен"}
+                                # Обновляем прогресс с именем текущего параметра
+                                current_param_name = data['param'].name
+                                self.update_state(
+                                    state='PROGRESS',
+                                    meta={
+                                        'status': 'progress',
+                                        'progress': 50 + int((completed_params / total_params) * 45),
+                                        'stage': 'analyze',
+                                        'message': f'Анализ параметра {completed_params}/{total_params}: {current_param_name} [Модель: {model_name}]',
+                                        'completed_params': completed_params,
+                                        'total_params': total_params
+                                    }
+                                )
 
-                        elif status_data.get('status') == 'FAILURE':
-                            # Произошла ошибка
-                            raise Exception(status_data.get('message', 'Ошибка анализа'))
+                    except Exception as e:
+                        logger.error(f"Ошибка обработки параметра {param_id}: {e}")
 
-                    # Ждем и повторяем
-                    time.sleep(1)
-                    attempt += 1
+                    # Проверяем отмену после каждого параметра
+                    if check_if_cancelled(self):
+                        return handle_cancellation(application_id)
 
-                # Если вышли по таймауту
-                raise Exception("Превышено время ожидания анализа")
+            # Завершаем анализ
+            application.status = "analyzed"
+            application.status_message = "Анализ завершен успешно"
+            application.analysis_completed_at = datetime.utcnow()
+            db.session.commit()
 
-            else:
-                raise Exception(f"FastAPI вернул ошибку: {response.text}")
+            self.update_state(
+                state='SUCCESS',
+                meta={
+                    'status': 'success',
+                    'progress': 100,
+                    'stage': 'complete',
+                    'message': 'Анализ завершен!'
+                }
+            )
+
+            logger.info(f"Анализ заявки {application_id} завершен. Обработано {completed_params} параметров")
+            return {"status": "success", "message": "Анализ завершен"}
 
         except (Terminated, WorkerLostError) as e:
             # Задача была отменена
             logger.info(f"Задача анализа заявки {application_id} была отменена: {e}")
-            error_app = Application.query.get(application_id)
-            if error_app:
-                saved_count = ParameterResult.query.filter_by(application_id=application_id).count()
-                if saved_count > 0:
-                    error_app.status = "analyzed"
-                    error_app.status_message = f"Анализ остановлен. Обработано параметров: {saved_count}"
-                else:
-                    error_app.status = "indexed"
-                    error_app.status_message = "Анализ остановлен пользователем"
-                error_app.last_operation = 'analyzing'
-                db.session.commit()
-            return {"status": "cancelled", "message": "Анализ остановлен пользователем"}
+            return handle_cancellation(application_id)
 
         except Exception as e:
             logger.error(f"Ошибка при анализе: {e}")
@@ -299,3 +299,91 @@ def process_parameters_task(self, application_id):
                 db.session.commit()
             logger.info(f"[TASK {self.request.id}] Ошибка анализа заявки {application_id}: {e}")
             return {"status": "error", "message": str(e)}
+
+
+def format_documents_for_context(documents, max_docs=8):
+    """Форматирует документы для контекста"""
+    formatted = []
+    for i, doc in enumerate(documents[:max_docs]):
+        text = doc.get('text', '')
+        metadata = doc.get('metadata', {})
+
+        doc_text = f"Документ {i + 1}:\n"
+        if metadata.get('section'):
+            doc_text += f"Раздел: {metadata['section']}\n"
+        if metadata.get('content_type'):
+            doc_text += f"Тип: {metadata['content_type']}\n"
+        doc_text += f"Текст:\n{text}\n" + "-" * 40
+
+        formatted.append(doc_text)
+
+    return "\n\n".join(formatted)
+
+
+def extract_value_from_response(response, query):
+    """Извлекает значение из ответа LLM"""
+    lines = [line.strip() for line in response.split('\n') if line.strip()]
+
+    # Ищем строку с результатом
+    for line in lines:
+        if line.startswith("РЕЗУЛЬТАТ:"):
+            return line.replace("РЕЗУЛЬТАТ:", "").strip()
+
+    # Ищем строку с двоеточием
+    for line in lines:
+        if ":" in line:
+            parts = line.split(":", 1)
+            if len(parts) == 2 and parts[1].strip():
+                return parts[1].strip()
+
+    # Возвращаем последнюю строку
+    return lines[-1] if lines else "Информация не найдена"
+
+
+def calculate_confidence(response):
+    """Рассчитывает уверенность в ответе"""
+    uncertainty_phrases = [
+        "возможно", "вероятно", "может быть", "предположительно",
+        "не ясно", "не уверен", "не определено", "информация не найдена"
+    ]
+
+    confidence = 0.8
+    response_lower = response.lower()
+
+    for phrase in uncertainty_phrases:
+        if phrase in response_lower:
+            confidence -= 0.1
+
+    return max(0.1, min(confidence, 1.0))
+
+
+def check_if_cancelled(celery_task):
+    """Проверяет, была ли задача отменена"""
+    try:
+        from celery import current_app as celery_app
+        task_state = celery_app.AsyncResult(celery_task.request.id).state
+        return task_state == 'REVOKED'
+    except:
+        return False
+
+
+def handle_cancellation(application_id):
+    """Обрабатывает отмену анализа"""
+    application = Application.query.get(application_id)
+    if not application:
+        return {"status": "error", "message": "Заявка не найдена"}
+
+    saved_count = ParameterResult.query.filter_by(application_id=application_id).count()
+
+    if saved_count > 0:
+        application.status = "analyzed"
+        application.status_message = f"Анализ остановлен. Сохранено результатов: {saved_count}"
+    else:
+        application.status = "indexed"
+        application.status_message = "Анализ остановлен пользователем"
+
+    application.last_operation = 'analyzing'
+    db.session.commit()
+
+    logger.info(f"Анализ заявки {application_id} остановлен. Сохранено {saved_count} результатов")
+    return {"status": "cancelled", "message": "Анализ остановлен пользователем"}
