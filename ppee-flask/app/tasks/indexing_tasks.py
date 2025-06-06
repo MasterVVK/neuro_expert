@@ -153,7 +153,7 @@ def index_document_task(self, application_id, file_id):
 
             if response.status_code == 200:
                 # Опрашиваем статус индексации через FastAPI
-                max_attempts = 1200  # Максимум 40 минут (1200 * 2 сек)
+                max_attempts = 2200  # Максимум 40 минут (1200 * 2 сек)
                 attempt = 0
 
                 while attempt < max_attempts:

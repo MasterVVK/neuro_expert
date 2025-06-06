@@ -194,7 +194,7 @@ def process_parameters_task(self, application_id):
                         'status': 'progress',
                         'progress': 50 + int((completed_params / total_params) * 45),
                         'stage': 'analyze',
-                        'message': f'Этап 2/2: Обработка через {model_name} (запросов:{len(param_group)} )'
+                        'message': f'Этап 2/2: Обработка через {model_name} (запросов:{len(param_group)})'
                     }
                 )
 
