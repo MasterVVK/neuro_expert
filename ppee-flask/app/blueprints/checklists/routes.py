@@ -1,4 +1,4 @@
-from flask import render_template, redirect, url_for, flash, request, jsonify, current_app
+from flask import render_template, redirect, url_for, flash, request, jsonify, current_app, session
 from app import db
 from app.models import Checklist, ChecklistParameter
 from app.blueprints.checklists import bp
@@ -14,19 +14,94 @@ def index():
 
 @bp.route('/create', methods=['GET', 'POST'])
 def create():
-    """Создание нового чек-листа"""
+    """Создание нового чек-листа (с поддержкой копирования)"""
+    # Проверяем, это копирование или обычное создание
+    copy_from_id = session.get('copy_from_id', None)
+    prefilled_name = session.get('copy_name', '')
+    prefilled_description = session.get('copy_description', '')
+
+    original_checklist = None
+    if copy_from_id:
+        original_checklist = Checklist.query.get(copy_from_id)
+
     if request.method == 'POST':
         name = request.form['name']
         description = request.form.get('description', '')
+        copy_parameters = request.form.get('copy_parameters') == 'true'
 
-        checklist = Checklist(name=name, description=description)
-        db.session.add(checklist)
-        db.session.commit()
+        # Получаем ID оригинального чек-листа из скрытого поля формы
+        original_checklist_id = request.form.get('original_checklist_id')
 
-        flash('Чек-лист успешно создан', 'success')
-        return redirect(url_for('checklists.view', id=checklist.id))
+        # Проверяем уникальность имени
+        existing = Checklist.query.filter_by(name=name).first()
+        if existing:
+            flash('Чек-лист с таким названием уже существует', 'error')
+            return render_template('checklists/create.html',
+                                 title='Создание чек-листа',
+                                 prefilled_name=name,
+                                 prefilled_description=description,
+                                 original_checklist=original_checklist)
 
-    return render_template('checklists/create.html', title='Создание чек-листа')
+        try:
+            checklist = Checklist(name=name, description=description)
+            db.session.add(checklist)
+            db.session.flush()  # Получаем ID нового чек-листа
+
+            # Если это копирование и нужно скопировать параметры
+            if original_checklist_id and copy_parameters:
+                # Загружаем оригинальный чек-лист заново для получения параметров
+                source_checklist = Checklist.query.get(int(original_checklist_id))
+                if source_checklist:
+                    # Явно загружаем параметры
+                    params_to_copy = source_checklist.parameters.all()
+                    current_app.logger.info(f"Копирование {len(params_to_copy)} параметров из чек-листа {source_checklist.id}")
+
+                    for param in params_to_copy:
+                        new_param = ChecklistParameter(
+                            checklist_id=checklist.id,
+                            name=param.name,
+                            description=param.description,
+                            search_query=param.search_query,
+                            use_reranker=param.use_reranker,
+                            search_limit=param.search_limit,
+                            rerank_limit=param.rerank_limit,
+                            llm_model=param.llm_model,
+                            llm_prompt_template=param.llm_prompt_template,
+                            llm_temperature=param.llm_temperature,
+                            llm_max_tokens=param.llm_max_tokens
+                        )
+                        db.session.add(new_param)
+                        current_app.logger.info(f"Добавлен параметр: {param.name}")
+
+            db.session.commit()
+
+            # Очищаем данные из сессии только после успешного создания
+            session.pop('copy_from_id', None)
+            session.pop('copy_name', None)
+            session.pop('copy_description', None)
+
+            if original_checklist_id:
+                flash(f'Чек-лист "{name}" успешно создан как копия', 'success')
+            else:
+                flash('Чек-лист успешно создан', 'success')
+
+            return redirect(url_for('checklists.view', id=checklist.id))
+
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.error(f"Ошибка при создании чек-листа: {str(e)}")
+            flash(f'Ошибка при создании чек-листа: {str(e)}', 'error')
+            return render_template('checklists/create.html',
+                                 title='Создание чек-листа',
+                                 prefilled_name=name,
+                                 prefilled_description=description,
+                                 original_checklist=original_checklist)
+
+    return render_template('checklists/create.html',
+                         title='Создание чек-листа',
+                         prefilled_name=prefilled_name,
+                         prefilled_description=prefilled_description,
+                         original_checklist=original_checklist)
 
 
 @bp.route('/<int:id>')
@@ -83,6 +158,28 @@ def edit(id):
         flash('Изменений не было', 'info')
 
     return redirect(url_for('checklists.view', id=checklist.id))
+
+
+@bp.route('/<int:id>/copy')
+def copy(id):
+    """Перенаправляет на страницу создания с предзаполненными данными"""
+    original_checklist = Checklist.query.get_or_404(id)
+
+    # Генерируем уникальное имя для копии
+    suggested_name = f"{original_checklist.name} (копия)"
+    counter = 1
+    while Checklist.query.filter_by(name=suggested_name).first():
+        counter += 1
+        suggested_name = f"{original_checklist.name} (копия {counter})"
+
+    # Сохраняем данные для копирования в сессии
+    session['copy_from_id'] = original_checklist.id
+    session['copy_name'] = suggested_name
+    session['copy_description'] = original_checklist.description
+
+    flash(f'Создание копии чек-листа "{original_checklist.name}"', 'info')
+
+    return redirect(url_for('checklists.create'))
 
 
 @bp.route('/<int:id>/parameter/create', methods=['GET', 'POST'])

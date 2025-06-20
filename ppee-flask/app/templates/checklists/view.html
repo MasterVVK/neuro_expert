@@ -75,6 +75,7 @@
 
             <div class="action-buttons">
                 <a href="{{ url_for('checklists.create_parameter', id=checklist.id) }}" class="button">Добавить параметр</a>
+                <a href="{{ url_for('checklists.copy', id=checklist.id) }}" class="button">Копировать чек-лист</a>
 
                 {% set app_count = checklist.applications.count() %}
                 {% if app_count == 0 %}

@@ -8,7 +8,7 @@
     
     {% if applications %}
         <div class="applications-list">
-            <table class="data-table">
+            <table class="data-table clickable-table">
                 <thead>
                     <tr>
                         <th>ID</th>
@@ -21,21 +21,200 @@
                 </thead>
                 <tbody>
                     {% for app in applications %}
-                    <tr>
+                    <tr class="clickable-row" data-href="{{ url_for('applications.view', id=app.id) }}">
                         <td>{{ app.id }}</td>
                         <td>{{ app.name }}</td>
                         <td><span class="status-badge status-{{ app.status }}">{{ app.get_status_display() }}</span></td>
                         <td>{{ app.checklists|length }}</td>
                         <td>{{ app.created_at|to_moscow_time|strftime('%d.%m.%Y %H:%M') }}</td>
-                        <td>
-                            <a href="{{ url_for('applications.view', id=app.id) }}" class="button button-small">Просмотр</a>
+                        <td class="actions-cell">
+                            <div class="action-buttons-container">
+                                {% if app.status == 'analyzed' %}
+                                    <a href="{{ url_for('applications.results', id=app.id) }}" class="button button-small button-success">Результаты</a>
+                                {% else %}
+                                    <button class="button button-small button-success"
+                                            disabled
+                                            title="{% if app.status == 'analyzing' %}Анализ в процессе{% elif app.status in ['created', 'indexing', 'indexed'] %}Заявка еще не проанализирована{% else %}Результаты недоступны{% endif %}">
+                                        Результаты
+                                    </button>
+                                {% endif %}
+
+                                <form method="post"
+                                      action="{{ url_for('applications.delete', id=app.id) }}"
+                                      class="inline-form"
+                                      onsubmit="return confirm('Удалить заявку «{{ app.name }}»? Это действие необратимо.');">
+                                    <button type="submit" class="button button-small button-danger">Удалить</button>
+                                </form>
+                            </div>
                         </td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
+
+        <div class="table-hint">
+            <p> Совет: Кликните по строке для просмотра заявки</p>
+        </div>
     {% else %}
         <p class="empty-list">Нет заявок. <a href="{{ url_for('applications.create') }}">Создать заявку</a></p>
     {% endif %}
+
+    <style>
+        /* Стили для кликабельных строк */
+        .clickable-table tbody tr.clickable-row {
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+
+        .clickable-table tbody tr.clickable-row:hover {
+            background-color: #e9ecef;
+        }
+
+        /* Убираем курсор pointer с ячейки действий */
+        .clickable-table tbody tr.clickable-row td.actions-cell {
+            cursor: default;
+        }
+
+        /* Контейнер для кнопок действий */
+        .action-buttons-container {
+            display: flex;
+            gap: 5px;
+            align-items: center;
+            white-space: nowrap;
+            justify-content: flex-end;
+        }
+
+        /* Подсказка под таблицей */
+        .table-hint {
+            margin-top: 10px;
+            text-align: center;
+            color: #6c757d;
+            font-size: 0.9em;
+        }
+
+        /* Стили для статусов */
+        .status-badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            color: white;
+        }
+
+        .status-created {
+            background-color: #6c757d;
+        }
+
+        .status-indexing {
+            background-color: #ffc107;
+            color: #212529;
+        }
+
+        .status-indexed {
+            background-color: #17a2b8;
+        }
+
+        .status-analyzing {
+            background-color: #007bff;
+        }
+
+        .status-analyzed {
+            background-color: #28a745;
+        }
+
+        .status-error {
+            background-color: #dc3545;
+        }
+
+        /* Стили для форм и кнопок */
+        .inline-form {
+            display: inline-block;
+            margin: 0;
+        }
+
+        .button-small {
+            padding: 5px 10px;
+            font-size: 0.9em;
+        }
+
+        .button-success {
+            background-color: #28a745;
+        }
+
+        .button-success:hover:not([disabled]) {
+            background-color: #218838;
+        }
+
+        .button-success[disabled] {
+            background-color: #28a745;
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .button-primary {
+            background-color: #007bff;
+        }
+
+        .button-primary:hover {
+            background-color: #0069d9;
+        }
+
+        .button-danger {
+            background-color: #dc3545;
+        }
+
+        .button-danger:hover {
+            background-color: #c82333;
+        }
+
+        button[disabled] {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        /* Минимальная ширина для столбца действий */
+        .actions-cell {
+            min-width: 200px;
+            text-align: right;
+        }
+
+        /* Отзывчивость */
+        @media (max-width: 768px) {
+            .action-buttons-container {
+                flex-direction: column;
+                align-items: flex-end;
+                gap: 3px;
+            }
+
+            .actions-cell {
+                min-width: 150px;
+            }
+        }
+    </style>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Делаем строки кликабельными
+            const clickableRows = document.querySelectorAll('.clickable-row');
+
+            clickableRows.forEach(row => {
+                row.addEventListener('click', function(e) {
+                    // Проверяем, что клик был не по кнопке или ссылке
+                    if (e.target.tagName === 'A' ||
+                        e.target.tagName === 'BUTTON' ||
+                        e.target.closest('.actions-cell') ||
+                        e.target.closest('form')) {
+                        return;
+                    }
+
+                    // Переходим по ссылке из data-href
+                    const href = this.dataset.href;
+                    if (href) {
+                        window.location.href = href;
+                    }
+                });
+            });
+        });
+    </script>
 {% endblock %}

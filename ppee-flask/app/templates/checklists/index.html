@@ -8,7 +8,7 @@
     
     {% if checklists %}
         <div class="checklists-list">
-            <table class="data-table">
+            <table class="data-table clickable-table">
                 <thead>
                     <tr>
                         <th>ID</th>
@@ -21,7 +21,7 @@
                 </thead>
                 <tbody>
                     {% for checklist in checklists %}
-                    <tr>
+                    <tr class="clickable-row" data-href="{{ url_for('checklists.view', id=checklist.id) }}">
                         <td>{{ checklist.id }}</td>
                         <td>{{ checklist.name }}</td>
                         <td>{{ checklist.parameters.count() }}</td>
@@ -36,33 +36,71 @@
                             {% endif %}
                         </td>
                         <td>{{ checklist.created_at|to_moscow_time|strftime('%d.%m.%Y %H:%M') }}</td>
-                        <td>
-                            <a href="{{ url_for('checklists.view', id=checklist.id) }}" class="button button-small">Просмотр</a>
-                            {% if app_count == 0 %}
-                                <form method="post"
-                                      action="{{ url_for('checklists.delete', id=checklist.id) }}"
-                                      class="inline-form"
-                                      onsubmit="return confirm('Удалить чек-лист «{{ checklist.name }}»?');">
-                                    <button type="submit" class="button button-small button-danger">Удалить</button>
-                                </form>
-                            {% else %}
-                                <button class="button button-small button-danger"
-                                        disabled
-                                        title="Чек-лист используется в {{ app_count }} заявках и не может быть удален">
-                                    Удалить
-                                </button>
-                            {% endif %}
+                        <td class="actions-cell">
+                            <div class="action-buttons-container">
+                                <a href="{{ url_for('checklists.copy', id=checklist.id) }}" class="button button-small">Копировать</a>
+                                {% if app_count == 0 %}
+                                    <form method="post"
+                                          action="{{ url_for('checklists.delete', id=checklist.id) }}"
+                                          class="inline-form"
+                                          onsubmit="return confirm('Удалить чек-лист «{{ checklist.name }}»?');">
+                                        <button type="submit" class="button button-small button-danger">Удалить</button>
+                                    </form>
+                                {% else %}
+                                    <button class="button button-small button-danger"
+                                            disabled
+                                            title="Чек-лист используется в {{ app_count }} заявках и не может быть удален">
+                                        Удалить
+                                    </button>
+                                {% endif %}
+                            </div>
                         </td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
+
+        <div class="table-hint">
+            <p> Совет: Кликните по строке для просмотра чек-листа</p>
+        </div>
     {% else %}
         <p class="empty-list">Нет чек-листов. <a href="{{ url_for('checklists.create') }}">Создать чек-лист</a></p>
     {% endif %}
 
     <style>
+        /* Стили для кликабельных строк */
+        .clickable-table tbody tr.clickable-row {
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+
+        .clickable-table tbody tr.clickable-row:hover {
+            background-color: #e9ecef;
+        }
+
+        /* Убираем курсор pointer с ячейки действий */
+        .clickable-table tbody tr.clickable-row td.actions-cell {
+            cursor: default;
+        }
+
+        /* Контейнер для кнопок действий */
+        .action-buttons-container {
+            display: flex;
+            gap: 5px;
+            align-items: center;
+            white-space: nowrap;
+        }
+
+        /* Подсказка под таблицей */
+        .table-hint {
+            margin-top: 10px;
+            text-align: center;
+            color: #6c757d;
+            font-size: 0.9em;
+        }
+
+        /* Стили для бейджей */
         .badge {
             display: inline-block;
             padding: 0.25em 0.6em;
@@ -87,12 +125,42 @@
 
         .inline-form {
             display: inline-block;
-            margin-left: 5px;
+            margin: 0;
         }
 
         button[disabled] {
             opacity: 0.6;
             cursor: not-allowed;
         }
+
+        /* Минимальная ширина для столбца действий */
+        .actions-cell {
+            min-width: 200px;
+        }
     </style>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Делаем строки кликабельными
+            const clickableRows = document.querySelectorAll('.clickable-row');
+
+            clickableRows.forEach(row => {
+                row.addEventListener('click', function(e) {
+                    // Проверяем, что клик был не по кнопке или ссылке
+                    if (e.target.tagName === 'A' ||
+                        e.target.tagName === 'BUTTON' ||
+                        e.target.closest('.actions-cell') ||
+                        e.target.closest('form')) {
+                        return;
+                    }
+
+                    // Переходим по ссылке из data-href
+                    const href = this.dataset.href;
+                    if (href) {
+                        window.location.href = href;
+                    }
+                });
+            });
+        });
+    </script>
 {% endblock %}
