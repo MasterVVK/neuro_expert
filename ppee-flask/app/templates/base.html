@@ -30,6 +30,17 @@
             flex-wrap: wrap;
             background-color: #343a40;
             color: #fff;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        /* Добавляем отступ для main чтобы контент не скрывался под header */
+        main {
+            padding-top: 80px; /* Adjust based on your header height */
         }
 
         nav ul {
@@ -234,6 +245,8 @@
             max-width: 1200px;
             margin: 0 auto;
             padding: 20px 20px 0;
+            position: relative;
+            z-index: 999;
         }
 
         .flash-message {
@@ -321,6 +334,11 @@
         @media (max-width: 768px) {
             header {
                 flex-direction: column;
+                padding: 0.5rem 1rem;
+            }
+
+            main {
+                padding-top: 120px; /* Увеличиваем отступ для мобильной версии */
             }
 
             nav ul {
