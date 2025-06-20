@@ -137,8 +137,12 @@ def create_parameter(id):
     # Получаем модель по умолчанию из конфигурации
     default_llm_model = current_app.config.get('DEFAULT_LLM_MODEL', 'gemma3:27b')
 
-    # Шаблон промпта по умолчанию
-    default_prompt = """Ты эксперт по поиску информации в документах.
+    # Получаем шаблон промпта из конфигурации
+    default_prompt = current_app.config.get('DEFAULT_LLM_PROMPT_TEMPLATE')
+
+    # Если в конфигурации нет, используем захардкоженный fallback
+    if not default_prompt:
+        default_prompt = """Ты эксперт по поиску информации в документах.
 
 Нужно найти значение для параметра: "{query}"
 

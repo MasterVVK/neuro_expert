@@ -23,21 +23,10 @@ def index():
     # Получаем модель по умолчанию из конфигурации
     default_llm_model = current_app.config.get('DEFAULT_LLM_MODEL', 'gemma3:27b')
 
-    # Получаем шаблон промпта из базы данных
-    default_prompt = None
+    # Получаем шаблон промпта из конфигурации
+    default_prompt = current_app.config.get('DEFAULT_LLM_PROMPT_TEMPLATE')
 
-    try:
-        # Пытаемся найти шаблон промпта в базе данных
-        # Для примера берем первый параметр первого чек-листа
-        checklist = Checklist.query.first()
-        if checklist:
-            parameter = ChecklistParameter.query.filter_by(checklist_id=checklist.id).first()
-            if parameter and parameter.llm_prompt_template:
-                default_prompt = parameter.llm_prompt_template
-    except Exception as e:
-        current_app.logger.error(f"Ошибка при получении шаблона промпта: {str(e)}")
-
-    # Если не удалось получить промпт из базы данных, используем шаблон по умолчанию
+    # Если в конфигурации нет, используем захардкоженный fallback
     if not default_prompt:
         default_prompt = """Ты эксперт по поиску информации в документах.
 
