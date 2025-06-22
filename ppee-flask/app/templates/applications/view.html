@@ -473,7 +473,7 @@
 
         {% if application.checklists %}
             <div class="checklist-list">
-                <table class="data-table">
+                <table class="data-table clickable-table">
                     <thead>
                         <tr>
                             <th>Название</th>
@@ -484,18 +484,13 @@
                     </thead>
                     <tbody>
                         {% for checklist in application.checklists %}
-                            <tr>
+                            <tr class="clickable-row" data-href="{{ url_for('checklists.view', id=checklist.id) }}">
                                 <td>
                                     <strong>{{ checklist.name }}</strong>
                                 </td>
                                 <td>{{ checklist.parameters.count() }}</td>
                                 <td>{{ checklist.description or '-' }}</td>
-                                <td>
-                                    <a href="{{ url_for('checklists.view', id=checklist.id) }}"
-                                       class="button button-small button-secondary"
-                                       target="_blank">
-                                        Просмотр
-                                    </a>
+                                <td class="actions-cell">
                                     <form method="post"
                                           action="{{ url_for('applications.remove_checklist', id=application.id, checklist_id=checklist.id) }}"
                                           class="inline-form">
@@ -620,6 +615,20 @@
 
         .data-table td {
             vertical-align: middle;
+        }
+
+        /* Стили для кликабельных строк в таблице чек-листов */
+        .checklist-section .clickable-table tbody tr.clickable-row {
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+
+        .checklist-section .clickable-table tbody tr.clickable-row:hover {
+            background-color: #f0f0f0;
+        }
+
+        .checklist-section .clickable-table tbody tr.clickable-row td.actions-cell {
+            cursor: default;
         }
 
         /* Стили для статусов */
@@ -753,4 +762,29 @@
             }
         }
     </style>
+
+    <!-- Скрипт для кликабельных строк чек-листов -->
+    <script>
+        // Делаем строки чек-листов кликабельными
+        document.addEventListener('DOMContentLoaded', function() {
+            const checklistRows = document.querySelectorAll('.checklist-section .clickable-row');
+
+            checklistRows.forEach(row => {
+                row.addEventListener('click', function(e) {
+                    // Проверяем, что клик был не по кнопке или форме
+                    if (e.target.tagName === 'BUTTON' ||
+                        e.target.closest('.actions-cell') ||
+                        e.target.closest('form')) {
+                        return;
+                    }
+
+                    // Переходим по ссылке из data-href
+                    const href = this.dataset.href;
+                    if (href) {
+                        window.location.href = href;
+                    }
+                });
+            });
+        });
+    </script>
 {% endblock %}
