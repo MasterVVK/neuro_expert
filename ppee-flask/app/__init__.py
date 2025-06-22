@@ -203,3 +203,70 @@ def register_template_filters(app):
                 return f'{weeks} нед. назад'
             else:
                 return dt_moscow.strftime('%d.%m.%Y')
+
+    @app.template_filter('format_page_ranges')
+    def format_page_ranges_filter(pages):
+        """
+        Форматирует список страниц в диапазоны
+        Например: [2, 3, 4, 6, 7, 8, 10, 11, 12] -> "2-4, 6-8, 10-12"
+        """
+        if not pages:
+            return ''
+
+        # Собираем все номера страниц
+        nums = []
+
+        # Если это список строк вида ['10,11,12', '6,7,8', '2,3,4']
+        if isinstance(pages, list):
+            for item in pages:
+                if isinstance(item, str):
+                    # Разбиваем строку по запятым
+                    for p in item.split(','):
+                        p = p.strip()
+                        if p.isdigit():
+                            nums.append(int(p))
+                elif isinstance(item, (int, float)):
+                    nums.append(int(item))
+        # Если это строка
+        elif isinstance(pages, str):
+            for p in pages.split(','):
+                p = p.strip()
+                if p.isdigit():
+                    nums.append(int(p))
+
+        if not nums:
+            return ', '.join(str(p) for p in pages)
+
+        # Убираем дубликаты и сортируем
+        nums = sorted(set(nums))
+
+        # Группируем в диапазоны
+        ranges = []
+        start = nums[0]
+        end = nums[0]
+
+        for num in nums[1:]:
+            if num == end + 1:
+                end = num
+            else:
+                # Добавляем предыдущий диапазон
+                if start == end:
+                    ranges.append(str(start))
+                else:
+                    ranges.append(f"{start}-{end}")
+                start = num
+                end = num
+
+        # Добавляем последний диапазон
+        if start == end:
+            ranges.append(str(start))
+        else:
+            ranges.append(f"{start}-{end}")
+
+        return ', '.join(ranges)
+
+    # Отладочный вывод для проверки регистрации фильтров
+    app.logger.info("Зарегистрированные фильтры:")
+    for name in app.jinja_env.filters:
+        if name in ['nl2br', 'to_moscow_time', 'strftime', 'format_datetime', 'time_ago', 'format_page_ranges']:
+            app.logger.info(f"  - {name}")

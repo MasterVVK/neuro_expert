@@ -51,7 +51,7 @@
                         <tr>
                             <th>Параметр</th>
                             <th>Значение</th>
-                            <th>Уверенность</th>
+                            <th>Источники</th>
                             <th>Действия</th>
                         </tr>
                     </thead>
@@ -61,10 +61,37 @@
                                 <td>{{ item.parameter.name }}</td>
                                 <td>{{ item.result.value }}</td>
                                 <td>
-                                    <div class="confidence-bar">
-                                        <div class="confidence-value" style="width: {{ item.result.confidence * 100 }}%;"></div>
-                                        <span>{{ (item.result.confidence * 100)|int }}%</span>
-                                    </div>
+                                    {% if item.result.search_results %}
+                                        {% set files_data = {} %}
+                                        {% for doc in item.result.search_results %}
+                                            {% if doc.metadata and doc.metadata.document_id %}
+                                                {% set doc_id = doc.metadata.document_id %}
+                                                {% set doc_name = doc_names_mapping.get(doc_id, doc_id) if doc_names_mapping else doc_id %}
+                                                {% set page_num = doc.metadata.page_number %}
+
+                                                {% if doc_name not in files_data %}
+                                                    {% set _ = files_data.update({doc_name: []}) %}
+                                                {% endif %}
+
+                                                {% if page_num and page_num not in files_data[doc_name] %}
+                                                    {% set _ = files_data[doc_name].append(page_num) %}
+                                                {% endif %}
+                                            {% endif %}
+                                        {% endfor %}
+
+                                        <div class="sources-info">
+                                            {% for file_name, pages in files_data.items() %}
+                                                <div class="source-file">
+                                                    <strong>Файл:</strong> {{ file_name }}<br>
+                                                    {% if pages %}
+                                                        <strong>Страницы:</strong> {{ pages|format_page_ranges }}
+                                                    {% endif %}
+                                                </div>
+                                            {% endfor %}
+                                        </div>
+                                    {% else %}
+                                        <span class="no-sources">-</span>
+                                    {% endif %}
                                 </td>
                                 <td>
                                     <button class="toggle-prompt-btn" onclick="togglePrompt('prompt-{{ item.result.id }}')">Показать запрос</button>
@@ -180,6 +207,28 @@
         html, body {
             overflow-x: hidden;
             max-width: 100%;
+        }
+
+        /* Стили для информации об источниках */
+        .sources-info {
+            font-size: 0.9rem;
+        }
+
+        .source-file {
+            margin-bottom: 8px;
+            padding: 5px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            border-left: 3px solid #007bff;
+        }
+
+        .source-file:last-child {
+            margin-bottom: 0;
+        }
+
+        .no-sources {
+            color: #6c757d;
+            font-style: italic;
         }
 
         /* Стили для уведомлений */
@@ -322,111 +371,6 @@
         .toggle-label {
             white-space: nowrap; /* Запрещаем перенос текста */
             display: inline-block; /* Чтобы действовал white-space */
-        }
-
-        /* Стиль для отображения уверенности */
-        .confidence-bar {
-            position: relative;
-            height: 20px;
-            background-color: #e9ecef;
-            border-radius: 4px;
-            overflow: hidden;
-        }
-
-        .confidence-value {
-            position: absolute;
-            top: 0;
-            left: 0;
-            height: 100%;
-            background-color: #28a745;
-            transition: width 0.3s ease;
-        }
-
-        .confidence-bar span {
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            text-align: center;
-            line-height: 20px;
-            color: white;
-            font-weight: bold;
-            text-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
-            z-index: 1;
-        }
-
-        /* Цвета для разной уверенности */
-        .confidence-value[style*="width: 0%"],
-        .confidence-value[style*="width: 1%"],
-        .confidence-value[style*="width: 2%"],
-        .confidence-value[style*="width: 3%"],
-        .confidence-value[style*="width: 4%"],
-        .confidence-value[style*="width: 5%"],
-        .confidence-value[style*="width: 6%"],
-        .confidence-value[style*="width: 7%"],
-        .confidence-value[style*="width: 8%"],
-        .confidence-value[style*="width: 9%"],
-        .confidence-value[style*="width: 10%"],
-        .confidence-value[style*="width: 11%"],
-        .confidence-value[style*="width: 12%"],
-        .confidence-value[style*="width: 13%"],
-        .confidence-value[style*="width: 14%"],
-        .confidence-value[style*="width: 15%"],
-        .confidence-value[style*="width: 16%"],
-        .confidence-value[style*="width: 17%"],
-        .confidence-value[style*="width: 18%"],
-        .confidence-value[style*="width: 19%"],
-        .confidence-value[style*="width: 20%"],
-        .confidence-value[style*="width: 21%"],
-        .confidence-value[style*="width: 22%"],
-        .confidence-value[style*="width: 23%"],
-        .confidence-value[style*="width: 24%"],
-        .confidence-value[style*="width: 25%"],
-        .confidence-value[style*="width: 26%"],
-        .confidence-value[style*="width: 27%"],
-        .confidence-value[style*="width: 28%"],
-        .confidence-value[style*="width: 29%"],
-        .confidence-value[style*="width: 30%"],
-        .confidence-value[style*="width: 31%"],
-        .confidence-value[style*="width: 32%"],
-        .confidence-value[style*="width: 33%"] {
-            background-color: #dc3545; /* Красный для низкой уверенности */
-        }
-
-        .confidence-value[style*="width: 34%"],
-        .confidence-value[style*="width: 35%"],
-        .confidence-value[style*="width: 36%"],
-        .confidence-value[style*="width: 37%"],
-        .confidence-value[style*="width: 38%"],
-        .confidence-value[style*="width: 39%"],
-        .confidence-value[style*="width: 40%"],
-        .confidence-value[style*="width: 41%"],
-        .confidence-value[style*="width: 42%"],
-        .confidence-value[style*="width: 43%"],
-        .confidence-value[style*="width: 44%"],
-        .confidence-value[style*="width: 45%"],
-        .confidence-value[style*="width: 46%"],
-        .confidence-value[style*="width: 47%"],
-        .confidence-value[style*="width: 48%"],
-        .confidence-value[style*="width: 49%"],
-        .confidence-value[style*="width: 50%"],
-        .confidence-value[style*="width: 51%"],
-        .confidence-value[style*="width: 52%"],
-        .confidence-value[style*="width: 53%"],
-        .confidence-value[style*="width: 54%"],
-        .confidence-value[style*="width: 55%"],
-        .confidence-value[style*="width: 56%"],
-        .confidence-value[style*="width: 57%"],
-        .confidence-value[style*="width: 58%"],
-        .confidence-value[style*="width: 59%"],
-        .confidence-value[style*="width: 60%"],
-        .confidence-value[style*="width: 61%"],
-        .confidence-value[style*="width: 62%"],
-        .confidence-value[style*="width: 63%"],
-        .confidence-value[style*="width: 64%"],
-        .confidence-value[style*="width: 65%"],
-        .confidence-value[style*="width: 66%"] {
-            background-color: #ffc107; /* Желтый для средней уверенности */
         }
 
         .partial-results-note {
