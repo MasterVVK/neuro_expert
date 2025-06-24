@@ -52,8 +52,8 @@ def create():
                 # Загружаем оригинальный чек-лист заново для получения параметров
                 source_checklist = Checklist.query.get(int(original_checklist_id))
                 if source_checklist:
-                    # Явно загружаем параметры
-                    params_to_copy = source_checklist.parameters.all()
+                    # Явно загружаем параметры, отсортированные по order_index
+                    params_to_copy = source_checklist.parameters.order_by(ChecklistParameter.order_index).all()
                     current_app.logger.info(f"Копирование {len(params_to_copy)} параметров из чек-листа {source_checklist.id}")
 
                     for param in params_to_copy:
@@ -62,6 +62,7 @@ def create():
                             name=param.name,
                             description=param.description,
                             search_query=param.search_query,
+                            order_index=param.order_index,  # Копируем порядок
                             use_reranker=param.use_reranker,
                             search_limit=param.search_limit,
                             rerank_limit=param.rerank_limit,
@@ -203,11 +204,15 @@ def create_parameter(id):
         llm_temperature = float(request.form.get('llm_temperature', 0.1))
         llm_max_tokens = int(request.form.get('llm_max_tokens', 1000))
 
+        # Получаем следующий order_index
+        next_order = checklist.get_next_order_index()
+
         parameter = ChecklistParameter(
             checklist_id=checklist.id,
             name=name,
             description=description,
             search_query=search_query,
+            order_index=next_order,  # Устанавливаем порядок
             search_limit=search_limit,
             use_reranker=use_reranker,
             rerank_limit=rerank_limit,
@@ -352,10 +357,89 @@ def delete_parameter(id):
     checklist_id = parameter.checklist_id
 
     try:
+        # При удалении нужно обновить order_index для оставшихся параметров
+        deleted_order = parameter.order_index
+
+        # Удаляем параметр
         db.session.delete(parameter)
+
+        # Обновляем order_index для параметров с большим индексом
+        ChecklistParameter.query.filter(
+            ChecklistParameter.checklist_id == checklist_id,
+            ChecklistParameter.order_index > deleted_order
+        ).update({ChecklistParameter.order_index: ChecklistParameter.order_index - 1})
+
         db.session.commit()
         flash('Параметр успешно удален', 'success')
     except Exception as e:
+        db.session.rollback()
         flash(f'Ошибка при удалении параметра: {str(e)}', 'error')
 
     return redirect(url_for('checklists.view', id=checklist_id))
+
+
+@bp.route('/parameters/<int:id>/move_up', methods=['POST'])
+def move_parameter_up(id):
+    """Перемещение параметра вверх"""
+    parameter = ChecklistParameter.query.get_or_404(id)
+    checklist_id = parameter.checklist_id
+
+    if parameter.order_index > 0:
+        # Находим параметр выше
+        prev_param = ChecklistParameter.query.filter_by(
+            checklist_id=checklist_id,
+            order_index=parameter.order_index - 1
+        ).first()
+
+        if prev_param:
+            # Меняем местами
+            prev_param.order_index, parameter.order_index = parameter.order_index, prev_param.order_index
+            db.session.commit()
+            flash('Параметр перемещен вверх', 'success')
+
+    return redirect(url_for('checklists.view', id=checklist_id))
+
+
+@bp.route('/parameters/<int:id>/move_down', methods=['POST'])
+def move_parameter_down(id):
+    """Перемещение параметра вниз"""
+    parameter = ChecklistParameter.query.get_or_404(id)
+    checklist_id = parameter.checklist_id
+
+    # Находим параметр ниже
+    next_param = ChecklistParameter.query.filter_by(
+        checklist_id=checklist_id,
+        order_index=parameter.order_index + 1
+    ).first()
+
+    if next_param:
+        # Меняем местами
+        next_param.order_index, parameter.order_index = parameter.order_index, next_param.order_index
+        db.session.commit()
+        flash('Параметр перемещен вниз', 'success')
+
+    return redirect(url_for('checklists.view', id=checklist_id))
+
+
+@bp.route('/<int:id>/parameters/reorder', methods=['POST'])
+def reorder_parameters(id):
+    """AJAX endpoint для изменения порядка параметров через drag&drop"""
+    checklist = Checklist.query.get_or_404(id)
+
+    try:
+        # Получаем новый порядок параметров из запроса
+        new_order = request.json.get('order', [])
+
+        # Обновляем order_index для каждого параметра
+        for index, param_id in enumerate(new_order):
+            parameter = ChecklistParameter.query.get(param_id)
+            if parameter and parameter.checklist_id == checklist.id:
+                parameter.order_index = index
+
+        db.session.commit()
+
+        return jsonify({'status': 'success', 'message': 'Порядок параметров обновлен'})
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'status': 'error', 'message': str(e)}), 500

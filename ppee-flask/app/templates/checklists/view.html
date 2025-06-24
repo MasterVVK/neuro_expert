@@ -100,9 +100,10 @@
 
             {% if checklist.parameters.all() %}
                 <div class="parameters-list">
-                    <table class="data-table">
+                    <table class="data-table" id="parameters-table">
                         <thead>
                             <tr>
+                                <th class="order-column" style="width: 80px;">Порядок</th>
                                 <th>Название</th>
                                 <th>Поисковый запрос</th>
                                 <th>Настройки поиска</th>
@@ -110,9 +111,30 @@
                                 <th>Действия</th>
                             </tr>
                         </thead>
-                        <tbody>
-                            {% for parameter in checklist.parameters %}
-                                <tr>
+                        <tbody id="sortable-parameters" class="sortable-active">
+                            {% for parameter in checklist.parameters.order_by('order_index') %}
+                                <tr data-param-id="{{ parameter.id }}" class="parameter-row">
+                                    <td class="order-column">
+                                        <div class="order-controls">
+                                            <span class="drag-handle" title="Перетащите для изменения порядка">≡</span>
+                                            <div class="arrow-controls">
+                                                {% if not loop.first %}
+                                                    <form method="post" action="{{ url_for('checklists.move_parameter_up', id=parameter.id) }}" class="inline-form">
+                                                        <button type="submit" class="arrow-btn" title="Переместить вверх">▲</button>
+                                                    </form>
+                                                {% else %}
+                                                    <button class="arrow-btn" disabled>▲</button>
+                                                {% endif %}
+                                                {% if not loop.last %}
+                                                    <form method="post" action="{{ url_for('checklists.move_parameter_down', id=parameter.id) }}" class="inline-form">
+                                                        <button type="submit" class="arrow-btn" title="Переместить вниз">▼</button>
+                                                    </form>
+                                                {% else %}
+                                                    <button class="arrow-btn" disabled>▼</button>
+                                                {% endif %}
+                                            </div>
+                                        </div>
+                                    </td>
                                     <td>{{ parameter.name }}</td>
                                     <td>{{ parameter.search_query }}</td>
                                     <td>
@@ -140,6 +162,12 @@
                             {% endfor %}
                         </tbody>
                     </table>
+                </div>
+
+                <div class="sort-info">
+                    <p class="form-note">
+                        <strong>Подсказка:</strong> Вы можете изменить порядок параметров, перетаскивая строки за значок ≡ или используя стрелки ▲▼
+                    </p>
                 </div>
             {% else %}
                 <p class="empty-list">У этого чек-листа нет параметров. <a href="{{ url_for('checklists.create_parameter', id=checklist.id) }}">Добавить параметр</a></p>
@@ -257,6 +285,80 @@
                 transform: translateY(0);
             }
         }
+
+        /* Стили для сортировки параметров */
+        .order-column {
+            width: 80px;
+            text-align: center;
+        }
+
+        .order-controls {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .drag-handle {
+            cursor: move;
+            font-size: 18px;
+            color: #6c757d;
+            padding: 5px;
+            user-select: none;
+        }
+
+        .drag-handle:hover {
+            color: #007bff;
+        }
+
+        .arrow-controls {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .arrow-btn {
+            background: none;
+            border: 1px solid #ddd;
+            cursor: pointer;
+            padding: 2px 8px;
+            font-size: 12px;
+            line-height: 1;
+            border-radius: 3px;
+            transition: all 0.2s;
+        }
+
+        .arrow-btn:hover:not([disabled]) {
+            background-color: #007bff;
+            color: white;
+            border-color: #007bff;
+        }
+
+        .arrow-btn[disabled] {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        /* Стили для drag & drop */
+        .parameter-row.dragging {
+            opacity: 0.5;
+        }
+
+        .parameter-row.drag-over {
+            border-top: 3px solid #007bff;
+        }
+
+        .sortable-active .parameter-row {
+            transition: transform 0.2s;
+        }
+
+        .sort-info {
+            margin-top: 15px;
+            padding: 10px;
+            background-color: #e3f2fd;
+            border-radius: 4px;
+            border-left: 4px solid #2196f3;
+        }
     </style>
 
     <script>
@@ -341,6 +443,130 @@
                 if (confirm(confirmMessage)) {
                     this.submit();
                 }
+            });
+        }
+
+        // Функционал сортировки параметров
+        let draggedElement = null;
+
+        // Drag & Drop всегда активен
+        document.addEventListener('DOMContentLoaded', function() {
+            enableDragAndDrop();
+        });
+
+        function enableDragAndDrop() {
+            const rows = document.querySelectorAll('.parameter-row');
+
+            rows.forEach(row => {
+                row.draggable = true;
+
+                row.addEventListener('dragstart', handleDragStart);
+                row.addEventListener('dragend', handleDragEnd);
+                row.addEventListener('dragover', handleDragOver);
+                row.addEventListener('drop', handleDrop);
+                row.addEventListener('dragenter', handleDragEnter);
+                row.addEventListener('dragleave', handleDragLeave);
+            });
+        }
+
+        function handleDragStart(e) {
+            // Проверяем, что перетаскивание началось с drag-handle
+            if (!e.target.closest('.drag-handle')) {
+                e.preventDefault();
+                return;
+            }
+
+            draggedElement = this;
+            this.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/html', this.innerHTML);
+        }
+
+        function handleDragEnd(e) {
+            this.classList.remove('dragging');
+
+            // Убираем все классы drag-over
+            const rows = document.querySelectorAll('.parameter-row');
+            rows.forEach(row => row.classList.remove('drag-over'));
+        }
+
+        function handleDragOver(e) {
+            if (e.preventDefault) {
+                e.preventDefault();
+            }
+            e.dataTransfer.dropEffect = 'move';
+            return false;
+        }
+
+        function handleDragEnter(e) {
+            this.classList.add('drag-over');
+        }
+
+        function handleDragLeave(e) {
+            this.classList.remove('drag-over');
+        }
+
+        function handleDrop(e) {
+            if (e.stopPropagation) {
+                e.stopPropagation();
+            }
+
+            if (draggedElement !== this) {
+                // Получаем все строки
+                const tbody = document.getElementById('sortable-parameters');
+                const rows = Array.from(tbody.querySelectorAll('.parameter-row'));
+
+                // Находим индексы
+                const draggedIndex = rows.indexOf(draggedElement);
+                const targetIndex = rows.indexOf(this);
+
+                // Перемещаем элемент
+                if (draggedIndex < targetIndex) {
+                    this.parentNode.insertBefore(draggedElement, this.nextSibling);
+                } else {
+                    this.parentNode.insertBefore(draggedElement, this);
+                }
+
+                // Обновляем порядок на сервере
+                updateOrder();
+            }
+
+            return false;
+        }
+
+        function updateOrder() {
+            const rows = document.querySelectorAll('.parameter-row');
+            const order = [];
+
+            rows.forEach(row => {
+                const paramId = row.getAttribute('data-param-id');
+                if (paramId) {
+                    order.push(parseInt(paramId));
+                }
+            });
+
+            // Отправляем новый порядок на сервер
+            fetch(`/checklists/{{ checklist.id }}/parameters/reorder`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ order: order })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    console.log('Порядок обновлен');
+                } else {
+                    alert('Ошибка при обновлении порядка: ' + data.message);
+                    // Перезагружаем страницу для восстановления правильного порядка
+                    window.location.reload();
+                }
+            })
+            .catch(error => {
+                console.error('Ошибка:', error);
+                alert('Ошибка при обновлении порядка');
+                window.location.reload();
             });
         }
     </script>

@@ -14,10 +14,17 @@ class Checklist(db.Model):
 
     # Отношения
     parameters = db.relationship('ChecklistParameter', backref='checklist', lazy='dynamic',
-                                 cascade='all, delete-orphan')
+                                 cascade='all, delete-orphan', order_by='ChecklistParameter.order_index')
 
     def __repr__(self):
         return f'<Checklist {self.id}: {self.name}>'
+
+    def get_next_order_index(self):
+        """Возвращает следующий доступный order_index для нового параметра"""
+        last_param = self.parameters.order_by(ChecklistParameter.order_index.desc()).first()
+        if last_param:
+            return last_param.order_index + 1
+        return 0
 
 
 class ChecklistParameter(db.Model):
@@ -29,6 +36,9 @@ class ChecklistParameter(db.Model):
     name = db.Column(db.String(255), nullable=False)
     description = db.Column(db.Text)
     search_query = db.Column(db.String(255), nullable=False)
+
+    # Порядок отображения параметра
+    order_index = db.Column(db.Integer, nullable=False, default=0)
 
     # Настройки поиска
     use_reranker = db.Column(db.Boolean, default=False)

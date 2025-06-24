@@ -56,7 +56,9 @@
                         </tr>
                     </thead>
                     <tbody>
-                        {% for item in data.results %}
+                        {# Сортируем результаты по order_index параметров #}
+                        {% set sorted_results = data.results|sort(attribute='parameter.order_index') %}
+                        {% for item in sorted_results %}
                             <tr>
                                 <td>{{ item.parameter.name }}</td>
                                 <td>{{ item.result.value }}</td>
