@@ -2,7 +2,14 @@
 
 {% block content %}
     <div class="page-header">
-        <h1>Заявка: {{ application.name }}</h1>
+        <h1>
+            <span id="application-name-display">Заявка: {{ application.name }}</span>
+            <button id="edit-name-btn" class="edit-btn" title="Редактировать название">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M12.146.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1 0 .708l-10 10a.5.5 0 0 1-.168.11l-5 2a.5.5 0 0 1-.65-.65l2-5a.5.5 0 0 1 .11-.168l10-10zM11.207 2.5L13.5 4.793 14.793 3.5 12.5 1.207 11.207 2.5zm1.586 3L10.5 3.207 4 9.707V10h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.293l6.5-6.5zm-9.761 5.175l-.106.106-1.528 3.821 3.821-1.528.106-.106A.5.5 0 0 1 5 12.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.468-.325z"/>
+                </svg>
+            </button>
+        </h1>
         <div class="button-group">
             <a href="{{ url_for('applications.index') }}" class="button button-secondary">Назад к списку</a>
             <form action="{{ url_for('applications.delete', id=application.id) }}" method="post" class="inline-form">
@@ -11,6 +18,16 @@
                 </button>
             </form>
         </div>
+    </div>
+
+    <!-- Форма редактирования названия (скрыта по умолчанию) -->
+    <div id="edit-name-form" class="edit-form" style="display: none;">
+        <form method="post" action="{{ url_for('applications.edit', id=application.id) }}" class="inline-edit-form">
+            <input type="text" name="name" id="name-input" value="{{ application.name }}" required>
+            <input type="hidden" name="description" id="description-hidden" value="{{ application.description or '' }}">
+            <button type="submit" class="button button-small">Сохранить</button>
+            <button type="button" class="button button-small button-secondary" onclick="cancelEditName()">Отмена</button>
+        </form>
     </div>
 
     <!-- Основная информация о заявке -->
@@ -23,7 +40,7 @@
                 <div class="info-value">{{ application.id }}</div>
             </div>
 
-            <div class="info-row">
+            <div class="info-row" style="display: none;">
                 <div class="info-label">Название:</div>
                 <div class="info-value">{{ application.name }}</div>
             </div>
@@ -45,8 +62,27 @@
             {% endif %}
 
             <div class="info-row">
-                <div class="info-label">Описание:</div>
-                <div class="info-value">{{ application.description or 'Нет описания' }}</div>
+                <div class="info-label">
+                    Описание:
+                    <button id="edit-description-btn" class="edit-btn" title="Редактировать описание">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                            <path d="M12.146.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1 0 .708l-10 10a.5.5 0 0 1-.168.11l-5 2a.5.5 0 0 1-.65-.65l2-5a.5.5 0 0 1 .11-.168l10-10zM11.207 2.5L13.5 4.793 14.793 3.5 12.5 1.207 11.207 2.5zm1.586 3L10.5 3.207 4 9.707V10h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.293l6.5-6.5zm-9.761 5.175l-.106.106-1.528 3.821 3.821-1.528.106-.106A.5.5 0 0 1 5 12.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.468-.325z"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="info-value">
+                    <div id="description-display">{{ application.description or 'Нет описания' }}</div>
+                    <div id="edit-description-form" class="edit-form" style="display: none;">
+                        <form method="post" action="{{ url_for('applications.edit', id=application.id) }}">
+                            <input type="hidden" name="name" value="{{ application.name }}">
+                            <textarea name="description" id="description-input" rows="3">{{ application.description or '' }}</textarea>
+                            <div class="form-actions">
+                                <button type="submit" class="button button-small">Сохранить</button>
+                                <button type="button" class="button button-small button-secondary" onclick="cancelEditDescription()">Отмена</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
             </div>
 
             <div class="info-row">
@@ -523,6 +559,81 @@
     </div>
 
     <style>
+        /* Стили для inline редактирования */
+        .edit-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: #007bff;
+            padding: 2px 6px;
+            margin-left: 10px;
+            border-radius: 4px;
+            transition: all 0.2s;
+            vertical-align: middle;
+        }
+
+        .edit-btn:hover {
+            background-color: #e9ecef;
+            color: #0056b3;
+        }
+
+        .page-header h1 {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .edit-form {
+            margin: 10px 0;
+        }
+
+        .inline-edit-form {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .inline-edit-form input[type="text"] {
+            flex: 1;
+            min-width: 300px;
+            padding: 8px;
+            font-size: 1.2rem;
+            font-weight: bold;
+        }
+
+        #description-input {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 10px;
+        }
+
+        .form-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .info-label {
+            display: flex;
+            align-items: center;
+        }
+
+        /* Анимация для плавного появления/скрытия */
+        .edit-form {
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(-5px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
         /* Стили для прогресс-баров */
         .indexing-progress-container, .analyzing-progress-container {
             background-color: #f8f9fa;
@@ -763,8 +874,77 @@
         }
     </style>
 
-    <!-- Скрипт для кликабельных строк чек-листов -->
+    <!-- Скрипт для кликабельных строк чек-листов и inline редактирования -->
     <script>
+        // Редактирование названия
+        const editNameBtn = document.getElementById('edit-name-btn');
+        const nameDisplay = document.getElementById('application-name-display');
+        const editNameForm = document.getElementById('edit-name-form');
+        const nameInput = document.getElementById('name-input');
+
+        editNameBtn.addEventListener('click', function() {
+            nameDisplay.style.display = 'none';
+            editNameBtn.style.display = 'none';
+            editNameForm.style.display = 'block';
+            nameInput.focus();
+            nameInput.select();
+        });
+
+        function cancelEditName() {
+            nameDisplay.style.display = 'inline';
+            editNameBtn.style.display = 'inline';
+            editNameForm.style.display = 'none';
+            nameInput.value = "{{ application.name }}";
+        }
+
+        // Редактирование описания
+        const editDescriptionBtn = document.getElementById('edit-description-btn');
+        const descriptionDisplay = document.getElementById('description-display');
+        const editDescriptionForm = document.getElementById('edit-description-form');
+        const descriptionInput = document.getElementById('description-input');
+        const descriptionHidden = document.getElementById('description-hidden');
+
+        editDescriptionBtn.addEventListener('click', function() {
+            descriptionDisplay.style.display = 'none';
+            editDescriptionBtn.style.display = 'none';
+            editDescriptionForm.style.display = 'block';
+            descriptionInput.focus();
+        });
+
+        function cancelEditDescription() {
+            descriptionDisplay.style.display = 'block';
+            editDescriptionBtn.style.display = 'inline';
+            editDescriptionForm.style.display = 'none';
+            descriptionInput.value = "{{ application.description or '' }}";
+        }
+
+        // Синхронизация описания между формами
+        descriptionInput.addEventListener('input', function() {
+            descriptionHidden.value = descriptionInput.value;
+        });
+
+        // Обработка нажатия Escape для отмены редактирования
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
+                if (editNameForm.style.display === 'block') {
+                    cancelEditName();
+                }
+                if (editDescriptionForm.style.display === 'block') {
+                    cancelEditDescription();
+                }
+            }
+        });
+
+        // Валидация формы названия
+        document.querySelector('.inline-edit-form').addEventListener('submit', function(event) {
+            const newName = nameInput.value.trim();
+            if (!newName) {
+                event.preventDefault();
+                alert('Название заявки не может быть пустым');
+                nameInput.focus();
+            }
+        });
+
         // Делаем строки чек-листов кликабельными
         document.addEventListener('DOMContentLoaded', function() {
             const checklistRows = document.querySelectorAll('.checklist-section .clickable-row');

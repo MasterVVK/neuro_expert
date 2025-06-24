@@ -111,6 +111,53 @@ def view(id):
         return redirect(url_for('applications.index'))
 
 
+@bp.route('/<int:id>/edit', methods=['POST'])
+def edit(id):
+    """Редактирование названия и описания заявки (inline)"""
+    application = Application.query.get_or_404(id)
+
+    name = request.form.get('name', '').strip()
+    description = request.form.get('description', '').strip()
+
+    # Валидация
+    if not name:
+        flash('Название заявки не может быть пустым', 'error')
+        return redirect(url_for('applications.view', id=application.id))
+
+    # Проверяем, не занято ли имя другой заявкой
+    existing = Application.query.filter(
+        Application.name == name,
+        Application.id != application.id
+    ).first()
+
+    if existing:
+        flash('Заявка с таким названием уже существует', 'error')
+        return redirect(url_for('applications.view', id=application.id))
+
+    # Проверяем, были ли изменения
+    changes_made = False
+
+    if application.name != name:
+        application.name = name
+        changes_made = True
+
+    if application.description != description:
+        application.description = description if description else None
+        changes_made = True
+
+    if changes_made:
+        try:
+            db.session.commit()
+            flash('Заявка успешно обновлена', 'success')
+        except Exception as e:
+            db.session.rollback()
+            flash(f'Ошибка при сохранении изменений: {str(e)}', 'error')
+    else:
+        flash('Изменений не было', 'info')
+
+    return redirect(url_for('applications.view', id=application.id))
+
+
 @bp.route('/<int:id>/upload', methods=['GET', 'POST'])
 def upload_file(id):
     """Загрузка файла для заявки"""
@@ -376,6 +423,7 @@ def analyze(id):
     # Принудительная перезагрузка страницы с уникальным параметром
     import time
     return redirect(url_for('applications.view', id=application.id) + '?t=' + str(int(time.time())))
+
 
 @bp.route('/<int:id>/results')
 def results(id):
