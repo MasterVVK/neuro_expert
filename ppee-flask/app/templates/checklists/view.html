@@ -119,16 +119,12 @@
                                             <span class="drag-handle" title="Перетащите для изменения порядка">≡</span>
                                             <div class="arrow-controls">
                                                 {% if not loop.first %}
-                                                    <form method="post" action="{{ url_for('checklists.move_parameter_up', id=parameter.id) }}" class="inline-form">
-                                                        <button type="submit" class="arrow-btn" title="Переместить вверх">▲</button>
-                                                    </form>
+                                                    <button type="button" class="arrow-btn arrow-up" data-param-id="{{ parameter.id }}" title="Переместить вверх">▲</button>
                                                 {% else %}
                                                     <button class="arrow-btn" disabled>▲</button>
                                                 {% endif %}
                                                 {% if not loop.last %}
-                                                    <form method="post" action="{{ url_for('checklists.move_parameter_down', id=parameter.id) }}" class="inline-form">
-                                                        <button type="submit" class="arrow-btn" title="Переместить вниз">▼</button>
-                                                    </form>
+                                                    <button type="button" class="arrow-btn arrow-down" data-param-id="{{ parameter.id }}" title="Переместить вниз">▼</button>
                                                 {% else %}
                                                     <button class="arrow-btn" disabled>▼</button>
                                                 {% endif %}
@@ -446,19 +442,72 @@
             });
         }
 
-        // Функционал сортировки параметров
-        let draggedElement = null;
-
-        // Drag & Drop всегда активен
+        // Обработчики для кнопок со стрелками (AJAX)
         document.addEventListener('DOMContentLoaded', function() {
+            // Обработчики для стрелок вверх
+            document.querySelectorAll('.arrow-up').forEach(button => {
+                button.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const paramId = this.getAttribute('data-param-id');
+                    moveParameter(paramId, 'up');
+                });
+            });
+
+            // Обработчики для стрелок вниз
+            document.querySelectorAll('.arrow-down').forEach(button => {
+                button.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const paramId = this.getAttribute('data-param-id');
+                    moveParameter(paramId, 'down');
+                });
+            });
+
+            // Включаем drag & drop
             enableDragAndDrop();
         });
+
+        // Функция для перемещения параметра через AJAX
+        function moveParameter(paramId, direction) {
+            const url = direction === 'up'
+                ? `/checklists/parameters/${paramId}/move_up`
+                : `/checklists/parameters/${paramId}/move_down`;
+
+            fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+            })
+            .then(response => {
+                if (response.redirected) {
+                    // Перезагружаем страницу для обновления порядка
+                    window.location.reload();
+                }
+            })
+            .catch(error => {
+                console.error('Ошибка:', error);
+                alert('Ошибка при перемещении параметра');
+            });
+        }
+
+        // Функционал drag & drop
+        let draggedElement = null;
 
         function enableDragAndDrop() {
             const rows = document.querySelectorAll('.parameter-row');
 
             rows.forEach(row => {
-                row.draggable = true;
+                const dragHandle = row.querySelector('.drag-handle');
+
+                // Делаем строку перетаскиваемой только при захвате за handle
+                dragHandle.addEventListener('mousedown', function(e) {
+                    row.draggable = true;
+                });
+
+                // Отключаем перетаскивание при отпускании мыши
+                document.addEventListener('mouseup', function() {
+                    row.draggable = false;
+                });
 
                 row.addEventListener('dragstart', handleDragStart);
                 row.addEventListener('dragend', handleDragEnd);
@@ -470,12 +519,6 @@
         }
 
         function handleDragStart(e) {
-            // Проверяем, что перетаскивание началось с drag-handle
-            if (!e.target.closest('.drag-handle')) {
-                e.preventDefault();
-                return;
-            }
-
             draggedElement = this;
             this.classList.add('dragging');
             e.dataTransfer.effectAllowed = 'move';
@@ -484,6 +527,7 @@
 
         function handleDragEnd(e) {
             this.classList.remove('dragging');
+            this.draggable = false;
 
             // Убираем все классы drag-over
             const rows = document.querySelectorAll('.parameter-row');
@@ -557,9 +601,10 @@
             .then(data => {
                 if (data.status === 'success') {
                     console.log('Порядок обновлен');
+                    // Перезагружаем страницу для обновления кнопок
+                    window.location.reload();
                 } else {
                     alert('Ошибка при обновлении порядка: ' + data.message);
-                    // Перезагружаем страницу для восстановления правильного порядка
                     window.location.reload();
                 }
             })

@@ -21,10 +21,17 @@ class Checklist(db.Model):
 
     def get_next_order_index(self):
         """Возвращает следующий доступный order_index для нового параметра"""
-        last_param = self.parameters.order_by(ChecklistParameter.order_index.desc()).first()
-        if last_param:
-            return last_param.order_index + 1
-        return 0
+        # Используем прямой запрос к БД для получения максимального order_index
+        from sqlalchemy import func
+        max_index = db.session.query(func.max(ChecklistParameter.order_index)).filter(
+            ChecklistParameter.checklist_id == self.id
+        ).scalar()
+
+        # Если параметров нет, max_index будет None
+        if max_index is None:
+            return 0
+
+        return max_index + 1
 
 
 class ChecklistParameter(db.Model):
