@@ -42,7 +42,7 @@
                                 <form method="post"
                                       action="{{ url_for('applications.delete', id=app.id) }}"
                                       class="inline-form"
-                                      onsubmit="return confirm('Удалить заявку «{{ app.name }}»? Это действие необратимо.');">
+                                      onsubmit="return confirm('Удалить заявку «' + {{ app.name|tojson|safe }} + '»? Это действие необратимо.');">
                                     <button type="submit" class="button button-small button-danger">Удалить</button>
                                 </form>
                             </div>
@@ -54,7 +54,7 @@
         </div>
 
         <div class="table-hint">
-            <p> Совет: Кликните по строке для просмотра заявки</p>
+            <p> Совет: Кликните по строке для просмотра заявки</p>
         </div>
     {% else %}
         <p class="empty-list">Нет заявок. <a href="{{ url_for('applications.create') }}">Создать заявку</a></p>

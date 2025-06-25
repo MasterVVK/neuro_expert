@@ -43,7 +43,7 @@
                                     <form method="post"
                                           action="{{ url_for('checklists.delete', id=checklist.id) }}"
                                           class="inline-form"
-                                          onsubmit="return confirm('Удалить чек-лист «{{ checklist.name }}»?');">
+                                          onsubmit="return confirm('Удалить чек-лист «' + {{ checklist.name|tojson|safe }} + '»?');">
                                         <button type="submit" class="button button-small button-danger">Удалить</button>
                                     </form>
                                 {% else %}
@@ -62,7 +62,7 @@
         </div>
 
         <div class="table-hint">
-            <p> Совет: Кликните по строке для просмотра чек-листа</p>
+            <p> Совет: Кликните по строке для просмотра чек-листа</p>
         </div>
     {% else %}
         <p class="empty-list">Нет чек-листов. <a href="{{ url_for('checklists.create') }}">Создать чек-лист</a></p>

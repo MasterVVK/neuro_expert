@@ -376,7 +376,7 @@
             nameDisplay.style.display = 'inline';
             editNameBtn.style.display = 'inline';
             editNameForm.style.display = 'none';
-            nameInput.value = "{{ checklist.name }}";
+            nameInput.value = {{ checklist.name|tojson|safe }};
         }
 
         // Редактирование описания
@@ -397,7 +397,7 @@
             descriptionDisplay.style.display = 'block';
             editDescriptionBtn.style.display = 'inline';
             editDescriptionForm.style.display = 'none';
-            descriptionInput.value = "{{ checklist.description or '' }}";
+            descriptionInput.value = {{ (checklist.description or '')|tojson|safe }};
         }
 
         // Синхронизация описания между формами
@@ -433,7 +433,7 @@
             deleteForm.addEventListener('submit', function(event) {
                 event.preventDefault();
 
-                const confirmMessage = 'Вы уверены, что хотите удалить чек-лист "{{ checklist.name }}"?\n\n' +
+                const confirmMessage = 'Вы уверены, что хотите удалить чек-лист "' + {{ checklist.name|tojson|safe }} + '"?\n\n' +
                                      'Это действие необратимо.';
 
                 if (confirm(confirmMessage)) {

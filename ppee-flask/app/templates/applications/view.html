@@ -894,7 +894,7 @@
             nameDisplay.style.display = 'inline';
             editNameBtn.style.display = 'inline';
             editNameForm.style.display = 'none';
-            nameInput.value = "{{ application.name }}";
+            nameInput.value = {{ application.name|tojson|safe }};
         }
 
         // Редактирование описания
@@ -915,7 +915,7 @@
             descriptionDisplay.style.display = 'block';
             editDescriptionBtn.style.display = 'inline';
             editDescriptionForm.style.display = 'none';
-            descriptionInput.value = "{{ application.description or '' }}";
+            descriptionInput.value = {{ (application.description or '')|tojson|safe }};
         }
 
         // Синхронизация описания между формами
