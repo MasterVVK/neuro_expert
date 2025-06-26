@@ -106,6 +106,7 @@
                                 <th class="order-column" style="width: 80px;">Порядок</th>
                                 <th>Название</th>
                                 <th>Поисковый запрос</th>
+                                <th>Запрос LLM</th>
                                 <th>Настройки поиска</th>
                                 <th>Модель LLM</th>
                                 <th>Действия</th>
@@ -133,6 +134,17 @@
                                     </td>
                                     <td>{{ parameter.name }}</td>
                                     <td>{{ parameter.search_query }}</td>
+                                    <td>
+                                        {% if parameter.llm_query %}
+                                            <span class="llm-query-different" title="Отличается от поискового запроса">
+                                                {{ parameter.llm_query }}
+                                            </span>
+                                        {% else %}
+                                            <span class="llm-query-same" title="Совпадает с поисковым запросом">
+                                                <em>как поисковый запрос</em>
+                                            </span>
+                                        {% endif %}
+                                    </td>
                                     <td>
                                         <span class="search-settings">
                                             Результатов: {{ parameter.search_limit }}
@@ -354,6 +366,17 @@
             background-color: #e3f2fd;
             border-radius: 4px;
             border-left: 4px solid #2196f3;
+        }
+
+        /* Стили для отображения LLM запроса */
+        .llm-query-different {
+            color: #28a745;
+            font-weight: bold;
+        }
+
+        .llm-query-same {
+            color: #6c757d;
+            font-style: italic;
         }
     </style>
 

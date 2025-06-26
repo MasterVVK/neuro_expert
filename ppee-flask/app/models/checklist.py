@@ -43,6 +43,8 @@ class ChecklistParameter(db.Model):
     name = db.Column(db.String(255), nullable=False)
     description = db.Column(db.Text)
     search_query = db.Column(db.String(255), nullable=False)
+    # Если не заполнен, используется search_query
+    llm_query = db.Column(db.String(255), nullable=True)
 
     # Порядок отображения параметра
     order_index = db.Column(db.Integer, nullable=False, default=0)

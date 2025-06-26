@@ -26,6 +26,28 @@
                 <p class="form-note">Запрос для семантического поиска в документах (например, "полное наименование юридического лица")</p>
             </div>
             
+            <!-- Опция для отдельного LLM запроса -->
+            <div class="form-group">
+                <div class="checkbox-item">
+                    <input type="checkbox"
+                           id="use_separate_llm_query"
+                           name="use_separate_llm_query"
+                           value="true"
+                           {% if parameter.llm_query %}checked{% endif %}>
+                    <label for="use_separate_llm_query">Использовать отдельный запрос для LLM</label>
+                </div>
+                <p class="form-note">Позволяет задать отличающийся от поискового запрос для обработки LLM</p>
+            </div>
+
+            <!-- Скрытое поле для LLM запроса -->
+            <div id="llm-query-settings" style="display: {% if parameter.llm_query %}block{% else %}none{% endif %};">
+                <div class="form-group">
+                    <label for="llm_query">Запрос для LLM</label>
+                    <input type="text" id="llm_query" name="llm_query" value="{{ parameter.llm_query or '' }}">
+                    <p class="form-note">Этот запрос будет использован вместо поискового при обработке результатов через LLM</p>
+                </div>
+            </div>
+
             <h3>Настройки поиска</h3>
 
             <div class="form-row">
@@ -81,6 +103,9 @@
                 <label for="llm_prompt_template">Промпт к LLM</label>
                 <textarea id="llm_prompt_template" name="llm_prompt_template" rows="10" required>{{ parameter.llm_prompt_template }}</textarea>
                 <p class="form-note">Используйте {query} для вставки поискового запроса и {context} для вставки контекста из найденных документов</p>
+                <div class="alert alert-info" id="query-usage-note" style="display: {% if parameter.llm_query %}block{% else %}none{% endif %};">
+                    <strong>Внимание:</strong> При использовании отдельного запроса для LLM, {query} в промпте будет заменен на значение из поля "Запрос для LLM"
+                </div>
             </div>
 
             <div class="form-row">
@@ -104,6 +129,41 @@
         </form>
     </div>
 
+    <style>
+        .alert {
+            padding: 15px;
+            margin: 10px 0;
+            border: 1px solid transparent;
+            border-radius: 4px;
+        }
+
+        .alert-info {
+            color: #0c5460;
+            background-color: #d1ecf1;
+            border-color: #bee5eb;
+        }
+
+        #llm-query-settings {
+            background-color: #f8f9fa;
+            border-left: 4px solid #17a2b8;
+            padding: 15px;
+            margin-top: 10px;
+            border-radius: 4px;
+            animation: slideDown 0.3s ease-out;
+        }
+
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+    </style>
+
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             // Элементы для управления отображением дополнительных настроек ререйтинга
@@ -122,6 +182,26 @@
             // Инициализация и установка обработчика событий
             updateRerankSettings();
             useRerankerCheckbox.addEventListener('change', updateRerankSettings);
+
+            // Новая логика для отдельного LLM запроса
+            const useSeparateLlmQueryCheckbox = document.getElementById('use_separate_llm_query');
+            const llmQuerySettings = document.getElementById('llm-query-settings');
+            const llmQueryInput = document.getElementById('llm_query');
+            const queryUsageNote = document.getElementById('query-usage-note');
+
+            function updateLlmQueryVisibility() {
+                if (useSeparateLlmQueryCheckbox.checked) {
+                    llmQuerySettings.style.display = 'block';
+                    queryUsageNote.style.display = 'block';
+                } else {
+                    llmQuerySettings.style.display = 'none';
+                    llmQueryInput.value = '';
+                    queryUsageNote.style.display = 'none';
+                }
+            }
+
+            // Не вызываем updateLlmQueryVisibility() при загрузке, так как начальное состояние уже установлено в HTML
+            useSeparateLlmQueryCheckbox.addEventListener('change', updateLlmQueryVisibility);
         });
     </script>
 {% endblock %}

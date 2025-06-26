@@ -62,6 +62,7 @@ def create():
                             name=param.name,
                             description=param.description,
                             search_query=param.search_query,
+                            llm_query=param.llm_query,  # ДОБАВЛЕНО: копируем llm_query
                             order_index=param.order_index,  # Копируем порядок
                             use_reranker=param.use_reranker,
                             search_limit=param.search_limit,
@@ -72,7 +73,7 @@ def create():
                             llm_max_tokens=param.llm_max_tokens
                         )
                         db.session.add(new_param)
-                        current_app.logger.info(f"Добавлен параметр: {param.name}")
+                        current_app.logger.info(f"Добавлен параметр: {param.name} (llm_query: {param.llm_query})")
 
             db.session.commit()
 
@@ -193,6 +194,14 @@ def create_parameter(id):
         description = request.form.get('description', '')
         search_query = request.form['search_query']
 
+        # НОВОЕ: Обработка отдельного LLM запроса
+        use_separate_llm_query = request.form.get('use_separate_llm_query') == 'true'
+        llm_query = None
+        if use_separate_llm_query:
+            llm_query = request.form.get('llm_query', '').strip()
+            if not llm_query:
+                llm_query = None  # Если пустой, используем None
+
         # Получаем настройки поиска
         search_limit = int(request.form.get('search_limit', 3))
         use_reranker = 'use_reranker' in request.form
@@ -212,7 +221,8 @@ def create_parameter(id):
             name=name,
             description=description,
             search_query=search_query,
-            order_index=next_order,  # Устанавливаем порядок
+            llm_query=llm_query,  # НОВОЕ ПОЛЕ
+            order_index=next_order,
             search_limit=search_limit,
             use_reranker=use_reranker,
             rerank_limit=rerank_limit,
@@ -232,7 +242,6 @@ def create_parameter(id):
     client = FastAPIClient()
     available_models = client.get_llm_models()
 
-    # Если не удалось получить список моделей, используем фиксированный список
     if not available_models:
         available_models = ['gemma3:27b', 'llama3:8b', 'mistral:7b']
 
@@ -242,7 +251,6 @@ def create_parameter(id):
     # Получаем шаблон промпта из конфигурации
     default_prompt = current_app.config.get('DEFAULT_LLM_PROMPT_TEMPLATE')
 
-    # Если в конфигурации нет, используем захардкоженный fallback
     if not default_prompt:
         default_prompt = """Ты эксперт по поиску информации в документах.
 
@@ -281,6 +289,14 @@ def edit_parameter(id):
         parameter.name = request.form['name']
         parameter.description = request.form.get('description', '')
         parameter.search_query = request.form['search_query']
+
+        # НОВОЕ: Обработка отдельного LLM запроса
+        use_separate_llm_query = request.form.get('use_separate_llm_query') == 'true'
+        if use_separate_llm_query:
+            llm_query = request.form.get('llm_query', '').strip()
+            parameter.llm_query = llm_query if llm_query else None
+        else:
+            parameter.llm_query = None
 
         # Обновляем настройки поиска
         parameter.search_limit = int(request.form.get('search_limit', 3))

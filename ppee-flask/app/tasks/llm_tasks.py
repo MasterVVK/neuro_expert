@@ -111,11 +111,11 @@ def process_parameters_task(self, application_id):
                     }
                 )
 
-                # Выполняем поиск
+                # Выполняем поиск используя search_query
                 try:
                     search_response = requests.post(f"{FASTAPI_URL}/search", json={
                         "application_id": str(application_id),
-                        "query": param.search_query,
+                        "query": param.search_query,  # Всегда используем search_query для поиска
                         "limit": param.search_limit,
                         "use_reranker": param.use_reranker,
                         "rerank_limit": param.rerank_limit if param.use_reranker else None,
@@ -131,9 +131,17 @@ def process_parameters_task(self, application_id):
                         # Форматируем контекст
                         context = format_documents_for_context(search_results)
 
-                        # Подготавливаем промпт
+                        # ОБНОВЛЕНО: Используем правильный запрос для LLM
+                        # Проверяем, есть ли у параметра метод get_llm_query
+                        if hasattr(param, 'get_llm_query'):
+                            llm_query = param.get_llm_query()  # Это вернет llm_query если задан, иначе search_query
+                        else:
+                            # Для обратной совместимости, если метод не существует
+                            llm_query = getattr(param, 'llm_query', None) or param.search_query
+                        
+                        # Подготавливаем промпт с правильным query
                         prompt = param.llm_prompt_template.format(
-                            query=param.search_query,
+                            query=llm_query,  # Используем llm_query вместо search_query
                             context=context
                         )
 
@@ -144,7 +152,9 @@ def process_parameters_task(self, application_id):
                             'prompt': prompt,
                             'model': param.llm_model,
                             'temperature': param.llm_temperature,
-                            'max_tokens': param.llm_max_tokens
+                            'max_tokens': param.llm_max_tokens,
+                            'llm_query': llm_query,  # Сохраняем для использования в LLM
+                            'search_query': param.search_query  # Сохраняем оригинальный поисковый запрос
                         }
 
                         logger.info(f"Поиск завершен для параметра {param.id}: {param.name}")
@@ -209,16 +219,16 @@ def process_parameters_task(self, application_id):
                             "parameters": {
                                 'temperature': data['temperature'],
                                 'max_tokens': data['max_tokens'],
-                                'search_query': data['param'].search_query
+                                'search_query': data['llm_query']  # ОБНОВЛЕНО: передаем правильный query
                             },
-                            "query": data['param'].search_query
+                            "query": data['llm_query']  # ОБНОВЛЕНО: используем llm_query
                         })
 
                         if llm_response.status_code == 200:
                             llm_text = llm_response.json()["response"]
 
                             # Извлекаем значение и рассчитываем уверенность
-                            value = extract_value_from_response(llm_text, data['param'].search_query)
+                            value = extract_value_from_response(llm_text, data['llm_query'])
                             confidence = calculate_confidence(llm_text)
 
                             # Сохраняем результат
@@ -232,7 +242,9 @@ def process_parameters_task(self, application_id):
                                     'model': model_name,
                                     'temperature': data['temperature'],
                                     'max_tokens': data['max_tokens'],
-                                    'response': llm_text
+                                    'response': llm_text,
+                                    'search_query': data['search_query'],  # Сохраняем оригинальный поисковый запрос
+                                    'llm_query': data['llm_query']  # Сохраняем использованный LLM запрос
                                 }
                             }
 
