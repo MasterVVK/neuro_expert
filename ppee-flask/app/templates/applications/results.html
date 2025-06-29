@@ -64,33 +64,74 @@
                                 <td>{{ item.result.value }}</td>
                                 <td>
                                     {% if item.result.search_results %}
-                                        {% set files_data = {} %}
-                                        {% for doc in item.result.search_results %}
-                                            {% if doc.metadata and doc.metadata.document_id %}
-                                                {% set doc_id = doc.metadata.document_id %}
-                                                {% set doc_name = doc_names_mapping.get(doc_id, doc_id) if doc_names_mapping else doc_id %}
-                                                {% set page_num = doc.metadata.page_number %}
+                                        {# Проверяем, это результат полного сканирования? #}
+                                        {% set is_full_scan = item.result.llm_request and item.result.llm_request.full_scan %}
 
-                                                {% if doc_name not in files_data %}
-                                                    {% set _ = files_data.update({doc_name: []}) %}
-                                                {% endif %}
-
-                                                {% if page_num and page_num not in files_data[doc_name] %}
-                                                    {% set _ = files_data[doc_name].append(page_num) %}
-                                                {% endif %}
-                                            {% endif %}
-                                        {% endfor %}
-
-                                        <div class="sources-info">
-                                            {% for file_name, pages in files_data.items() %}
-                                                <div class="source-file">
-                                                    <strong>Файл:</strong> {{ file_name }}<br>
-                                                    {% if pages %}
-                                                        <strong>Страницы:</strong> {{ pages|format_page_ranges }}
-                                                    {% endif %}
+                                        {% if is_full_scan %}
+                                            {% if item.result.llm_request.full_scan_result == 'not_found' %}
+                                                <div class="source-file full-scan-source">
+                                                    <strong>Полное сканирование:</strong><br>
+                                                    <span class="not-found">Информация не найдена после проверки {{ item.result.llm_request.chunks_scanned }} чанков</span>
                                                 </div>
+                                            {% else %}
+                                                {# Группируем чанки по файлам и страницам #}
+                                                {% set files_data = {} %}
+                                                {% for doc in item.result.search_results %}
+                                                    {% if doc.metadata and doc.metadata.document_id %}
+                                                        {% set doc_id = doc.metadata.document_id %}
+                                                        {% set doc_name = doc_names_mapping.get(doc_id, doc_id) if doc_names_mapping else doc_id %}
+                                                        {% set page_num = doc.metadata.page_number %}
+
+                                                        {% if doc_name not in files_data %}
+                                                            {% set _ = files_data.update({doc_name: []}) %}
+                                                        {% endif %}
+
+                                                        {% if page_num and page_num not in files_data[doc_name] %}
+                                                            {% set _ = files_data[doc_name].append(page_num) %}
+                                                        {% endif %}
+                                                    {% endif %}
+                                                {% endfor %}
+
+                                                <div class="source-file full-scan-source">
+                                                    <strong>Полное сканирование:</strong><br>
+                                                    {% for file_name, pages in files_data.items() %}
+                                                        <strong>Файл:</strong> {{ file_name }}<br>
+                                                        {% if pages %}
+                                                            <strong>Страницы в группе:</strong> {{ pages|format_page_ranges }}
+                                                        {% endif %}
+                                                    {% endfor %}
+                                                </div>
+                                            {% endif %}
+                                        {% else %}
+                                            {# Обычный поиск #}
+                                            {% set files_data = {} %}
+                                            {% for doc in item.result.search_results %}
+                                                {% if doc.metadata and doc.metadata.document_id %}
+                                                    {% set doc_id = doc.metadata.document_id %}
+                                                    {% set doc_name = doc_names_mapping.get(doc_id, doc_id) if doc_names_mapping else doc_id %}
+                                                    {% set page_num = doc.metadata.page_number %}
+
+                                                    {% if doc_name not in files_data %}
+                                                        {% set _ = files_data.update({doc_name: []}) %}
+                                                    {% endif %}
+
+                                                    {% if page_num and page_num not in files_data[doc_name] %}
+                                                        {% set _ = files_data[doc_name].append(page_num) %}
+                                                    {% endif %}
+                                                {% endif %}
                                             {% endfor %}
-                                        </div>
+
+                                            <div class="sources-info">
+                                                {% for file_name, pages in files_data.items() %}
+                                                    <div class="source-file">
+                                                        <strong>Файл:</strong> {{ file_name }}<br>
+                                                        {% if pages %}
+                                                            <strong>Страницы:</strong> {{ pages|format_page_ranges }}
+                                                        {% endif %}
+                                                    </div>
+                                                {% endfor %}
+                                            </div>
+                                        {% endif %}
                                     {% else %}
                                         <span class="no-sources">-</span>
                                     {% endif %}
@@ -102,6 +143,30 @@
                             <tr class="prompt-row" id="prompt-{{ item.result.id }}" style="display: none;">
                                 <td colspan="4" class="prompt-container">
                                     {% if item.result.llm_request %}
+                                        {# Проверяем тип анализа #}
+                                        {% if item.result.llm_request.full_scan %}
+                                            <div class="full-scan-info">
+                                                <h4 class="full-scan-header">
+                                                    <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor" style="vertical-align: middle;">
+                                                        <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
+                                                    </svg>
+                                                    Результат полного сканирования документа
+                                                </h4>
+                                                <div class="scan-stats">
+                                                    <p><strong>Всего проверено чанков:</strong> {{ item.result.llm_request.chunks_scanned }}</p>
+                                                    <p><strong>Обработано пакетов:</strong> {{ item.result.llm_request.batches_processed or 'Неизвестно' }}</p>
+                                                    {% if item.result.llm_request.batch_size %}
+                                                        <p><strong>Размер найденной группы:</strong> {{ item.result.llm_request.batch_size }} чанков</p>
+                                                    {% endif %}
+                                                    {% if item.result.llm_request.full_scan_result == 'not_found' %}
+                                                        <p class="scan-not-found"><strong>Результат:</strong> Информация не найдена во всех чанках</p>
+                                                    {% else %}
+                                                        <p class="scan-found"><strong>Результат:</strong> Информация найдена!</p>
+                                                    {% endif %}
+                                                </div>
+                                            </div>
+                                        {% endif %}
+
                                         {% if item.result.llm_request.prompt %}
                                             <h4>Использованный промпт:</h4>
                                             <div class="text-scroll-container">
@@ -124,6 +189,9 @@
                                             {% if item.result.llm_request.context_length %}
                                             <li>Context length: {{ item.result.llm_request.context_length }}</li>
                                             {% endif %}
+                                            {% if item.parameter.use_full_scan %}
+                                            <li><strong>Полное сканирование:</strong> Включено</li>
+                                            {% endif %}
                                         </ul>
 
                                         {% if item.result.llm_request.response %}
@@ -135,16 +203,37 @@
                                             </div>
                                         {% endif %}
 
-                                        <h4>Результаты поиска (контекст):</h4>
+                                        <h4>
+                                            Результаты поиска (контекст)
+                                            {% if item.result.llm_request.full_scan and item.result.llm_request.full_scan_result != 'not_found' %}
+                                                <span class="batch-info">- Группа чанков из пакета</span>
+                                            {% endif %}
+                                        </h4>
                                         {% if item.result.search_results %}
+                                            {# Показываем все чанки из группы для полного сканирования #}
+                                            {% if item.result.llm_request.full_scan and item.result.search_results|length > 1 %}
+                                                <div class="batch-chunks-info">
+                                                    <p><strong>Показаны все {{ item.result.search_results|length }} чанков из группы, где была найдена информация:</strong></p>
+                                                </div>
+                                            {% endif %}
+
                                             {% for doc in item.result.search_results %}
-                                            <div class="search-result">
+                                            <div class="search-result {% if item.result.llm_request.full_scan %}full-scan-chunk{% endif %}">
                                                 <p><strong>Результат {{ loop.index }}:</strong></p>
                                                 {% if doc.metadata %}
                                                     {% set doc_id = doc.metadata.document_id or '' %}
                                                     {% set doc_name = doc_names_mapping.get(doc_id, doc_id) if doc_names_mapping else doc_id %}
                                                     <p><strong>Файл:</strong> {{ doc_name or 'Не указан' }}</p>
                                                     <p><strong>Страница:</strong> {{ doc.metadata.page_number or 'Не указана' }}</p>
+                                                    {% if doc.search_type %}
+                                                    <p><strong>Тип поиска:</strong>
+                                                        {% if doc.search_type == 'full_scan' %}
+                                                            <span class="search-type-full-scan">Полное сканирование</span>
+                                                        {% else %}
+                                                            {{ doc.search_type }}
+                                                        {% endif %}
+                                                    </p>
+                                                    {% endif %}
                                                     {% if doc.score %}
                                                     <p><strong>Релевантность:</strong> {{ "%.4f"|format(doc.score) }}</p>
                                                     {% endif %}
@@ -231,6 +320,68 @@
         .no-sources {
             color: #6c757d;
             font-style: italic;
+        }
+
+        /* Стили для полного сканирования */
+        .full-scan-source {
+            border-left-color: #6f42c1 !important;
+        }
+
+        .not-found {
+            color: #dc3545;
+        }
+
+        .full-scan-info {
+            background-color: #f8f7ff;
+            border: 1px solid #6f42c1;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .full-scan-header {
+            color: #6f42c1;
+            margin-top: 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .scan-stats p {
+            margin: 5px 0;
+        }
+
+        .scan-found {
+            color: #28a745;
+        }
+
+        .scan-not-found {
+            color: #dc3545;
+        }
+
+        .batch-info {
+            color: #6f42c1;
+            font-weight: normal;
+            font-size: 0.9em;
+        }
+
+        .batch-chunks-info {
+            background-color: #e7dfff;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+
+        .full-scan-chunk {
+            border-left: 3px solid #6f42c1;
+        }
+
+        .search-type-full-scan {
+            background-color: #6f42c1;
+            color: white;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 0.9em;
         }
 
         /* Стили для уведомлений */
