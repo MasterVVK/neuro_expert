@@ -520,19 +520,32 @@ def process_parameters_task(self, application_id):
                     if found:
                         # Форматируем найденные чанки как результаты поиска
                         search_results = []
+
+                        # Логируем информацию о найденных чанках для отладки
+                        logger.info(f"Найдено {len(found_chunks)} чанков в пакете для параметра {param_name}")
+
                         for chunk in found_chunks:
+                            metadata = chunk.get('metadata', {})
+                            page_num = metadata.get('page_number')
+                            doc_id = metadata.get('document_id')
+
+                            logger.info(f"  Чанк: документ={doc_id}, страница={page_num}")
+
                             search_results.append({
                                 'text': chunk.get('text', ''),
-                                'metadata': chunk.get('metadata', {}),
+                                'metadata': metadata,
                                 'score': 1.0,  # Максимальная релевантность
                                 'search_type': 'full_scan'
                             })
+
+                        # ВАЖНО: Для точности отображения страниц, можно сохранить только релевантные чанки
+                        # Но пока сохраняем все чанки из пакета для полноты контекста
 
                         result_data = {
                             'parameter_id': param_id,
                             'value': found_value,
                             'confidence': 0.9,  # Высокая уверенность при полном сканировании
-                            'search_results': search_results[:8],  # Ограничиваем количество для сохранения
+                            'search_results': search_results,  # Сохраняем ВСЕ чанки из пакета
                             'llm_request': {
                                 'prompt': 'Полное сканирование с группировкой чанков',
                                 'model': data['model'],
@@ -543,7 +556,9 @@ def process_parameters_task(self, application_id):
                                 'llm_query': data['llm_query'],
                                 'full_scan': True,
                                 'chunks_scanned': chunks_processed,
-                                'batch_size': len(found_chunks)
+                                'batch_size': len(found_chunks),
+                                'batch_pages': [chunk.get('metadata', {}).get('page_number', 'unknown') for chunk in
+                                                found_chunks]
                             }
                         }
                     else:
