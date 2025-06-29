@@ -82,11 +82,16 @@ def get_all_chunks_for_application(application_id, batch_size=100):
         return []
 
 
-def process_chunk_through_llm(chunk, param_data, model_name):
-    """Обрабатывает один чанк через LLM"""
+def process_chunks_batch_through_llm(chunks_batch, param_data, model_name):
+    """Обрабатывает пакет чанков через LLM"""
     try:
-        # Форматируем контекст из одного чанка
-        context = format_single_chunk_for_context(chunk)
+        # Форматируем контекст из пакета чанков
+        context_parts = []
+        for i, chunk in enumerate(chunks_batch):
+            chunk_text = format_single_chunk_for_context(chunk)
+            context_parts.append(f"Чанк {i + 1}:\n{chunk_text}")
+
+        context = "\n\n".join(context_parts)
 
         # Подготавливаем промпт
         prompt = param_data['prompt_template'].format(
@@ -120,15 +125,55 @@ def process_chunk_through_llm(chunk, param_data, model_name):
                     return {
                         'found': True,
                         'value': value,
-                        'chunk': chunk,
+                        'chunks': chunks_batch,  # Возвращаем все чанки из пакета
                         'response': llm_text
                     }
 
         return {'found': False}
 
     except Exception as e:
-        logger.error(f"Ошибка при обработке чанка через LLM: {e}")
+        logger.error(f"Ошибка при обработке пакета чанков через LLM: {e}")
         return {'found': False}
+
+
+def group_chunks_by_size(chunks, max_size=14000):
+    """Группирует чанки по размеру для оптимизации запросов к LLM"""
+    batches = []
+    current_batch = []
+    current_size = 0
+
+    for chunk in chunks:
+        # Получаем размер контента из метаданных
+        metadata = chunk.get('metadata', {})
+        content_length = metadata.get('content_length')
+
+        # Если нет content_length, обрабатываем чанк отдельно
+        if content_length is None:
+            # Если есть накопленный пакет, добавляем его
+            if current_batch:
+                batches.append(current_batch)
+                current_batch = []
+                current_size = 0
+
+            # Добавляем чанк как отдельный пакет
+            batches.append([chunk])
+            continue
+
+        # Если добавление чанка превысит лимит, создаем новый пакет
+        if current_size + content_length > max_size and current_batch:
+            batches.append(current_batch)
+            current_batch = []
+            current_size = 0
+
+        # Добавляем чанк в текущий пакет
+        current_batch.append(chunk)
+        current_size += content_length
+
+    # Добавляем последний пакет, если есть
+    if current_batch:
+        batches.append(current_batch)
+
+    return batches
 
 
 def format_single_chunk_for_context(chunk):
@@ -406,6 +451,11 @@ def process_parameters_task(self, application_id):
                 total_chunks = len(all_chunks)
                 logger.info(f"Получено {total_chunks} чанков для полного сканирования")
 
+                # Группируем чанки по размеру
+                chunk_batches = group_chunks_by_size(all_chunks, max_size=14000)
+                total_batches = len(chunk_batches)
+                logger.info(f"Чанки сгруппированы в {total_batches} пакетов")
+
                 # Обрабатываем каждый параметр
                 for param_idx, param_info in enumerate(params_need_full_scan):
                     param_id = param_info['param_id']
@@ -421,69 +471,70 @@ def process_parameters_task(self, application_id):
                             'status': 'progress',
                             'progress': 85 + int((param_idx / len(params_need_full_scan)) * 10),
                             'stage': 'full_scan',
-                            'message': f'Этап 3/3: Полное сканирование для "{param_name}" (0/{total_chunks} чанков)...'
+                            'message': f'Этап 3/3: Полное сканирование для "{param_name}" (0/{total_batches} пакетов)...'
                         }
                     )
 
                     found = False
-                    found_chunk = None
+                    found_chunks = None
                     found_response = None
                     found_value = None
+                    chunks_processed = 0
 
-                    # Проверяем каждый чанк
-                    for chunk_idx, chunk in enumerate(all_chunks):
+                    # Проверяем каждый пакет чанков
+                    for batch_idx, chunk_batch in enumerate(chunk_batches):
                         # Проверяем отмену
                         if check_if_cancelled(self):
                             return handle_cancellation(application_id)
 
-                        # Обновляем прогресс каждые 10 чанков
-                        if chunk_idx % 10 == 0:
-                            self.update_state(
-                                state='PROGRESS',
-                                meta={
-                                    'status': 'progress',
-                                    'progress': 85 + int((param_idx / len(params_need_full_scan)) * 10),
-                                    'stage': 'full_scan',
-                                    'message': f'Этап 3/3: Сканирование для "{param_name}" ({chunk_idx}/{total_chunks} чанков)...'
-                                }
-                            )
+                        # Обновляем прогресс
+                        self.update_state(
+                            state='PROGRESS',
+                            meta={
+                                'status': 'progress',
+                                'progress': 85 + int((param_idx / len(params_need_full_scan)) * 10),
+                                'stage': 'full_scan',
+                                'message': f'Этап 3/3: Сканирование для "{param_name}" (пакет {batch_idx + 1}/{total_batches}, {chunks_processed}/{total_chunks} чанков)...'
+                            }
+                        )
 
-                        # Обрабатываем чанк через LLM
-                        result = process_chunk_through_llm(chunk, {
+                        # Обрабатываем пакет чанков через LLM
+                        result = process_chunks_batch_through_llm(chunk_batch, {
                             'prompt_template': data['param'].llm_prompt_template,
                             'llm_query': data['llm_query'],
                             'temperature': data['temperature'],
                             'max_tokens': data['max_tokens']
                         }, data['model'])
 
+                        chunks_processed += len(chunk_batch)
+
                         if result['found']:
                             found = True
-                            found_chunk = result['chunk']
+                            found_chunks = result['chunks']
                             found_response = result['response']
                             found_value = result['value']
-                            logger.info(f"Информация найдена для параметра {param_name} в чанке {chunk_idx}")
+                            logger.info(f"Информация найдена для параметра {param_name} в пакете {batch_idx + 1}")
                             break
 
                     # Сохраняем результат
                     if found:
-                        # Форматируем найденный чанк как результат поиска
-                        search_results = [{
-                            'text': found_chunk.get('text', ''),
-                            'metadata': found_chunk.get('metadata', {}),
-                            'score': 1.0,  # Максимальная релевантность, т.к. найдено напрямую
-                            'search_type': 'full_scan'
-                        }]
+                        # Форматируем найденные чанки как результаты поиска
+                        search_results = []
+                        for chunk in found_chunks:
+                            search_results.append({
+                                'text': chunk.get('text', ''),
+                                'metadata': chunk.get('metadata', {}),
+                                'score': 1.0,  # Максимальная релевантность
+                                'search_type': 'full_scan'
+                            })
 
                         result_data = {
                             'parameter_id': param_id,
                             'value': found_value,
                             'confidence': 0.9,  # Высокая уверенность при полном сканировании
-                            'search_results': search_results,
+                            'search_results': search_results[:8],  # Ограничиваем количество для сохранения
                             'llm_request': {
-                                'prompt': data['param'].llm_prompt_template.format(
-                                    query=data['llm_query'],
-                                    context=format_single_chunk_for_context(found_chunk)
-                                ),
+                                'prompt': 'Полное сканирование с группировкой чанков',
                                 'model': data['model'],
                                 'temperature': data['temperature'],
                                 'max_tokens': data['max_tokens'],
@@ -491,7 +542,8 @@ def process_parameters_task(self, application_id):
                                 'search_query': data['search_query'],
                                 'llm_query': data['llm_query'],
                                 'full_scan': True,
-                                'chunks_scanned': chunk_idx + 1
+                                'chunks_scanned': chunks_processed,
+                                'batch_size': len(found_chunks)
                             }
                         }
                     else:
@@ -511,6 +563,7 @@ def process_parameters_task(self, application_id):
                                 'llm_query': data['llm_query'],
                                 'full_scan': True,
                                 'chunks_scanned': total_chunks,
+                                'batches_processed': total_batches,
                                 'full_scan_result': 'not_found'
                             }
                         }
