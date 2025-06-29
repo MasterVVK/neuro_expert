@@ -54,6 +54,9 @@ class ChecklistParameter(db.Model):
     search_limit = db.Column(db.Integer, default=3)
     rerank_limit = db.Column(db.Integer, default=10)  # Количество документов для ре-ранкинга
 
+    # НОВОЕ ПОЛЕ: Использовать полный перебор чанков при неудаче
+    use_full_scan = db.Column(db.Boolean, default=False)
+
     # LLM конфигурация
     llm_model = db.Column(db.String(100), nullable=False)
     llm_prompt_template = db.Column(db.Text, nullable=False)
@@ -68,6 +71,10 @@ class ChecklistParameter(db.Model):
 
     def __repr__(self):
         return f'<ChecklistParameter {self.id}: {self.name}>'
+
+    def get_llm_query(self):
+        """Возвращает запрос для использования в LLM (llm_query если задан, иначе search_query)"""
+        return self.llm_query or self.search_query
 
 
 class ParameterResult(db.Model):

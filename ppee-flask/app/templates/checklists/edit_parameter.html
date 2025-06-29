@@ -88,6 +88,22 @@
                 <p class="form-note">Количество документов, извлекаемых для применения ререйтинга</p>
             </div>
 
+            <!-- НОВАЯ ОПЦИЯ: Полное сканирование -->
+            <div class="form-group">
+                <div class="checkbox-item">
+                    <input type="checkbox" id="use_full_scan" name="use_full_scan" value="true" {% if parameter.use_full_scan %}checked{% endif %}>
+                    <label for="use_full_scan">Использовать полное сканирование при неудаче</label>
+                </div>
+                <p class="form-note">
+                    Если информация не найдена при обычном поиске, система проверит ВСЕ чанки документа по одному.
+                    <span class="warning-text">Внимание: может значительно увеличить время анализа!</span>
+                </p>
+                <div class="alert alert-warning" id="full-scan-warning" style="display: {% if parameter.use_full_scan %}block{% else %}none{% endif %};">
+                    <strong>Предупреждение:</strong> Полное сканирование может занять значительное время при большом количестве чанков.
+                    Используйте эту опцию только для критически важных параметров.
+                </div>
+            </div>
+
             <h3>Настройки LLM</h3>
 
             <div class="form-group">
@@ -141,6 +157,17 @@
             color: #0c5460;
             background-color: #d1ecf1;
             border-color: #bee5eb;
+        }
+
+        .alert-warning {
+            color: #856404;
+            background-color: #fff3cd;
+            border-color: #ffeaa7;
+        }
+
+        .warning-text {
+            color: #d9534f;
+            font-weight: bold;
         }
 
         #llm-query-settings {
@@ -202,6 +229,18 @@
 
             // Не вызываем updateLlmQueryVisibility() при загрузке, так как начальное состояние уже установлено в HTML
             useSeparateLlmQueryCheckbox.addEventListener('change', updateLlmQueryVisibility);
+
+            // Новая логика для полного сканирования
+            const useFullScanCheckbox = document.getElementById('use_full_scan');
+            const fullScanWarning = document.getElementById('full-scan-warning');
+
+            useFullScanCheckbox.addEventListener('change', function() {
+                if (this.checked) {
+                    fullScanWarning.style.display = 'block';
+                } else {
+                    fullScanWarning.style.display = 'none';
+                }
+            });
         });
     </script>
 {% endblock %}

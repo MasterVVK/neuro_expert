@@ -62,18 +62,19 @@ def create():
                             name=param.name,
                             description=param.description,
                             search_query=param.search_query,
-                            llm_query=param.llm_query,  # ДОБАВЛЕНО: копируем llm_query
-                            order_index=param.order_index,  # Копируем порядок
+                            llm_query=param.llm_query,
+                            order_index=param.order_index,
                             use_reranker=param.use_reranker,
                             search_limit=param.search_limit,
                             rerank_limit=param.rerank_limit,
+                            use_full_scan=param.use_full_scan,  # НОВОЕ: копируем use_full_scan
                             llm_model=param.llm_model,
                             llm_prompt_template=param.llm_prompt_template,
                             llm_temperature=param.llm_temperature,
                             llm_max_tokens=param.llm_max_tokens
                         )
                         db.session.add(new_param)
-                        current_app.logger.info(f"Добавлен параметр: {param.name} (llm_query: {param.llm_query})")
+                        current_app.logger.info(f"Добавлен параметр: {param.name} (use_full_scan: {param.use_full_scan})")
 
             db.session.commit()
 
@@ -206,6 +207,7 @@ def create_parameter(id):
         search_limit = int(request.form.get('search_limit', 3))
         use_reranker = 'use_reranker' in request.form
         rerank_limit = int(request.form.get('rerank_limit', 10))
+        use_full_scan = 'use_full_scan' in request.form  # НОВОЕ: получаем настройку полного сканирования
 
         # Получаем настройки LLM
         llm_model = request.form['llm_model']
@@ -221,11 +223,12 @@ def create_parameter(id):
             name=name,
             description=description,
             search_query=search_query,
-            llm_query=llm_query,  # НОВОЕ ПОЛЕ
+            llm_query=llm_query,
             order_index=next_order,
             search_limit=search_limit,
             use_reranker=use_reranker,
             rerank_limit=rerank_limit,
+            use_full_scan=use_full_scan,  # НОВОЕ: сохраняем настройку полного сканирования
             llm_model=llm_model,
             llm_prompt_template=llm_prompt_template,
             llm_temperature=llm_temperature,
@@ -302,6 +305,7 @@ def edit_parameter(id):
         parameter.search_limit = int(request.form.get('search_limit', 3))
         parameter.use_reranker = 'use_reranker' in request.form
         parameter.rerank_limit = int(request.form.get('rerank_limit', 10))
+        parameter.use_full_scan = 'use_full_scan' in request.form  # НОВОЕ: обновляем настройку полного сканирования
 
         # Обновляем настройки LLM
         parameter.llm_model = request.form['llm_model']

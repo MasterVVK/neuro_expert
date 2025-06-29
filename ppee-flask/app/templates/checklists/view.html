@@ -156,6 +156,9 @@
                                                     <br><span class="small">(лимит: {{ parameter.rerank_limit }})</span>
                                                 {% endif %}
                                             {% endif %}
+                                            {% if parameter.use_full_scan %}
+                                                <br><span class="badge badge-warning" title="При неудаче будет выполнен полный перебор всех чанков">Полное сканирование</span>
+                                            {% endif %}
                                         </span>
                                     </td>
                                     <td>{{ parameter.llm_model }}</td>
@@ -200,6 +203,11 @@
         .badge-success {
             color: #fff;
             background-color: #28a745;
+        }
+
+        .badge-warning {
+            color: #212529;
+            background-color: #ffc107;
         }
 
         .small {

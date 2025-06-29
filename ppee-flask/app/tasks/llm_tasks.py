@@ -47,9 +47,110 @@ def save_single_result(application_id, parameter_id, result_data):
         return False
 
 
+def get_all_chunks_for_application(application_id, batch_size=100):
+    """Получает все чанки для заявки партиями"""
+    try:
+        offset = 0
+        all_chunks = []
+
+        while True:
+            response = requests.get(
+                f"{FASTAPI_URL}/applications/{application_id}/chunks",
+                params={"limit": batch_size, "offset": offset}
+            )
+
+            if response.status_code != 200:
+                logger.error(f"Ошибка получения чанков: {response.text}")
+                break
+
+            data = response.json()
+            chunks = data.get("chunks", [])
+
+            if not chunks:
+                break
+
+            all_chunks.extend(chunks)
+            offset += batch_size
+
+            # Если получили меньше чем batch_size, значит это последняя партия
+            if len(chunks) < batch_size:
+                break
+
+        return all_chunks
+    except Exception as e:
+        logger.error(f"Ошибка при получении всех чанков: {e}")
+        return []
+
+
+def process_chunk_through_llm(chunk, param_data, model_name):
+    """Обрабатывает один чанк через LLM"""
+    try:
+        # Форматируем контекст из одного чанка
+        context = format_single_chunk_for_context(chunk)
+
+        # Подготавливаем промпт
+        prompt = param_data['prompt_template'].format(
+            query=param_data['llm_query'],
+            context=context
+        )
+
+        # Отправляем запрос к LLM
+        llm_response = requests.post(f"{FASTAPI_URL}/llm/process", json={
+            "model_name": model_name,
+            "prompt": prompt,
+            "context": "",  # Контекст уже включен в промпт
+            "parameters": {
+                'temperature': param_data['temperature'],
+                'max_tokens': param_data['max_tokens'],
+                'search_query': param_data['llm_query']
+            },
+            "query": param_data['llm_query']
+        })
+
+        if llm_response.status_code == 200:
+            llm_text = llm_response.json()["response"]
+
+            # Проверяем, найдена ли информация
+            if "информация не найдена" not in llm_text.lower():
+                # Извлекаем значение
+                value = extract_value_from_response(llm_text, param_data['llm_query'])
+
+                # Если значение не содержит "информация не найдена"
+                if "информация не найдена" not in value.lower():
+                    return {
+                        'found': True,
+                        'value': value,
+                        'chunk': chunk,
+                        'response': llm_text
+                    }
+
+        return {'found': False}
+
+    except Exception as e:
+        logger.error(f"Ошибка при обработке чанка через LLM: {e}")
+        return {'found': False}
+
+
+def format_single_chunk_for_context(chunk):
+    """Форматирует один чанк для контекста"""
+    text = chunk.get('text', '')
+    metadata = chunk.get('metadata', {})
+
+    doc_text = "Документ:\n"
+    if metadata.get('section'):
+        doc_text += f"Раздел: {metadata['section']}\n"
+    if metadata.get('content_type'):
+        doc_text += f"Тип: {metadata['content_type']}\n"
+    if metadata.get('page_number'):
+        doc_text += f"Страница: {metadata['page_number']}\n"
+    doc_text += f"Текст:\n{text}"
+
+    return doc_text
+
+
 @celery.task(bind=True)
 def process_parameters_task(self, application_id):
-    """Двухэтапная обработка: сначала поиск для всех, потом LLM по группам"""
+    """Трехэтапная обработка: поиск, LLM, и полное сканирование при необходимости"""
     # Создаем контекст приложения для работы с БД
     app = create_app()
 
@@ -90,12 +191,13 @@ def process_parameters_task(self, application_id):
                     'status': 'progress',
                     'progress': 5,
                     'stage': 'search',
-                    'message': f'Этап 1/2: Поиск информации для всех параметров (0/{total_params})...'
+                    'message': f'Этап 1/3: Поиск информации для всех параметров (0/{total_params})...'
                 }
             )
 
             # Словарь для хранения подготовленных данных
             prepared_requests = {}  # {param_id: {search_results, prompt, model, ...}}
+            params_need_full_scan = []  # Параметры для полного сканирования
 
             # Выполняем поиск для каждого параметра
             for i, param in enumerate(all_params):
@@ -107,7 +209,7 @@ def process_parameters_task(self, application_id):
                         'status': 'progress',
                         'progress': search_progress,
                         'stage': 'search',
-                        'message': f'Этап 1/2: Поиск ({i + 1}/{total_params}): {param.name}'
+                        'message': f'Этап 1/3: Поиск ({i + 1}/{total_params}): {param.name}'
                     }
                 )
 
@@ -131,17 +233,13 @@ def process_parameters_task(self, application_id):
                         # Форматируем контекст
                         context = format_documents_for_context(search_results)
 
-                        # ОБНОВЛЕНО: Используем правильный запрос для LLM
-                        # Проверяем, есть ли у параметра метод get_llm_query
-                        if hasattr(param, 'get_llm_query'):
-                            llm_query = param.get_llm_query()  # Это вернет llm_query если задан, иначе search_query
-                        else:
-                            # Для обратной совместимости, если метод не существует
-                            llm_query = getattr(param, 'llm_query', None) or param.search_query
-                        
+                        # Используем правильный запрос для LLM
+                        llm_query = param.get_llm_query() if hasattr(param,
+                                                                     'get_llm_query') else param.llm_query or param.search_query
+
                         # Подготавливаем промпт с правильным query
                         prompt = param.llm_prompt_template.format(
-                            query=llm_query,  # Используем llm_query вместо search_query
+                            query=llm_query,
                             context=context
                         )
 
@@ -153,8 +251,9 @@ def process_parameters_task(self, application_id):
                             'model': param.llm_model,
                             'temperature': param.llm_temperature,
                             'max_tokens': param.llm_max_tokens,
-                            'llm_query': llm_query,  # Сохраняем для использования в LLM
-                            'search_query': param.search_query  # Сохраняем оригинальный поисковый запрос
+                            'llm_query': llm_query,
+                            'search_query': param.search_query,
+                            'use_full_scan': getattr(param, 'use_full_scan', False)  # Добавляем флаг
                         }
 
                         logger.info(f"Поиск завершен для параметра {param.id}: {param.name}")
@@ -177,7 +276,7 @@ def process_parameters_task(self, application_id):
                     'status': 'progress',
                     'progress': 45,
                     'stage': 'analyze',
-                    'message': 'Этап 2/2: Группировка запросов по моделям...'
+                    'message': 'Этап 2/3: Группировка запросов по моделям...'
                 }
             )
 
@@ -202,9 +301,9 @@ def process_parameters_task(self, application_id):
                     state='PROGRESS',
                     meta={
                         'status': 'progress',
-                        'progress': 50 + int((completed_params / total_params) * 45),
+                        'progress': 50 + int((completed_params / total_params) * 35),
                         'stage': 'analyze',
-                        'message': f'Этап 2/2: Обработка через {model_name} (запросов:{len(param_group)})'
+                        'message': f'Этап 2/3: Обработка через {model_name} (запросов:{len(param_group)})'
                     }
                 )
 
@@ -219,9 +318,9 @@ def process_parameters_task(self, application_id):
                             "parameters": {
                                 'temperature': data['temperature'],
                                 'max_tokens': data['max_tokens'],
-                                'search_query': data['llm_query']  # ОБНОВЛЕНО: передаем правильный query
+                                'search_query': data['llm_query']
                             },
-                            "query": data['llm_query']  # ОБНОВЛЕНО: используем llm_query
+                            "query": data['llm_query']
                         })
 
                         if llm_response.status_code == 200:
@@ -231,44 +330,55 @@ def process_parameters_task(self, application_id):
                             value = extract_value_from_response(llm_text, data['llm_query'])
                             confidence = calculate_confidence(llm_text)
 
-                            # Сохраняем результат
-                            result_data = {
-                                'parameter_id': param_id,
-                                'value': value,
-                                'confidence': confidence,
-                                'search_results': data['search_results'],
-                                'llm_request': {
-                                    'prompt': data['prompt'],
-                                    'model': model_name,
-                                    'temperature': data['temperature'],
-                                    'max_tokens': data['max_tokens'],
-                                    'response': llm_text,
-                                    'search_query': data['search_query'],  # Сохраняем оригинальный поисковый запрос
-                                    'llm_query': data['llm_query']  # Сохраняем использованный LLM запрос
-                                }
-                            }
-
-                            # Сохраняем в БД
-                            if save_single_result(application_id, param_id, result_data):
-                                completed_params += 1
-
-                                # Обновляем счетчик в заявке
-                                application.analysis_completed_params = completed_params
-                                db.session.commit()
-
-                                # Обновляем прогресс с именем текущего параметра
-                                current_param_name = data['param'].name
-                                self.update_state(
-                                    state='PROGRESS',
-                                    meta={
-                                        'status': 'progress',
-                                        'progress': 50 + int((completed_params / total_params) * 45),
-                                        'stage': 'analyze',
-                                        'message': f'Проанализирован параметр {completed_params}/{total_params}: {current_param_name} [Модель: {model_name}]',
-                                        'completed_params': completed_params,
-                                        'total_params': total_params
+                            # Проверяем, найдена ли информация
+                            if "информация не найдена" in value.lower() and data.get('use_full_scan', False):
+                                # Добавляем в список для полного сканирования
+                                params_need_full_scan.append({
+                                    'param_id': param_id,
+                                    'data': data,
+                                    'initial_search_results': data['search_results'],
+                                    'initial_llm_response': llm_text
+                                })
+                                logger.info(f"Параметр {param_id} добавлен для полного сканирования")
+                            else:
+                                # Сохраняем результат
+                                result_data = {
+                                    'parameter_id': param_id,
+                                    'value': value,
+                                    'confidence': confidence,
+                                    'search_results': data['search_results'],
+                                    'llm_request': {
+                                        'prompt': data['prompt'],
+                                        'model': model_name,
+                                        'temperature': data['temperature'],
+                                        'max_tokens': data['max_tokens'],
+                                        'response': llm_text,
+                                        'search_query': data['search_query'],
+                                        'llm_query': data['llm_query']
                                     }
-                                )
+                                }
+
+                                # Сохраняем в БД
+                                if save_single_result(application_id, param_id, result_data):
+                                    completed_params += 1
+
+                                    # Обновляем счетчик в заявке
+                                    application.analysis_completed_params = completed_params
+                                    db.session.commit()
+
+                                    # Обновляем прогресс
+                                    current_param_name = data['param'].name
+                                    self.update_state(
+                                        state='PROGRESS',
+                                        meta={
+                                            'status': 'progress',
+                                            'progress': 50 + int((completed_params / total_params) * 35),
+                                            'stage': 'analyze',
+                                            'message': f'Проанализирован параметр {completed_params}/{total_params}: {current_param_name} [Модель: {model_name}]',
+                                            'completed_params': completed_params,
+                                            'total_params': total_params
+                                        }
+                                    )
 
                     except Exception as e:
                         logger.error(f"Ошибка обработки параметра {param_id}: {e}")
@@ -276,6 +386,140 @@ def process_parameters_task(self, application_id):
                     # Проверяем отмену после каждого параметра
                     if check_if_cancelled(self):
                         return handle_cancellation(application_id)
+
+            # ЭТАП 3: Полное сканирование для параметров, где информация не найдена
+            if params_need_full_scan:
+                logger.info(f"Этап 3: Полное сканирование для {len(params_need_full_scan)} параметров")
+
+                self.update_state(
+                    state='PROGRESS',
+                    meta={
+                        'status': 'progress',
+                        'progress': 85,
+                        'stage': 'full_scan',
+                        'message': f'Этап 3/3: Полное сканирование чанков для {len(params_need_full_scan)} параметров...'
+                    }
+                )
+
+                # Получаем все чанки заявки
+                all_chunks = get_all_chunks_for_application(application_id)
+                total_chunks = len(all_chunks)
+                logger.info(f"Получено {total_chunks} чанков для полного сканирования")
+
+                # Обрабатываем каждый параметр
+                for param_idx, param_info in enumerate(params_need_full_scan):
+                    param_id = param_info['param_id']
+                    data = param_info['data']
+                    param_name = data['param'].name
+
+                    logger.info(f"Полное сканирование для параметра {param_name}")
+
+                    # Обновляем прогресс
+                    self.update_state(
+                        state='PROGRESS',
+                        meta={
+                            'status': 'progress',
+                            'progress': 85 + int((param_idx / len(params_need_full_scan)) * 10),
+                            'stage': 'full_scan',
+                            'message': f'Этап 3/3: Полное сканирование для "{param_name}" (0/{total_chunks} чанков)...'
+                        }
+                    )
+
+                    found = False
+                    found_chunk = None
+                    found_response = None
+                    found_value = None
+
+                    # Проверяем каждый чанк
+                    for chunk_idx, chunk in enumerate(all_chunks):
+                        # Проверяем отмену
+                        if check_if_cancelled(self):
+                            return handle_cancellation(application_id)
+
+                        # Обновляем прогресс каждые 10 чанков
+                        if chunk_idx % 10 == 0:
+                            self.update_state(
+                                state='PROGRESS',
+                                meta={
+                                    'status': 'progress',
+                                    'progress': 85 + int((param_idx / len(params_need_full_scan)) * 10),
+                                    'stage': 'full_scan',
+                                    'message': f'Этап 3/3: Сканирование для "{param_name}" ({chunk_idx}/{total_chunks} чанков)...'
+                                }
+                            )
+
+                        # Обрабатываем чанк через LLM
+                        result = process_chunk_through_llm(chunk, {
+                            'prompt_template': data['param'].llm_prompt_template,
+                            'llm_query': data['llm_query'],
+                            'temperature': data['temperature'],
+                            'max_tokens': data['max_tokens']
+                        }, data['model'])
+
+                        if result['found']:
+                            found = True
+                            found_chunk = result['chunk']
+                            found_response = result['response']
+                            found_value = result['value']
+                            logger.info(f"Информация найдена для параметра {param_name} в чанке {chunk_idx}")
+                            break
+
+                    # Сохраняем результат
+                    if found:
+                        # Форматируем найденный чанк как результат поиска
+                        search_results = [{
+                            'text': found_chunk.get('text', ''),
+                            'metadata': found_chunk.get('metadata', {}),
+                            'score': 1.0,  # Максимальная релевантность, т.к. найдено напрямую
+                            'search_type': 'full_scan'
+                        }]
+
+                        result_data = {
+                            'parameter_id': param_id,
+                            'value': found_value,
+                            'confidence': 0.9,  # Высокая уверенность при полном сканировании
+                            'search_results': search_results,
+                            'llm_request': {
+                                'prompt': data['param'].llm_prompt_template.format(
+                                    query=data['llm_query'],
+                                    context=format_single_chunk_for_context(found_chunk)
+                                ),
+                                'model': data['model'],
+                                'temperature': data['temperature'],
+                                'max_tokens': data['max_tokens'],
+                                'response': found_response,
+                                'search_query': data['search_query'],
+                                'llm_query': data['llm_query'],
+                                'full_scan': True,
+                                'chunks_scanned': chunk_idx + 1
+                            }
+                        }
+                    else:
+                        # Информация не найдена даже после полного сканирования
+                        result_data = {
+                            'parameter_id': param_id,
+                            'value': f"Информация не найдена по всем {total_chunks} чанкам",
+                            'confidence': 0.1,
+                            'search_results': param_info['initial_search_results'],
+                            'llm_request': {
+                                'prompt': data['prompt'],
+                                'model': data['model'],
+                                'temperature': data['temperature'],
+                                'max_tokens': data['max_tokens'],
+                                'response': param_info['initial_llm_response'],
+                                'search_query': data['search_query'],
+                                'llm_query': data['llm_query'],
+                                'full_scan': True,
+                                'chunks_scanned': total_chunks,
+                                'full_scan_result': 'not_found'
+                            }
+                        }
+
+                    # Сохраняем в БД
+                    if save_single_result(application_id, param_id, result_data):
+                        completed_params += 1
+                        application.analysis_completed_params = completed_params
+                        db.session.commit()
 
             # Завершаем анализ
             application.status = "analyzed"
