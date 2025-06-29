@@ -154,7 +154,6 @@
                                                 </h4>
                                                 <div class="scan-stats">
                                                     <p><strong>Всего проверено чанков:</strong> {{ item.result.llm_request.chunks_scanned }}</p>
-                                                    <p><strong>Обработано пакетов:</strong> {{ item.result.llm_request.batches_processed or 'Неизвестно' }}</p>
                                                     {% if item.result.llm_request.batch_size %}
                                                         <p><strong>Размер найденной группы:</strong> {{ item.result.llm_request.batch_size }} чанков</p>
                                                     {% endif %}
