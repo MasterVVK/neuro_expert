@@ -51,7 +51,7 @@
                         <tr>
                             <th>Параметр</th>
                             <th>Значение</th>
-                            <th>Источники</th>
+                            <th class="sources-column">Источники</th>
                             <th>Действия</th>
                         </tr>
                     </thead>
@@ -62,7 +62,7 @@
                             <tr>
                                 <td>{{ item.parameter.name }}</td>
                                 <td>{{ item.result.value }}</td>
-                                <td>
+                                <td class="sources-column">
                                     {% if item.result.search_results %}
                                         {# Проверяем, это результат полного сканирования? #}
                                         {% set is_full_scan = item.result.llm_request and item.result.llm_request.full_scan %}
@@ -299,9 +299,21 @@
             max-width: 100%;
         }
 
+        /* НОВЫЕ СТИЛИ ДЛЯ КОЛОНКИ ИСТОЧНИКИ */
+        /* Настройка размера шрифта для колонки Источники */
+        .sources-column {
+            font-size: 0.9rem !important; /* Уменьшенный размер шрифта */
+            line-height: 1.4; /* Межстрочный интервал для лучшей читаемости */
+        }
+
+        /* Настройка всех элементов внутри колонки источников */
+        .sources-column * {
+            font-size: inherit !important; /* Наследуем размер шрифта от родителя */
+        }
+
         /* Стили для информации об источниках */
         .sources-info {
-            font-size: 0.9rem;
+            font-size: inherit; /* Наследуем размер от родителя */
         }
 
         .source-file {
@@ -310,24 +322,32 @@
             background-color: #f8f9fa;
             border-radius: 4px;
             border-left: 3px solid #007bff;
+            font-size: inherit; /* Наследуем размер от родителя */
         }
 
         .source-file:last-child {
             margin-bottom: 0;
         }
 
+        .source-file strong {
+            font-size: inherit; /* Убеждаемся что жирный текст того же размера */
+        }
+
         .no-sources {
             color: #6c757d;
             font-style: italic;
+            font-size: inherit; /* Наследуем размер от родителя */
         }
 
         /* Стили для полного сканирования */
         .full-scan-source {
             border-left-color: #6f42c1 !important;
+            font-size: inherit; /* Наследуем размер от родителя */
         }
 
         .not-found {
             color: #dc3545;
+            font-size: inherit; /* Наследуем размер от родителя */
         }
 
         .full-scan-info {
