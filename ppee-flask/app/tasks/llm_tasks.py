@@ -190,6 +190,7 @@ def format_single_chunk_for_context(chunk):
     if metadata.get('page_number'):
         doc_text += f"Страница: {metadata['page_number']}\n"
     doc_text += f"Текст:\n{text}"
+    doc_text = f"{text}\n"
 
     return doc_text
 
@@ -633,11 +634,13 @@ def format_documents_for_context(documents, max_docs=8):
         metadata = doc.get('metadata', {})
 
         doc_text = f"Документ {i + 1}:\n"
-        if metadata.get('section'):
-            doc_text += f"Раздел: {metadata['section']}\n"
-        if metadata.get('content_type'):
-            doc_text += f"Тип: {metadata['content_type']}\n"
-        doc_text += f"Текст:\n{text}\n" + "-" * 40
+#        if metadata.get('section'):
+#            doc_text += f"Раздел: {metadata['section']}\n"
+#        if metadata.get('content_type'):
+#            doc_text += f"Тип: {metadata['content_type']}\n"
+#        doc_text += f"Текст:\n{text}\n" + "-" * 40
+        doc_text += f"{text}\n" + "-" * 40
+
 
         formatted.append(doc_text)
 
