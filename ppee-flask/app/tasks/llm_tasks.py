@@ -126,7 +126,8 @@ def process_chunks_batch_through_llm(chunks_batch, param_data, model_name):
                         'found': True,
                         'value': value,
                         'chunks': chunks_batch,  # Возвращаем все чанки из пакета
-                        'response': llm_text
+                        'response': llm_text,
+                        'prompt': prompt  # ДОБАВЛЕНО: возвращаем промпт!
                     }
 
         return {'found': False}
@@ -479,6 +480,7 @@ def process_parameters_task(self, application_id):
                     found_chunks = None
                     found_response = None
                     found_value = None
+                    found_prompt = None  # ДОБАВЛЕНО: переменная для промпта
                     chunks_processed = 0
 
                     # Проверяем каждый пакет чанков
@@ -513,6 +515,7 @@ def process_parameters_task(self, application_id):
                             found_chunks = result['chunks']
                             found_response = result['response']
                             found_value = result['value']
+                            found_prompt = result.get('prompt', '')  # ДОБАВЛЕНО: сохраняем промпт
                             logger.info(f"Информация найдена для параметра {param_name} в пакете {batch_idx + 1}")
                             break
 
@@ -538,16 +541,13 @@ def process_parameters_task(self, application_id):
                                 'search_type': 'full_scan'
                             })
 
-                        # ВАЖНО: Для точности отображения страниц, можно сохранить только релевантные чанки
-                        # Но пока сохраняем все чанки из пакета для полноты контекста
-
                         result_data = {
                             'parameter_id': param_id,
                             'value': found_value,
                             'confidence': 0.9,  # Высокая уверенность при полном сканировании
                             'search_results': search_results,  # Сохраняем ВСЕ чанки из пакета
                             'llm_request': {
-                                'prompt': 'Полное сканирование с группировкой чанков',
+                                'prompt': found_prompt or 'Промпт не сохранен',  # ИСПРАВЛЕНО: используем реальный промпт
                                 'model': data['model'],
                                 'temperature': data['temperature'],
                                 'max_tokens': data['max_tokens'],
