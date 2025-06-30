@@ -97,7 +97,7 @@
                                                     {% for file_name, pages in files_data.items() %}
                                                         <strong>Файл:</strong> {{ file_name }}<br>
                                                         {% if pages %}
-                                                            <strong>Страницы в группе:</strong> {{ pages|format_page_ranges }}
+                                                            <strong>Страницы:</strong> {{ pages|format_page_ranges }}
                                                         {% endif %}
                                                     {% endfor %}
                                                 </div>
