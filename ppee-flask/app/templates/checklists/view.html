@@ -186,6 +186,11 @@
         </div>
     </div>
 
+    <!-- Нижняя навигация вне контейнера -->
+    <div class="page-footer">
+        <a href="{{ url_for('checklists.index') }}" class="button button-secondary">Назад к списку</a>
+    </div>
+
     <style>
         .badge {
             display: inline-block;
@@ -385,6 +390,18 @@
         .llm-query-same {
             color: #6c757d;
             font-style: italic;
+        }
+
+        /* Стили для нижней навигации */
+        .page-footer {
+            margin-top: 20px;
+            margin-bottom: 30px;
+            text-align: right;
+            padding-right: 20px;
+        }
+
+        .page-footer .button {
+            margin: 0;
         }
     </style>
 
