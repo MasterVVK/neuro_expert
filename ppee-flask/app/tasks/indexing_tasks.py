@@ -43,6 +43,7 @@ def update_application_status(application):
 
     db.session.commit()
 
+
 def get_file_chunks_count(application_id, file_id):
     """Получает количество чанков для файла через FastAPI"""
     try:
@@ -153,7 +154,7 @@ def index_document_task(self, application_id, file_id):
 
             if response.status_code == 200:
                 # Опрашиваем статус индексации через FastAPI
-                max_attempts = 3600  # Максимум 40 минут (1200 * 2 сек)
+                max_attempts = 3600  # Максимум 2 часа (3600 * 2 сек)
                 attempt = 0
 
                 while attempt < max_attempts:
@@ -187,8 +188,10 @@ def index_document_task(self, application_id, file_id):
                                 }
                             )
 
-                            logger.info(f"Индексация файла {file_id} заявки {application_id} завершена успешно: {chunks_count} чанков")
-                            return {"status": "success", "message": "Индексация завершена", "chunks_count": chunks_count}
+                            logger.info(
+                                f"Индексация файла {file_id} заявки {application_id} завершена успешно: {chunks_count} чанков")
+                            return {"status": "success", "message": "Индексация завершена",
+                                    "chunks_count": chunks_count}
 
                         elif status_data.get('status') == 'FAILURE':
                             # Произошла ошибка
@@ -228,6 +231,10 @@ def index_document_task(self, application_id, file_id):
 
             file.indexing_status = 'error'
             file.error_message = str(e)
+            # Устанавливаем время окончания для файла даже при ошибке
+            if not file.indexing_completed_at:
+                file.indexing_completed_at = datetime.utcnow()
+
             db.session.commit()
 
             # Обновляем статус заявки

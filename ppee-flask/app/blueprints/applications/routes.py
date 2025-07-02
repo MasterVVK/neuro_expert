@@ -317,9 +317,12 @@ def reindex_file(id, file_id):
 
     try:
         # СНАЧАЛА обновляем статус файла на 'indexing'
-        file.indexing_status = 'indexing'  # Изменено с 'pending' на 'indexing'
+        file.indexing_status = 'indexing'
         file.error_message = None
         file.chunks_count = 0
+        # Сбрасываем время для переиндексируемого файла
+        file.indexing_started_at = None
+        file.indexing_completed_at = None
 
         # Обновляем статус заявки на "indexing" для показа прогресс-бара
         application.status = 'indexing'
@@ -359,7 +362,6 @@ def reindex_file(id, file_id):
     # Принудительная перезагрузка страницы с уникальным параметром
     import time
     return redirect(url_for('applications.view', id=application.id) + '?t=' + str(int(time.time())))
-
 
 @bp.route('/<int:id>/analyze')
 def analyze(id):
@@ -496,6 +498,7 @@ def delete(id):
     return redirect(url_for('applications.index'))
 
 
+
 @bp.route('/<int:id>/stop_analysis', methods=['POST'])
 def stop_analysis(id):
     """Остановка анализа заявки"""
@@ -512,6 +515,10 @@ def stop_analysis(id):
             from app import celery
             celery.control.revoke(application.task_id, terminate=True, signal='SIGKILL')
             current_app.logger.info(f"Остановлен анализ заявки {id}, task_id: {application.task_id}")
+
+        # Устанавливаем время завершения анализа
+        if not application.analysis_completed_at:
+            application.analysis_completed_at = datetime.utcnow()
 
         # Обновляем статус заявки
         if application.analysis_completed_params > 0:

@@ -26,7 +26,7 @@ class Application(db.Model):
     task_id = db.Column(db.String(36), nullable=True)  # ID задачи Celery
     last_operation = db.Column(db.String(50))  # 'indexing' или 'analyzing'
 
-    # Новые поля для отслеживания прогресса анализа
+    # Поля для отслеживания прогресса анализа
     analysis_total_params = db.Column(db.Integer, default=0)
     analysis_completed_params = db.Column(db.Integer, default=0)
     analysis_started_at = db.Column(db.DateTime)
@@ -75,6 +75,81 @@ class Application(db.Model):
             mapping[doc_id] = file.original_filename
         return mapping
 
+    def format_duration(self, start_time, end_time):
+        """Форматирует длительность операции в человекочитаемый вид"""
+        if not start_time or not end_time:
+            return None
+
+        duration = end_time - start_time
+        total_seconds = int(duration.total_seconds())
+
+        return self.format_duration_from_seconds(total_seconds)
+
+    def format_duration_from_seconds(self, total_seconds):
+        """Форматирует секунды в человекочитаемый вид"""
+        total_seconds = int(total_seconds)
+
+        if total_seconds < 60:
+            return f"{total_seconds} сек."
+        elif total_seconds < 3600:
+            minutes = total_seconds // 60
+            seconds = total_seconds % 60
+            if seconds > 0:
+                return f"{minutes} мин. {seconds} сек."
+            return f"{minutes} мин."
+        else:
+            hours = total_seconds // 3600
+            minutes = (total_seconds % 3600) // 60
+            if minutes > 0:
+                return f"{hours} ч. {minutes} мин."
+            return f"{hours} ч."
+
+    def get_status_message_with_duration(self):
+        """Возвращает сообщение статуса с длительностью операции"""
+        if not self.status_message:
+            return None
+
+        # Для успешной индексации - считаем общее время всех файлов
+        if self.status == 'indexed':
+            total_seconds = 0
+            for file in self.files:
+                if file.indexing_started_at and file.indexing_completed_at:
+                    file_duration = (file.indexing_completed_at - file.indexing_started_at).total_seconds()
+                    total_seconds += file_duration
+
+            if total_seconds > 0:
+                duration = self.format_duration_from_seconds(total_seconds)
+                return f"{self.status_message} ({duration})"
+
+        # Для успешного анализа
+        elif self.status == 'analyzed' and self.analysis_started_at and self.analysis_completed_at:
+            duration = self.format_duration(self.analysis_started_at, self.analysis_completed_at)
+            if duration:
+                return f"{self.status_message} ({duration})"
+
+        # Для ошибок индексации
+        elif self.status == 'error' and self.last_operation == 'indexing':
+            total_seconds = 0
+            for file in self.files:
+                if file.indexing_started_at:
+                    # Если есть время окончания - используем его, иначе текущее время
+                    end_time = file.indexing_completed_at or datetime.utcnow()
+                    file_duration = (end_time - file.indexing_started_at).total_seconds()
+                    total_seconds += file_duration
+
+            if total_seconds > 0:
+                duration = self.format_duration_from_seconds(total_seconds)
+                return f"{self.status_message} (выполнялось {duration})"
+
+        # Для ошибок анализа
+        elif self.status == 'error' and self.last_operation == 'analyzing' and self.analysis_started_at:
+            end_time = self.analysis_completed_at or datetime.utcnow()
+            duration = self.format_duration(self.analysis_started_at, end_time)
+            if duration:
+                return f"{self.status_message} (выполнялось {duration})"
+
+        return self.status_message
+
 
 class File(db.Model):
     """Модель файла, связанного с заявкой"""
@@ -89,7 +164,7 @@ class File(db.Model):
     file_type = db.Column(db.String(50))  # document, attachment
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-    # Новые поля для отслеживания индексации
+    # Поля для отслеживания индексации
     indexing_status = db.Column(db.String(50), default='pending')  # pending, indexing, completed, error
     index_session_id = db.Column(db.String(36))  # UUID сессии индексации
     chunks_count = db.Column(db.Integer, default=0)
@@ -99,3 +174,20 @@ class File(db.Model):
 
     def __repr__(self):
         return f'<File {self.id}: {self.original_filename}>'
+
+    def get_indexing_duration(self):
+        """Возвращает длительность индексации файла"""
+        if not self.indexing_started_at or not self.indexing_completed_at:
+            return None
+
+        duration = self.indexing_completed_at - self.indexing_started_at
+        total_seconds = int(duration.total_seconds())
+
+        if total_seconds < 60:
+            return f"{total_seconds} сек."
+        else:
+            minutes = total_seconds // 60
+            seconds = total_seconds % 60
+            if seconds > 0:
+                return f"{minutes} мин. {seconds} сек."
+            return f"{minutes} мин."

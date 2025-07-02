@@ -57,7 +57,7 @@
             {% if application.status_message %}
             <div class="info-row {% if application.status == 'error' %}error-highlight{% endif %}">
                 <div class="info-label">Сообщение:</div>
-                <div class="info-value">{{ application.status_message }}</div>
+                <div class="info-value">{{ application.get_status_message_with_duration() or application.status_message }}</div>
             </div>
             {% endif %}
 
@@ -397,6 +397,7 @@
                         <th>Статус</th>
                         <th>Чанков</th>
                         <th>Размер</th>
+                        <th>Время индексации</th>
                         <th>Дата загрузки</th>
                         <th>Действия</th>
                     </tr>
@@ -424,6 +425,13 @@
                                     {{ (file.file_size / 1024) | round(1) }} Кб
                                 {% else %}
                                     {{ (file.file_size / (1024 * 1024)) | round(1) }} Мб
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if file.get_indexing_duration() %}
+                                    {{ file.get_indexing_duration() }}
+                                {% else %}
+                                    -
                                 {% endif %}
                             </td>
                             <td>{{ file.created_at|to_moscow_time|strftime('%d.%m.%Y %H:%M') }}</td>
@@ -456,7 +464,7 @@
                         <!-- Строка с деталями ошибки, если есть -->
                         {% if file.indexing_status == 'error' and file.error_message %}
                         <tr class="error-details-row">
-                            <td colspan="6">
+                            <td colspan="7">
                                 <div class="error-details">
                                     <strong>Ошибка:</strong> {{ file.error_message }}
                                 </div>

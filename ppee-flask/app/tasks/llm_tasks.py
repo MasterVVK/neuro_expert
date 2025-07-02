@@ -593,7 +593,7 @@ def process_parameters_task(self, application_id):
             # Завершаем анализ
             application.status = "analyzed"
             application.status_message = "Анализ завершен успешно"
-            application.analysis_completed_at = datetime.utcnow()
+            application.analysis_completed_at = datetime.utcnow()  # ИЗМЕНЕНИЕ: устанавливаем время завершения
             db.session.commit()
 
             self.update_state(
@@ -621,6 +621,9 @@ def process_parameters_task(self, application_id):
                 error_app.status = "error"
                 error_app.status_message = str(e)
                 error_app.last_operation = 'analyzing'
+                # ИЗМЕНЕНИЕ: При ошибке также сохраняем время окончания
+                if not error_app.analysis_completed_at:
+                    error_app.analysis_completed_at = datetime.utcnow()
                 db.session.commit()
             logger.info(f"[TASK {self.request.id}] Ошибка анализа заявки {application_id}: {e}")
             return {"status": "error", "message": str(e)}
@@ -710,6 +713,11 @@ def handle_cancellation(application_id):
         application.status_message = "Анализ остановлен пользователем"
 
     application.last_operation = 'analyzing'
+
+    # ИЗМЕНЕНИЕ: При отмене также сохраняем время окончания
+    if not application.analysis_completed_at:
+        application.analysis_completed_at = datetime.utcnow()
+
     db.session.commit()
 
     logger.info(f"Анализ заявки {application_id} остановлен. Сохранено {saved_count} результатов")
