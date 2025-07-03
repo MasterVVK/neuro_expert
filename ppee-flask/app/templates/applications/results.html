@@ -59,9 +59,24 @@
                         {# Сортируем результаты по order_index параметров #}
                         {% set sorted_results = data.results|sort(attribute='parameter.order_index') %}
                         {% for item in sorted_results %}
-                            <tr>
+                            {# Проверяем, содержит ли значение "информация не найдена" #}
+                            {% set is_not_found = item.result.value and 'информация не найдена' in item.result.value.lower() %}
+
+                            <tr class="{% if is_not_found %}not-found-row{% endif %}">
                                 <td>{{ item.parameter.name }}</td>
-                                <td>{{ item.result.value }}</td>
+                                <td>
+                                    {% if is_not_found %}
+                                        <span class="not-found-value">
+                                            <svg class="not-found-icon" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                                                <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/>
+                                                <path d="M7.002 11a1 1 0 1 1 2 0 1 1 0 0 1-2 0zM7.1 4.995a.905.905 0 1 1 1.8 0l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 4.995z"/>
+                                            </svg>
+                                            {{ item.result.value }}
+                                        </span>
+                                    {% else %}
+                                        {{ item.result.value }}
+                                    {% endif %}
+                                </td>
                                 <td class="sources-column">
                                     {% if item.result.search_results %}
                                         {# Проверяем, это результат полного сканирования? #}
@@ -303,6 +318,29 @@
             overflow-x: hidden;
             max-width: 100%;
         }
+
+        /* СТИЛИ ДЛЯ ВЫДЕЛЕНИЯ "НЕ НАЙДЕНО" */
+        .not-found-row {
+            background-color: rgba(255, 243, 205, 0.2);
+        }
+
+        .not-found-row:hover {
+            background-color: rgba(255, 243, 205, 0.4);
+        }
+
+        .not-found-value {
+            color: #d9534f;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .not-found-icon {
+            flex-shrink: 0;
+        }
+
+
 
         /* НОВЫЕ СТИЛИ ДЛЯ КОЛОНКИ ИСТОЧНИКИ */
         /* Настройка размера шрифта для колонки Источники */
