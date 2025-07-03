@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Отчет анализа - {{ application.name }}</title>
+</head>
+<body>
+    <div class="header-info">
+        <h1>Отчет анализа документов ППЭЭ</h1>
+
+        <div class="info-row">
+            <span class="info-label">Заявка:</span>
+            <span class="info-value">{{ application.name }}</span>
+        </div>
+
+        {% if application.description %}
+        <div class="info-row">
+            <span class="info-label">Описание:</span>
+            <span class="info-value">{{ application.description }}</span>
+        </div>
+        {% endif %}
+
+        <div class="info-row">
+            <span class="info-label">Дата создания заявки:</span>
+            <span class="info-value">{{ application.created_at|to_moscow_time|strftime('%d.%m.%Y %H:%M') }} МСК</span>
+        </div>
+
+        <div class="info-row">
+            <span class="info-label">Дата формирования отчета:</span>
+            <span class="info-value">{{ generation_date|to_moscow_time|strftime('%d.%m.%Y %H:%M') }} МСК</span>
+        </div>
+
+        <div class="info-row">
+            <span class="info-label">Количество файлов:</span>
+            <span class="info-value">{{ application.files.count() }}</span>
+        </div>
+
+        <div class="info-row">
+            <span class="info-label">Количество чек-листов:</span>
+            <span class="info-value">{{ checklist_results|length }}</span>
+        </div>
+    </div>
+
+    {% for checklist_id, data in checklist_results.items() %}
+        <div class="parameter-section">
+            <h2>{{ data.checklist.name }}</h2>
+
+            {% if data.checklist.description %}
+                <p>{{ data.checklist.description }}</p>
+            {% endif %}
+
+            {% if data.results %}
+                <table>
+                    <thead>
+                        <tr>
+                            <th style="width: 30%">Параметр</th>
+                            <th style="width: 40%">Значение</th>
+                            <th style="width: 30%">Источники</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {# Сортируем результаты по order_index параметров #}
+                        {% set sorted_results = data.results|sort(attribute='parameter.order_index') %}
+                        {% for item in sorted_results %}
+                            {# Проверяем, содержит ли значение "информация не найдена" #}
+                            {% set is_not_found = item.result.value and 'информация не найдена' in item.result.value.lower() %}
+
+                            <tr>
+                                <td>{{ item.parameter.name }}</td>
+                                <td>
+                                    {% if is_not_found %}
+                                        <span class="not-found-value">{{ item.result.value }}</span>
+                                    {% else %}
+                                        {{ item.result.value }}
+                                    {% endif %}
+                                </td>
+                                <td class="source-info">
+                                    {% if item.result.search_results %}
+                                        {# Проверяем, это результат полного сканирования? #}
+                                        {% set is_full_scan = item.result.llm_request and item.result.llm_request.full_scan %}
+
+                                        {% if is_full_scan %}
+                                            {% if item.result.llm_request.full_scan_result == 'not_found' %}
+                                                <strong>Полное сканирование:</strong><br>
+                                                Информация не найдена после проверки {{ item.result.llm_request.chunks_scanned }} чанков
+                                            {% else %}
+                                                {# Группируем чанки по файлам и страницам #}
+                                                {% set files_data = {} %}
+                                                {% for doc in item.result.search_results %}
+                                                    {% if doc.metadata and doc.metadata.document_id %}
+                                                        {% set doc_id = doc.metadata.document_id %}
+                                                        {% set doc_name = doc_names_mapping.get(doc_id, doc_id) if doc_names_mapping else doc_id %}
+                                                        {% set page_num = doc.metadata.page_number %}
+
+                                                        {% if doc_name not in files_data %}
+                                                            {% set _ = files_data.update({doc_name: []}) %}
+                                                        {% endif %}
+
+                                                        {% if page_num and page_num not in files_data[doc_name] %}
+                                                            {% set _ = files_data[doc_name].append(page_num) %}
+                                                        {% endif %}
+                                                    {% endif %}
+                                                {% endfor %}
+
+                                                <strong>Полное сканирование:</strong><br>
+                                                {% for file_name, pages in files_data.items() %}
+                                                    Файл: {{ file_name }}<br>
+                                                    {% if pages %}
+                                                        Страницы: {{ pages|format_page_ranges }}
+                                                    {% endif %}
+                                                {% endfor %}
+                                            {% endif %}
+                                        {% else %}
+                                            {# Обычный поиск #}
+                                            {% set files_data = {} %}
+                                            {% for doc in item.result.search_results %}
+                                                {% if doc.metadata and doc.metadata.document_id %}
+                                                    {% set doc_id = doc.metadata.document_id %}
+                                                    {% set doc_name = doc_names_mapping.get(doc_id, doc_id) if doc_names_mapping else doc_id %}
+                                                    {% set page_num = doc.metadata.page_number %}
+
+                                                    {% if doc_name not in files_data %}
+                                                        {% set _ = files_data.update({doc_name: []}) %}
+                                                    {% endif %}
+
+                                                    {% if page_num and page_num not in files_data[doc_name] %}
+                                                        {% set _ = files_data[doc_name].append(page_num) %}
+                                                    {% endif %}
+                                                {% endif %}
+                                            {% endfor %}
+
+                                            {% for file_name, pages in files_data.items() %}
+                                                Файл: {{ file_name }}<br>
+                                                {% if pages %}
+                                                    Страницы: {{ pages|format_page_ranges }}<br>
+                                                {% endif %}
+                                            {% endfor %}
+                                        {% endif %}
+                                    {% else %}
+                                        -
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <p class="no-results">Нет результатов для данного чек-листа</p>
+            {% endif %}
+        </div>
+
+        {% if not loop.last %}
+            <div class="page-break"></div>
+        {% endif %}
+    {% endfor %}
+
+    <div class="footer">
+        <p>Отчет сгенерирован системой PPEE Analyzer<br>
+        ФГАУ «НИИ «ЦЭПП»</p>
+    </div>
+</body>
+</html>

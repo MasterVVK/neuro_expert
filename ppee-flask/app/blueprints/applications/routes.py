@@ -3,7 +3,9 @@ from flask import render_template, redirect, url_for, flash, request, current_ap
 from werkzeug.utils import secure_filename
 import uuid
 import logging
+from datetime import datetime
 
+from app.utils.pdf_generator import generate_pdf_report, create_pdf_response
 from app import db
 from app.models import Application, File, Checklist, ParameterResult
 from app.blueprints.applications import bp
@@ -969,3 +971,54 @@ def partial_results(id):
         current_app.logger.error(f"Ошибка при просмотре частичных результатов заявки {id}: {str(e)}")
         flash(f"Ошибка при просмотре результатов: {str(e)}", "error")
         return redirect(url_for('applications.index'))
+
+
+@bp.route('/<int:id>/results/pdf')
+def results_pdf(id):
+    """Генерация и скачивание PDF отчета с результатами анализа"""
+    try:
+        application = Application.query.get_or_404(id)
+
+        # Проверяем, что у заявки есть результаты
+        if application.status != 'analyzed':
+            flash('Результаты анализа еще не готовы', 'info')
+            return redirect(url_for('applications.view', id=application.id))
+
+        # Получаем маппинг имен документов
+        doc_names_mapping = application.get_document_names_mapping()
+
+        # Получаем результаты по чек-листам
+        checklist_results = {}
+
+        for checklist in application.checklists:
+            parameters = checklist.parameters.all()
+            parameter_results = []
+
+            for parameter in parameters:
+                result = parameter.results.filter_by(application_id=application.id).first()
+                if result:
+                    parameter_results.append({
+                        'parameter': parameter,
+                        'result': result
+                    })
+
+            checklist_results[checklist.id] = {
+                'checklist': checklist,
+                'results': parameter_results
+            }
+
+        # Генерируем PDF
+        pdf_bytes = generate_pdf_report(application, checklist_results, doc_names_mapping)
+
+        # Формируем имя файла
+        safe_name = secure_filename(application.name)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f"otchet_analiza_{safe_name}_{timestamp}.pdf"
+
+        # Возвращаем PDF как ответ
+        return create_pdf_response(pdf_bytes, filename)
+
+    except Exception as e:
+        current_app.logger.error(f"Ошибка при генерации PDF для заявки {id}: {str(e)}")
+        flash(f"Ошибка при генерации PDF: {str(e)}", "error")
+        return redirect(url_for('applications.results', id=id))
