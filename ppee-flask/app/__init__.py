@@ -52,6 +52,9 @@ def create_app(config_name=None):
     
     # Регистрация пользовательских фильтров
     register_template_filters(app)
+
+    # ВАЖНО: Включаем расширение 'do' для Jinja2
+    app.jinja_env.add_extension('jinja2.ext.do')
     
     return app
 

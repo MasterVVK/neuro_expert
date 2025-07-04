@@ -113,7 +113,11 @@ def process_chunks_batch_through_llm(chunks_batch, param_data, model_name):
         })
 
         if llm_response.status_code == 200:
-            llm_text = llm_response.json()["response"]
+            llm_response_data = llm_response.json()
+            llm_text = llm_response_data["response"]
+            
+            # ДОБАВЛЕНО: Извлечение информации о токенах
+            tokens_info = llm_response_data.get("tokens", {})
 
             # Проверяем, найдена ли информация
             if "информация не найдена" not in llm_text.lower():
@@ -127,7 +131,8 @@ def process_chunks_batch_through_llm(chunks_batch, param_data, model_name):
                         'value': value,
                         'chunks': chunks_batch,  # Возвращаем все чанки из пакета
                         'response': llm_text,
-                        'prompt': prompt  # ДОБАВЛЕНО: возвращаем промпт!
+                        'prompt': prompt,
+                        'tokens': tokens_info  # ДОБАВЛЕНО: возвращаем токены
                     }
 
         return {'found': False}
@@ -193,6 +198,95 @@ def format_single_chunk_for_context(chunk):
     doc_text = f"{text}\n"
 
     return doc_text
+
+
+def format_documents_for_context(search_results):
+    """Форматирует найденные документы для контекста LLM"""
+    context_parts = []
+    for i, doc in enumerate(search_results, 1):
+        metadata = doc.get('metadata', {})
+        doc_text = f"Документ {i}:\n"
+        if metadata.get('section'):
+            doc_text += f"Раздел: {metadata['section']}\n"
+        if metadata.get('content_type'):
+            doc_text += f"Тип: {metadata['content_type']}\n"
+        if metadata.get('page_number'):
+            doc_text += f"Страница: {metadata['page_number']}\n"
+        doc_text += f"Текст:\n{doc['text']}\n"
+        context_parts.append(doc_text)
+    return "\n".join(context_parts)
+
+
+def extract_value_from_response(response, query):
+    """Извлекает значение из ответа LLM"""
+    response = response.strip()
+    
+    # Проверяем на отсутствие информации
+    if "информация не найдена" in response.lower():
+        return "Информация не найдена"
+    
+    # Пытаемся найти формат "параметр: значение"
+    pattern = f"{re.escape(query)}\\s*:\\s*(.+)"
+    match = re.search(pattern, response, re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+    
+    # Если не нашли в таком формате, возвращаем весь ответ
+    return response
+
+
+def calculate_confidence(response):
+    """Рассчитывает уверенность в ответе"""
+    uncertainty_phrases = [
+        "возможно", "вероятно", "может быть", "предположительно",
+        "не ясно", "не уверен", "не определено", "информация не найдена"
+    ]
+
+    confidence = 0.8
+    response_lower = response.lower()
+
+    for phrase in uncertainty_phrases:
+        if phrase in response_lower:
+            confidence -= 0.1
+
+    return max(0.1, min(confidence, 1.0))
+
+
+def check_if_cancelled(celery_task):
+    """Проверяет, была ли задача отменена"""
+    try:
+        from celery import current_app as celery_app
+        task_state = celery_app.AsyncResult(celery_task.request.id).state
+        return task_state == 'REVOKED'
+    except:
+        return False
+
+
+def handle_cancellation(application_id):
+    """Обрабатывает отмену анализа"""
+    application = Application.query.get(application_id)
+    if not application:
+        return {"status": "error", "message": "Заявка не найдена"}
+
+    saved_count = ParameterResult.query.filter_by(application_id=application_id).count()
+
+    if saved_count > 0:
+        application.status = "analyzed"
+        application.status_message = f"Анализ остановлен. Сохранено результатов: {saved_count}"
+    else:
+        application.status = "indexed"
+        application.status_message = "Анализ остановлен пользователем"
+
+    application.last_operation = 'analyzing'
+
+    # ИЗМЕНЕНИЕ: При отмене также сохраняем время окончания
+    if not application.analysis_completed_at:
+        application.analysis_completed_at = datetime.utcnow()
+
+    db.session.commit()
+
+    logger.info(f"Анализ заявки {application_id} остановлен. Сохранено {saved_count} результатов")
+    return {"status": "cancelled", "message": "Анализ остановлен пользователем"}
 
 
 @celery.task(bind=True)
@@ -371,7 +465,11 @@ def process_parameters_task(self, application_id):
                         })
 
                         if llm_response.status_code == 200:
-                            llm_text = llm_response.json()["response"]
+                            llm_response_data = llm_response.json()
+                            llm_text = llm_response_data["response"]
+                            
+                            # ДОБАВЛЕНО: Извлечение информации о токенах
+                            tokens_info = llm_response_data.get("tokens", {})
 
                             # Извлекаем значение и рассчитываем уверенность
                             value = extract_value_from_response(llm_text, data['llm_query'])
@@ -384,7 +482,8 @@ def process_parameters_task(self, application_id):
                                     'param_id': param_id,
                                     'data': data,
                                     'initial_search_results': data['search_results'],
-                                    'initial_llm_response': llm_text
+                                    'initial_llm_response': llm_text,
+                                    'initial_tokens': tokens_info  # ДОБАВЛЕНО: сохраняем токены
                                 })
                                 logger.info(f"Параметр {param_id} добавлен для полного сканирования")
                             else:
@@ -401,7 +500,8 @@ def process_parameters_task(self, application_id):
                                         'max_tokens': data['max_tokens'],
                                         'response': llm_text,
                                         'search_query': data['search_query'],
-                                        'llm_query': data['llm_query']
+                                        'llm_query': data['llm_query'],
+                                        'tokens': tokens_info  # ДОБАВЛЕНО: сохраняем токены
                                     }
                                 }
 
@@ -481,7 +581,8 @@ def process_parameters_task(self, application_id):
                     found_chunks = None
                     found_response = None
                     found_value = None
-                    found_prompt = None  # ДОБАВЛЕНО: переменная для промпта
+                    found_prompt = None
+                    found_tokens = {}  # ДОБАВЛЕНО: переменная для токенов
                     chunks_processed = 0
 
                     # Проверяем каждый пакет чанков
@@ -512,43 +613,24 @@ def process_parameters_task(self, application_id):
                         chunks_processed += len(chunk_batch)
 
                         if result['found']:
-                            found = True
                             found_chunks = result['chunks']
                             found_response = result['response']
                             found_value = result['value']
-                            found_prompt = result.get('prompt', '')  # ДОБАВЛЕНО: сохраняем промпт
-                            logger.info(f"Информация найдена для параметра {param_name} в пакете {batch_idx + 1}")
+                            found_prompt = result['prompt']
+                            found_tokens = result.get('tokens', {})  # ДОБАВЛЕНО: получение токенов
+                            found = True
                             break
 
                     # Сохраняем результат
                     if found:
-                        # Форматируем найденные чанки как результаты поиска
-                        search_results = []
-
-                        # Логируем информацию о найденных чанках для отладки
-                        logger.info(f"Найдено {len(found_chunks)} чанков в пакете для параметра {param_name}")
-
-                        for chunk in found_chunks:
-                            metadata = chunk.get('metadata', {})
-                            page_num = metadata.get('page_number')
-                            doc_id = metadata.get('document_id')
-
-                            logger.info(f"  Чанк: документ={doc_id}, страница={page_num}")
-
-                            search_results.append({
-                                'text': chunk.get('text', ''),
-                                'metadata': metadata,
-                                'score': 1.0,  # Максимальная релевантность
-                                'search_type': 'full_scan'
-                            })
-
+                        # Информация найдена при полном сканировании
                         result_data = {
                             'parameter_id': param_id,
                             'value': found_value,
                             'confidence': 0.9,  # Высокая уверенность при полном сканировании
-                            'search_results': search_results,  # Сохраняем ВСЕ чанки из пакета
+                            'search_results': found_chunks,  # Сохраняем найденные чанки
                             'llm_request': {
-                                'prompt': found_prompt or 'Промпт не сохранен',  # ИСПРАВЛЕНО: используем реальный промпт
+                                'prompt': found_prompt,
                                 'model': data['model'],
                                 'temperature': data['temperature'],
                                 'max_tokens': data['max_tokens'],
@@ -559,7 +641,8 @@ def process_parameters_task(self, application_id):
                                 'chunks_scanned': chunks_processed,
                                 'batch_size': len(found_chunks),
                                 'batch_pages': [chunk.get('metadata', {}).get('page_number', 'unknown') for chunk in
-                                                found_chunks]
+                                                found_chunks],
+                                'tokens': found_tokens  # ДОБАВЛЕНО: сохраняем токены
                             }
                         }
                     else:
@@ -580,7 +663,8 @@ def process_parameters_task(self, application_id):
                                 'full_scan': True,
                                 'chunks_scanned': total_chunks,
                                 'batches_processed': total_batches,
-                                'full_scan_result': 'not_found'
+                                'full_scan_result': 'not_found',
+                                'tokens': param_info.get('initial_tokens', {})  # ДОБАВЛЕНО: используем сохраненные токены
                             }
                         }
 
@@ -593,7 +677,7 @@ def process_parameters_task(self, application_id):
             # Завершаем анализ
             application.status = "analyzed"
             application.status_message = "Анализ завершен успешно"
-            application.analysis_completed_at = datetime.utcnow()  # ИЗМЕНЕНИЕ: устанавливаем время завершения
+            application.analysis_completed_at = datetime.utcnow()
             db.session.commit()
 
             self.update_state(
@@ -606,119 +690,29 @@ def process_parameters_task(self, application_id):
                 }
             )
 
-            logger.info(f"Анализ заявки {application_id} завершен. Обработано {completed_params} параметров")
-            return {"status": "success", "message": "Анализ завершен"}
+            logger.info(f"Анализ заявки {application_id} завершен. Обработано параметров: {completed_params}")
+            return {"status": "success", "message": "Анализ завершен успешно"}
 
         except (Terminated, WorkerLostError) as e:
-            # Задача была отменена
-            logger.info(f"Задача анализа заявки {application_id} была отменена: {e}")
+            logger.warning(f"Задача анализа {application_id} была прервана: {str(e)}")
             return handle_cancellation(application_id)
 
         except Exception as e:
-            logger.error(f"Ошибка при анализе: {e}")
-            error_app = Application.query.get(application_id)
-            if error_app:
-                error_app.status = "error"
-                error_app.status_message = str(e)
-                error_app.last_operation = 'analyzing'
-                # ИЗМЕНЕНИЕ: При ошибке также сохраняем время окончания
-                if not error_app.analysis_completed_at:
-                    error_app.analysis_completed_at = datetime.utcnow()
-                db.session.commit()
-            logger.info(f"[TASK {self.request.id}] Ошибка анализа заявки {application_id}: {e}")
+            logger.exception(f"Критическая ошибка при анализе заявки {application_id}: {str(e)}")
+            # Обновляем статус заявки на ошибку
+            application.status = "error"
+            application.status_message = f"Ошибка анализа: {str(e)}"
+            application.last_operation = 'analyzing'
+            db.session.commit()
+
+            self.update_state(
+                state='FAILURE',
+                meta={
+                    'status': 'error',
+                    'progress': 0,
+                    'stage': 'error',
+                    'message': f'Ошибка: {str(e)}'
+                }
+            )
+
             return {"status": "error", "message": str(e)}
-
-
-def format_documents_for_context(documents, max_docs=8):
-    """Форматирует документы для контекста"""
-    formatted = []
-    for i, doc in enumerate(documents[:max_docs]):
-        text = doc.get('text', '')
-        metadata = doc.get('metadata', {})
-
-        doc_text = f"Документ {i + 1}:\n"
-#        if metadata.get('section'):
-#            doc_text += f"Раздел: {metadata['section']}\n"
-#        if metadata.get('content_type'):
-#            doc_text += f"Тип: {metadata['content_type']}\n"
-#        doc_text += f"Текст:\n{text}\n" + "-" * 40
-        doc_text += f"{text}\n" + "-" * 40
-
-
-        formatted.append(doc_text)
-
-    return "\n\n".join(formatted)
-
-
-def extract_value_from_response(response, query):
-    """Извлекает значение из ответа LLM"""
-    lines = [line.strip() for line in response.split('\n') if line.strip()]
-
-    # Ищем строку с результатом
-    for line in lines:
-        if line.startswith("РЕЗУЛЬТАТ:"):
-            return line.replace("РЕЗУЛЬТАТ:", "").strip()
-
-    # Ищем строку с двоеточием
-    for line in lines:
-        if ":" in line:
-            parts = line.split(":", 1)
-            if len(parts) == 2 and parts[1].strip():
-                return parts[1].strip()
-
-    # Возвращаем последнюю строку
-    return lines[-1] if lines else "Информация не найдена"
-
-
-def calculate_confidence(response):
-    """Рассчитывает уверенность в ответе"""
-    uncertainty_phrases = [
-        "возможно", "вероятно", "может быть", "предположительно",
-        "не ясно", "не уверен", "не определено", "информация не найдена"
-    ]
-
-    confidence = 0.8
-    response_lower = response.lower()
-
-    for phrase in uncertainty_phrases:
-        if phrase in response_lower:
-            confidence -= 0.1
-
-    return max(0.1, min(confidence, 1.0))
-
-
-def check_if_cancelled(celery_task):
-    """Проверяет, была ли задача отменена"""
-    try:
-        from celery import current_app as celery_app
-        task_state = celery_app.AsyncResult(celery_task.request.id).state
-        return task_state == 'REVOKED'
-    except:
-        return False
-
-
-def handle_cancellation(application_id):
-    """Обрабатывает отмену анализа"""
-    application = Application.query.get(application_id)
-    if not application:
-        return {"status": "error", "message": "Заявка не найдена"}
-
-    saved_count = ParameterResult.query.filter_by(application_id=application_id).count()
-
-    if saved_count > 0:
-        application.status = "analyzed"
-        application.status_message = f"Анализ остановлен. Сохранено результатов: {saved_count}"
-    else:
-        application.status = "indexed"
-        application.status_message = "Анализ остановлен пользователем"
-
-    application.last_operation = 'analyzing'
-
-    # ИЗМЕНЕНИЕ: При отмене также сохраняем время окончания
-    if not application.analysis_completed_at:
-        application.analysis_completed_at = datetime.utcnow()
-
-    db.session.commit()
-
-    logger.info(f"Анализ заявки {application_id} остановлен. Сохранено {saved_count} результатов")
-    return {"status": "cancelled", "message": "Анализ остановлен пользователем"}

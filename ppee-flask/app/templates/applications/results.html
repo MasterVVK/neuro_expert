@@ -34,6 +34,8 @@
             {% endif %}
         </div>
 
+
+
         <div class="view-options">
             <button class="button toggle-all-prompts" onclick="toggleAllPrompts()">Показать все запросы</button>
             <label class="display-mode-toggle">
@@ -81,7 +83,6 @@
                                     {% if item.result.search_results %}
                                         {# Проверяем, это результат полного сканирования? #}
                                         {% set is_full_scan = item.result.llm_request and item.result.llm_request.full_scan %}
-
                                         {% if is_full_scan %}
                                             {% if item.result.llm_request.full_scan_result == 'not_found' %}
                                                 <div class="source-file full-scan-source">
@@ -89,20 +90,22 @@
                                                     <span class="not-found">Информация не найдена после проверки {{ item.result.llm_request.chunks_scanned }} чанков</span>
                                                 </div>
                                             {% else %}
-                                                {# Группируем чанки по файлам и страницам #}
+                                                {# Группируем чанки по файлам и страницам для полного сканирования #}
                                                 {% set files_data = {} %}
                                                 {% for doc in item.result.search_results %}
-                                                    {% if doc.metadata and doc.metadata.document_id %}
-                                                        {% set doc_id = doc.metadata.document_id %}
-                                                        {% set doc_name = doc_names_mapping.get(doc_id, doc_id) if doc_names_mapping else doc_id %}
-                                                        {% set page_num = doc.metadata.page_number %}
+                                                    {% if doc.metadata %}
+                                                        {% set doc_id = doc.metadata.document_id or doc.metadata.document_name %}
+                                                        {% if doc_id %}
+                                                            {% set doc_name = doc_names_mapping.get(doc_id, doc_id) %}
+                                                            {% set page_num = doc.metadata.page_number %}
 
-                                                        {% if doc_name not in files_data %}
-                                                            {% set _ = files_data.update({doc_name: []}) %}
-                                                        {% endif %}
+                                                            {% if doc_name not in files_data %}
+                                                                {% set _ = files_data.update({doc_name: []}) %}
+                                                            {% endif %}
 
-                                                        {% if page_num and page_num not in files_data[doc_name] %}
-                                                            {% set _ = files_data[doc_name].append(page_num) %}
+                                                            {% if page_num and page_num not in files_data[doc_name] %}
+                                                                {% set _ = files_data[doc_name].append(page_num) %}
+                                                            {% endif %}
                                                         {% endif %}
                                                     {% endif %}
                                                 {% endfor %}
@@ -110,38 +113,39 @@
                                                 <div class="source-file full-scan-source">
                                                     <strong>Полное сканирование:</strong><br>
                                                     {% for file_name, pages in files_data.items() %}
-                                                        <strong>Файл:</strong> {{ file_name }}<br>
+                                                        {{ file_name }}<br>
                                                         {% if pages %}
-                                                            <strong>Страницы:</strong> {{ pages|format_page_ranges }}
+                                                            Страницы: {{ pages|format_page_ranges }}
                                                         {% endif %}
                                                     {% endfor %}
                                                 </div>
                                             {% endif %}
                                         {% else %}
-                                            {# Обычный поиск #}
-                                            {% set files_data = {} %}
-                                            {% for doc in item.result.search_results %}
-                                                {% if doc.metadata and doc.metadata.document_id %}
-                                                    {% set doc_id = doc.metadata.document_id %}
-                                                    {% set doc_name = doc_names_mapping.get(doc_id, doc_id) if doc_names_mapping else doc_id %}
-                                                    {% set page_num = doc.metadata.page_number %}
-
-                                                    {% if doc_name not in files_data %}
-                                                        {% set _ = files_data.update({doc_name: []}) %}
-                                                    {% endif %}
-
-                                                    {% if page_num and page_num not in files_data[doc_name] %}
-                                                        {% set _ = files_data[doc_name].append(page_num) %}
-                                                    {% endif %}
-                                                {% endif %}
-                                            {% endfor %}
-
+                                            {# Обычный вывод источников для векторного/гибридного поиска #}
                                             <div class="sources-info">
-                                                {% for file_name, pages in files_data.items() %}
+                                                {% set unique_sources = {} %}
+                                                {% for source in item.result.search_results %}
+                                                    {% if source.metadata %}
+                                                        {# Пробуем получить document_id или document_name #}
+                                                        {% set doc_id = source.metadata.document_id or source.metadata.document_name %}
+                                                        {% if doc_id %}
+                                                            {# Получаем читаемое имя через маппинг #}
+                                                            {% set doc_name = doc_names_mapping.get(doc_id, doc_id) %}
+                                                            {% if doc_name not in unique_sources %}
+                                                                {% set _ = unique_sources.update({doc_name: []}) %}
+                                                            {% endif %}
+                                                            {% if source.metadata.page_number %}
+                                                                {% set _ = unique_sources[doc_name].append(source.metadata.page_number) %}
+                                                            {% endif %}
+                                                        {% endif %}
+                                                    {% endif %}
+                                                {% endfor %}
+
+                                                {% for doc_name, pages in unique_sources.items() %}
                                                     <div class="source-file">
-                                                        <strong>Файл:</strong> {{ file_name }}<br>
+                                                        <strong>{{ doc_name }}</strong>
                                                         {% if pages %}
-                                                            <strong>Страницы:</strong> {{ pages|format_page_ranges }}
+                                                            <br>Страницы: {{ pages|format_page_ranges }}
                                                         {% endif %}
                                                     </div>
                                                 {% endfor %}
@@ -203,6 +207,29 @@
                                             {% if item.result.llm_request.context_length %}
                                             <li>Context length: {{ item.result.llm_request.context_length }}</li>
                                             {% endif %}
+
+                                            <!-- Информация о токенах -->
+                                            {% if item.result.llm_request.tokens %}
+                                                <li class="token-info">
+                                                    <strong>Использовано токенов:</strong>
+                                                    {{ item.result.llm_request.tokens.total_tokens|default(0) }}
+                                                    <span class="token-details">
+                                                        (запрос: {{ item.result.llm_request.tokens.prompt_tokens|default(0) }},
+                                                         ответ: {{ item.result.llm_request.tokens.completion_tokens|default(0) }})
+                                                    </span>
+                                                </li>
+                                            {% elif item.result.llm_request.total_tokens %}
+                                                <!-- Обратная совместимость -->
+                                                <li class="token-info">
+                                                    <strong>Использовано токенов:</strong>
+                                                    {{ item.result.llm_request.total_tokens }}
+                                                    <span class="token-details">
+                                                        (запрос: {{ item.result.llm_request.prompt_tokens|default(0) }},
+                                                         ответ: {{ item.result.llm_request.completion_tokens|default(0) }})
+                                                    </span>
+                                                </li>
+                                            {% endif %}
+
                                             {% if item.parameter.use_full_scan %}
                                             <li><strong>Полное сканирование:</strong> Включено</li>
                                             {% endif %}
@@ -217,43 +244,35 @@
                                             </div>
                                         {% endif %}
 
-                                        <h4>
-                                            Результаты поиска (контекст)
-                                            {% if item.result.llm_request.full_scan and item.result.llm_request.full_scan_result != 'not_found' %}
-                                                <span class="batch-info">- Группа чанков из пакета</span>
-                                            {% endif %}
-                                        </h4>
-                                        {% if item.result.search_results %}
-                                            {# Показываем все чанки из группы для полного сканирования #}
-                                            {% if item.result.llm_request.full_scan and item.result.search_results|length > 1 %}
-                                                <div class="batch-chunks-info">
-                                                    <p><strong>Показаны все {{ item.result.search_results|length }} чанков из группы, где была найдена информация:</strong></p>
-                                                </div>
-                                            {% endif %}
+                                        {# Информация о методе поиска #}
+                                        {% if item.result.llm_request.search_method %}
+                                            <h4>Метод поиска:</h4>
+                                            <p>
+                                                {% if item.result.llm_request.search_method == 'hybrid' %}
+                                                    Гибридный поиск (векторный + текстовый)
+                                                {% elif item.result.llm_request.search_method == 'text' %}
+                                                    Текстовый поиск
+                                                {% else %}
+                                                    Векторный поиск
+                                                {% endif %}
+                                            </p>
+                                        {% endif %}
 
+                                        {# Отображение результатов поиска #}
+                                        {% if item.result.search_results %}
+                                            <h4>Найденные фрагменты ({{ item.result.search_results|length }}):</h4>
                                             {% for doc in item.result.search_results %}
-                                            <div class="search-result {% if item.result.llm_request.full_scan %}full-scan-chunk{% endif %}">
+                                            <div class="search-result">
                                                 <p><strong>Результат {{ loop.index }}:</strong></p>
                                                 {% if doc.metadata %}
-                                                    {% set doc_id = doc.metadata.document_id or '' %}
-                                                    {% set doc_name = doc_names_mapping.get(doc_id, doc_id) if doc_names_mapping else doc_id %}
-                                                    <p><strong>Файл:</strong> {{ doc_name or 'Не указан' }}</p>
+                                                    {# Пробуем получить document_id или document_name #}
+                                                    {% set doc_id = doc.metadata.document_id or doc.metadata.document_name %}
+                                                    {% set doc_name = doc_names_mapping.get(doc_id, doc_id) if doc_names_mapping and doc_id else 'Не указан' %}
+                                                    <p><strong>Файл:</strong> {{ doc_name }}</p>
                                                     <p><strong>Страница:</strong> {{ doc.metadata.page_number or 'Не указана' }}</p>
-                                                    {% if doc.search_type %}
-                                                    <p><strong>Тип поиска:</strong>
-                                                        {% if doc.search_type == 'full_scan' %}
-                                                            <span class="search-type-full-scan">Полное сканирование</span>
-                                                        {% else %}
-                                                            {{ doc.search_type }}
-                                                        {% endif %}
-                                                    </p>
-                                                    {% endif %}
-                                                    {% if doc.score %}
-                                                    <p><strong>Релевантность:</strong> {{ "%.4f"|format(doc.score) }}</p>
-                                                    {% endif %}
-                                                    {% if doc.rerank_score %}
-                                                    <p><strong>Релевантность (ререйтинг):</strong> {{ "%.4f"|format(doc.rerank_score) }}</p>
-                                                    {% endif %}
+                                                {% else %}
+                                                    <p><strong>Файл:</strong> Не указан</p>
+                                                    <p><strong>Страница:</strong> Не указана</p>
                                                 {% endif %}
                                                 <div class="text-scroll-container">
                                                     <div class="search-result-content text-container">
@@ -278,18 +297,45 @@
 
                                         <h4>Результаты поиска (контекст):</h4>
                                         {% for doc in item.result.search_results %}
-                                        <div class="search-result">
-                                            <p><strong>Результат {{ loop.index }}:</strong></p>
-                                            {% set doc_id = doc.metadata.document_id or '' %}
-                                            {% set doc_name = doc_names_mapping.get(doc_id, doc_id) if doc_names_mapping else doc_id %}
-                                            <p><strong>Файл:</strong> {{ doc_name or 'Не указан' }}</p>
-                                            <p><strong>Страница:</strong> {{ doc.metadata.page_number or 'Не указана' }}</p>
-                                            <div class="text-scroll-container">
-                                                <div class="search-result-content text-container">
-                                                    {{ doc.text }}
+                                            <div class="search-result">
+                                                <p><strong>Результат {{ loop.index }}:</strong></p>
+                                                {% if doc.metadata %}
+                                                    {# Пробуем получить document_id или document_name #}
+                                                    {% set doc_id = doc.metadata.document_id or doc.metadata.document_name %}
+                                                    {% set doc_name = doc_names_mapping.get(doc_id, doc_id) if doc_names_mapping and doc_id else 'Не указан' %}
+                                                    <p><strong>Файл:</strong> {{ doc_name }}</p>
+                                                    <p><strong>Страница:</strong> {{ doc.metadata.page_number or 'Не указана' }}</p>
+                                                    {% if doc.metadata.section %}
+                                                    <p><strong>Раздел:</strong> {{ doc.metadata.section }}</p>
+                                                    {% endif %}
+                                                    {% if doc.search_type %}
+                                                    <p><strong>Тип поиска:</strong>
+                                                        {% if doc.search_type == 'hybrid' %}
+                                                            <span class="search-type-hybrid">Гибридный поиск</span>
+                                                        {% elif doc.search_type == 'text' %}
+                                                            <span class="search-type-text">Текстовый поиск</span>
+                                                        {% elif doc.search_type == 'vector' %}
+                                                            <span class="search-type-vector">Векторный поиск</span>
+                                                        {% elif doc.search_type == 'full_scan' %}
+                                                            <span class="search-type-full-scan">Полное сканирование</span>
+                                                        {% else %}
+                                                            {{ doc.search_type }}
+                                                        {% endif %}
+                                                    </p>
+                                                    {% endif %}
+                                                    {% if doc.score %}
+                                                    <p><strong>Релевантность:</strong> {{ "%.4f"|format(doc.score) }}</p>
+                                                    {% endif %}
+                                                    {% if doc.rerank_score %}
+                                                    <p><strong>Релевантность (ререйтинг):</strong> {{ "%.4f"|format(doc.rerank_score) }}</p>
+                                                    {% endif %}
+                                                {% endif %}
+                                                <div class="text-scroll-container">
+                                                    <div class="search-result-content text-container">
+                                                        {{ doc.text }}
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </div>
                                         {% endfor %}
                                     {% else %}
                                         <p>Информация о запросе недоступна</p>
@@ -332,6 +378,21 @@
             overflow-x: hidden;
             max-width: 100%;
         }
+
+        .results-container {
+            max-width: 100%;
+            overflow-x: hidden;
+        }
+
+        .data-table {
+            width: 100%;
+            table-layout: fixed;
+        }
+
+        .data-table th:nth-child(1) { width: 25%; }
+        .data-table th:nth-child(2) { width: 35%; }
+        .data-table th:nth-child(3) { width: 25%; }
+        .data-table th:nth-child(4) { width: 15%; }
 
         /* СТИЛИ ДЛЯ ВЫДЕЛЕНИЯ "НЕ НАЙДЕНО" */
         .not-found-row {
@@ -396,58 +457,51 @@
 
         /* Стили для полного сканирования */
         .full-scan-source {
-            border-left-color: #6f42c1 !important;
+            background-color: #f8f5ff;
+            padding: 5px;
+            border-radius: 4px;
+            border-left: 3px solid #6f42c1 !important;
             font-size: inherit; /* Наследуем размер от родителя */
         }
 
-        .not-found {
-            color: #dc3545;
-            font-size: inherit; /* Наследуем размер от родителя */
+        /* Стили для информации о токенах в модальном окне */
+        .token-info {
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid #e0e0e0;
         }
 
+        .token-details {
+            font-size: 0.9em;
+            color: #666;
+            margin-left: 5px;
+        }
+
+        /* СТИЛИ ДЛЯ ПОЛНОГО СКАНИРОВАНИЯ */
         .full-scan-info {
-            background-color: #f8f7ff;
-            border: 1px solid #6f42c1;
-            border-radius: 8px;
+            background-color: #f8f5ff;
+            border: 1px solid #d4c5f9;
+            border-radius: 4px;
             padding: 15px;
-            margin-bottom: 20px;
+            margin-bottom: 15px;
         }
 
         .full-scan-header {
             color: #6f42c1;
             margin-top: 0;
-            display: flex;
-            align-items: center;
-            gap: 10px;
+            margin-bottom: 10px;
         }
 
         .scan-stats p {
             margin: 5px 0;
         }
 
-        .scan-found {
-            color: #28a745;
-        }
-
         .scan-not-found {
-            color: #dc3545;
+            color: #d9534f;
         }
 
-        .batch-info {
-            color: #6f42c1;
-            font-weight: normal;
-            font-size: 0.9em;
-        }
-
-        .batch-chunks-info {
-            background-color: #e7dfff;
-            padding: 10px;
-            border-radius: 4px;
-            margin-bottom: 15px;
-        }
-
-        .full-scan-chunk {
-            border-left: 3px solid #6f42c1;
+        .scan-found {
+            color: #5cb85c;
         }
 
         .search-type-full-scan {
@@ -455,67 +509,73 @@
             color: white;
             padding: 2px 6px;
             border-radius: 3px;
-            font-size: 0.9em;
+            font-size: 0.85em;
         }
 
-        /* Стили для уведомлений */
+        .search-type-hybrid {
+            background-color: #17a2b8;
+            color: white;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 0.85em;
+        }
+
+        .search-type-text {
+            background-color: #ffc107;
+            color: #212529;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 0.85em;
+        }
+
+        .search-type-vector {
+            background-color: #28a745;
+            color: white;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 0.85em;
+        }
+
+        /* Контейнер для промпта */
+        .prompt-container {
+            padding: 20px;
+            background-color: #f5f5f5;
+            max-width: 100%;
+            overflow: hidden;
+        }
+
+        .prompt-row {
+            background-color: #f5f5f5;
+        }
+
+        .prompt-row td {
+            max-width: 100%;
+            overflow: hidden;
+        }
+
         .alert {
-            padding: 15px;
-            margin-bottom: 20px;
+            padding: 10px 15px;
+            margin-bottom: 15px;
             border: 1px solid transparent;
             border-radius: 4px;
         }
 
-        .alert-warning {
-            color: #856404;
-            background-color: #fff3cd;
-            border-color: #ffeaa7;
-        }
-
         .alert-info {
-            color: #0c5460;
-            background-color: #d1ecf1;
-            border-color: #bee5eb;
+            color: #31708f;
+            background-color: #d9edf7;
+            border-color: #bce8f1;
         }
 
-        .container {
-            width: 100%;
-            box-sizing: border-box;
-            overflow-x: hidden;
+        .alert-warning {
+            color: #8a6d3b;
+            background-color: #fcf8e3;
+            border-color: #faebcc;
         }
 
-        .results-container {
-            width: 100%;
-            box-sizing: border-box;
-            overflow-x: hidden;
-        }
-
-        /* Исправление прокрутки в таблицах */
-        .data-table {
-            width: 100%;
-            table-layout: fixed;
-            word-wrap: break-word;
-        }
-
-        .data-table td, .data-table th {
-            word-break: break-all;
-            word-wrap: break-word;
-        }
-
-        .prompt-row {
-            background-color: #f8f9fa !important;
-        }
-
-        .prompt-container {
-            padding: 15px;
-            max-height: none;
-            overflow: visible;
-            word-break: normal;
-        }
-
-        /* Исправленный контейнер для прокрутки */
+        /* Контейнер для прокрутки */
         .text-scroll-container {
             width: 100%;
+            max-width: 100%;
             overflow-x: auto; /* Горизонтальная прокрутка */
             overflow-y: auto; /* Вертикальная прокрутка */
             border: 1px solid #e0e0e0;
@@ -529,15 +589,18 @@
             padding: 10px;
             font-family: monospace;
             white-space: pre-wrap;
+            word-wrap: break-word;
             box-sizing: border-box;
-            display: inline-block; /* Вместо width: fit-content */
             min-width: 100%;
+            width: 100%;
         }
 
         /* Исправленный режим точного отображения */
         .exact-mode {
             white-space: pre !important;
-            min-width: max-content !important;
+            word-wrap: normal !important;
+            width: max-content !important;
+            min-width: 100% !important;
         }
 
         .llm-prompt {
@@ -636,6 +699,18 @@
         .page-footer .button {
             margin: 0;
         }
+
+        /* Адаптивность для мобильных устройств */
+        @media (max-width: 768px) {
+            .data-table {
+                font-size: 0.9em;
+            }
+
+            .data-table th,
+            .data-table td {
+                padding: 8px;
+            }
+        }
     </style>
 
     <script>
@@ -660,6 +735,15 @@
             if (row.style.display === "none") {
                 row.style.display = "table-row";
                 button.textContent = "Скрыть запрос";
+
+                // Применяем режим точного отображения к новым элементам
+                const isExactMode = document.getElementById('displayModeToggle').checked;
+                if (isExactMode) {
+                    const textContainers = row.querySelectorAll('.text-container');
+                    textContainers.forEach(container => {
+                        container.classList.add('exact-mode');
+                    });
+                }
             } else {
                 row.style.display = "none";
                 button.textContent = "Показать запрос";
@@ -687,6 +771,17 @@
             // Применяем состояние
             for (const row of allPromptRows) {
                 row.style.display = shouldShow ? "table-row" : "none";
+
+                // Применяем режим точного отображения к новым элементам
+                if (shouldShow) {
+                    const isExactMode = document.getElementById('displayModeToggle').checked;
+                    if (isExactMode) {
+                        const textContainers = row.querySelectorAll('.text-container');
+                        textContainers.forEach(container => {
+                            container.classList.add('exact-mode');
+                        });
+                    }
+                }
             }
 
             for (const button of allButtons) {
