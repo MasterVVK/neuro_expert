@@ -113,7 +113,7 @@
                                                 <div class="source-file full-scan-source">
                                                     <strong>Полное сканирование:</strong><br>
                                                     {% for file_name, pages in files_data.items() %}
-                                                        {{ file_name }}<br>
+                                                        <strong>{{ file_name }}</strong><br>
                                                         {% if pages %}
                                                             Страницы: {{ pages|format_page_ranges }}
                                                         {% endif %}
@@ -258,6 +258,8 @@
                                             </p>
                                         {% endif %}
 
+                                        <h4>Результаты поиска (контекст):</h4>
+
                                         {# Отображение результатов поиска #}
                                         {% if item.result.search_results %}
                                             <h4>Найденные фрагменты ({{ item.result.search_results|length }}):</h4>
@@ -270,6 +272,27 @@
                                                     {% set doc_name = doc_names_mapping.get(doc_id, doc_id) if doc_names_mapping and doc_id else 'Не указан' %}
                                                     <p><strong>Файл:</strong> {{ doc_name }}</p>
                                                     <p><strong>Страница:</strong> {{ doc.metadata.page_number or 'Не указана' }}</p>
+                                                    {% if doc.search_type %}
+                                                    <p><strong>Тип поиска:</strong>
+                                                        {% if doc.search_type == 'hybrid' %}
+                                                            <span class="search-type-hybrid">Гибридный поиск</span>
+                                                        {% elif doc.search_type == 'text' %}
+                                                            <span class="search-type-text">Текстовый поиск</span>
+                                                        {% elif doc.search_type == 'vector' %}
+                                                            <span class="search-type-vector">Векторный поиск</span>
+                                                        {% elif doc.search_type == 'full_scan' %}
+                                                            <span class="search-type-full-scan">Полное сканирование</span>
+                                                        {% else %}
+                                                            {{ doc.search_type }}
+                                                        {% endif %}
+                                                    </p>
+                                                    {% endif %}
+                                                    {% if doc.score %}
+                                                    <p><strong>Релевантность:</strong> {{ "%.4f"|format(doc.score) }}</p>
+                                                    {% endif %}
+                                                    {% if doc.rerank_score %}
+                                                    <p><strong>Релевантность (ререйтинг):</strong> {{ "%.4f"|format(doc.rerank_score) }}</p>
+                                                    {% endif %}
                                                 {% else %}
                                                     <p><strong>Файл:</strong> Не указан</p>
                                                     <p><strong>Страница:</strong> Не указана</p>
@@ -305,9 +328,6 @@
                                                     {% set doc_name = doc_names_mapping.get(doc_id, doc_id) if doc_names_mapping and doc_id else 'Не указан' %}
                                                     <p><strong>Файл:</strong> {{ doc_name }}</p>
                                                     <p><strong>Страница:</strong> {{ doc.metadata.page_number or 'Не указана' }}</p>
-                                                    {% if doc.metadata.section %}
-                                                    <p><strong>Раздел:</strong> {{ doc.metadata.section }}</p>
-                                                    {% endif %}
                                                     {% if doc.search_type %}
                                                     <p><strong>Тип поиска:</strong>
                                                         {% if doc.search_type == 'hybrid' %}
@@ -427,6 +447,11 @@
             font-size: inherit !important; /* Наследуем размер шрифта от родителя */
         }
 
+        /* Убеждаемся, что strong работает в колонке источников */
+        .sources-column strong {
+            font-weight: bold !important;
+        }
+
         /* Стили для информации об источниках */
         .sources-info {
             font-size: inherit; /* Наследуем размер от родителя */
@@ -462,6 +487,10 @@
             border-radius: 4px;
             border-left: 3px solid #6f42c1 !important;
             font-size: inherit; /* Наследуем размер от родителя */
+        }
+
+        .full-scan-source strong {
+            font-weight: bold !important;
         }
 
         /* Стили для информации о токенах в модальном окне */
