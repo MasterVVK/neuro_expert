@@ -414,7 +414,7 @@
         .data-table th:nth-child(3) { width: 25%; }
         .data-table th:nth-child(4) { width: 15%; }
 
-        /* СТИЛИ ДЛЯ ВЫДЕЛЕНИЯ "НЕ НАЙДЕНО" */
+        /* СТИЛИ ДЛЯ NOT FOUND */
         .not-found-row {
             background-color: rgba(255, 243, 205, 0.2);
         }
@@ -435,8 +435,8 @@
             flex-shrink: 0;
         }
 
-        /* НОВЫЕ СТИЛИ ДЛЯ КОЛОНКИ ИСТОЧНИКИ */
-        /* Настройка размера шрифта для колонки Источники */
+        /* СТИЛИ ДЛЯ ИСТОЧНИКОВ */
+        /* Настройка размера шрифта для колонки источники */
         .sources-column {
             font-size: 0.9rem !important; /* Уменьшенный размер шрифта */
             line-height: 1.4; /* Межстрочный интервал для лучшей читаемости */
@@ -447,7 +447,7 @@
             font-size: inherit !important; /* Наследуем размер шрифта от родителя */
         }
 
-        /* Убеждаемся, что strong работает в колонке источников */
+        /* Убедимся, что strong работает в колонке источников */
         .sources-column strong {
             font-weight: bold !important;
         }
@@ -471,7 +471,7 @@
         }
 
         .source-file strong {
-            font-size: inherit; /* Убеждаемся что жирный текст того же размера */
+            font-size: inherit; /* Убедимся что жирный текст того же размера */
         }
 
         .no-sources {
@@ -506,7 +506,7 @@
             margin-left: 5px;
         }
 
-        /* СТИЛИ ДЛЯ ПОЛНОГО СКАНИРОВАНИЯ */
+        /* СТИЛИ ДЛЯ СКАНА */
         .full-scan-info {
             background-color: #f8f5ff;
             border: 1px solid #d4c5f9;
@@ -823,6 +823,34 @@
         // Активируем режим точного отображения при загрузке страницы
         document.addEventListener('DOMContentLoaded', function() {
             toggleDisplayMode();
+
+            // Добавляем обработчик кликов для строк таблицы
+            const dataRows = document.querySelectorAll('.data-table tbody tr');
+
+            dataRows.forEach((row, index) => {
+                // Пропускаем строки с классом prompt-row
+                if (row.classList.contains('prompt-row')) {
+                    return;
+                }
+
+                // Добавляем обработчик клика на строку
+                row.addEventListener('click', function(e) {
+                    // Проверяем, что клик был не по кнопке
+                    if (e.target.tagName === 'BUTTON' || e.target.closest('button')) {
+                        return;
+                    }
+
+                    // Находим кнопку в этой строке
+                    const button = this.querySelector('.toggle-prompt-btn');
+                    if (button) {
+                        // Симулируем клик по кнопке
+                        button.click();
+                    }
+                });
+
+                // Меняем курсор при наведении
+                row.style.cursor = 'pointer';
+            });
         });
     </script>
 {% endblock %}
