@@ -206,13 +206,7 @@ def format_documents_for_context(search_results):
     for i, doc in enumerate(search_results, 1):
         metadata = doc.get('metadata', {})
         doc_text = f"Документ {i}:\n"
-        if metadata.get('section'):
-            doc_text += f"Раздел: {metadata['section']}\n"
-        if metadata.get('content_type'):
-            doc_text += f"Тип: {metadata['content_type']}\n"
-        if metadata.get('page_number'):
-            doc_text += f"Страница: {metadata['page_number']}\n"
-        doc_text += f"Текст:\n{doc['text']}\n"
+        doc_text += f"{doc['text']}\n"
         context_parts.append(doc_text)
     return "\n".join(context_parts)
 
