@@ -160,10 +160,12 @@
                                         <div style="font-size: 0.9em; margin-bottom: 5px;">
                                             <div>{{ item.result.llm_request.model or item.parameter.llm_model }}</div>
                                             {% if item.result.llm_request.tokens %}
-                                                <div style="color: #666;">Токены: {{ item.result.llm_request.tokens.prompt_tokens|default(0) }}</div>
+                                                <div style="color: #666;">Промпт: {{ item.result.llm_request.tokens.prompt_tokens|default(0) }}</div>
                                             {% endif %}
                                             {% if item.result.search_results %}
-                                                <div style="color: #666;">Чанки: {{ item.result.search_results|calculate_chunks_size }} симв.</div>
+                                                {% set total_chars = item.result.search_results|calculate_chunks_size %}
+                                                {% set total_tokens = item.result.search_results|calculate_chunks_tokens %}
+                                                <div style="color: #666;">Чанки: ~{{ total_tokens }}</div>
                                             {% endif %}
                                         </div>
                                     {% endif %}

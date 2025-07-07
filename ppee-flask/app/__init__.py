@@ -277,6 +277,14 @@ def register_template_filters(app):
         """Фильтр для вычисления общего размера чанков"""
         return calculate_chunks_total_size(search_results)
 
+    @app.template_filter('calculate_chunks_tokens')
+    def calculate_chunks_tokens_filter(search_results):
+        """Фильтр для вычисления примерного количества токенов в чанках"""
+        total_chars = calculate_chunks_total_size(search_results)
+        # Для русского текста примерно 4 символа на токен
+        return int(total_chars / 4) if total_chars else 0
+
+
     # Отладочный вывод для проверки регистрации фильтров
     app.logger.info("Зарегистрированные фильтры:")
     for name in app.jinja_env.filters:
