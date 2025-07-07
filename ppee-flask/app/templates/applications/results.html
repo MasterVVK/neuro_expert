@@ -163,13 +163,7 @@
                                                 <div style="color: #666;">Токены: {{ item.result.llm_request.tokens.prompt_tokens|default(0) }}</div>
                                             {% endif %}
                                             {% if item.result.search_results %}
-                                                {% set total_chunk_size = 0 %}
-                                                {% for chunk in item.result.search_results %}
-                                                    {% if chunk.text %}
-                                                        {% set total_chunk_size = total_chunk_size + chunk.text|length %}
-                                                    {% endif %}
-                                                {% endfor %}
-                                                <div style="color: #666;">Чанки: {{ total_chunk_size }} симв.</div>
+                                                <div style="color: #666;">Чанки: {{ item.result.search_results|calculate_chunks_size }} симв.</div>
                                             {% endif %}
                                         </div>
                                     {% endif %}

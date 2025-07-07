@@ -6,75 +6,79 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from celery import Celery
 from config import config
+from app.utils.chunk_utils import calculate_chunks_total_size
 
 # Инициализация расширений
 db = SQLAlchemy()
 migrate = Migrate()
 celery = Celery()
 
+
 def create_app(config_name=None):
     """
     Фабрика для создания приложения Flask.
-    
+
     Args:
         config_name: Имя конфигурации
-        
+
     Returns:
         Flask: Приложение Flask
     """
     if config_name is None:
         config_name = os.environ.get('FLASK_CONFIG', 'default')
-    
+
     app = Flask(__name__, instance_relative_config=True)
-    
+
     # Загрузка конфигурации
     app.config.from_object(config[config_name])
     if hasattr(config[config_name], 'init_app'):
         config[config_name].init_app(app)
     app.config.from_pyfile('config.py', silent=True)
-    
+
     # Инициализация расширений
     db.init_app(app)
     migrate.init_app(app, db)
-    
+
     # Настройка Celery
     celery.conf.update(app.config['CELERY_CONFIG'])
-    
+
     # Настройка логирования
     setup_logging(app)
-    
+
     # Создание директории для загрузок
     uploads_path = os.path.join(app.root_path, app.config['UPLOAD_FOLDER'])
     os.makedirs(uploads_path, exist_ok=True)
-    
+
     # Регистрация blueprint'ов
     register_blueprints(app)
-    
+
     # Регистрация пользовательских фильтров
     register_template_filters(app)
 
     # ВАЖНО: Включаем расширение 'do' для Jinja2
     app.jinja_env.add_extension('jinja2.ext.do')
-    
+
     return app
+
 
 def setup_logging(app):
     """Настройка логирования для приложения"""
     if not os.path.exists('logs'):
         os.mkdir('logs')
-    
+
     # Настройка обработчиков
     file_handler = RotatingFileHandler('logs/app.log', maxBytes=10485760, backupCount=10)
     file_handler.setFormatter(logging.Formatter(
         '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
     ))
     file_handler.setLevel(logging.INFO)
-    
+
     # Применение настроек к логгеру приложения
     app.logger.addHandler(file_handler)
     app.logger.setLevel(logging.INFO)
-    
+
     app.logger.info('Приложение запущено')
+
 
 def register_blueprints(app):
     """Регистрация blueprint'ов"""
@@ -268,8 +272,14 @@ def register_template_filters(app):
 
         return ', '.join(ranges)
 
+    @app.template_filter('calculate_chunks_size')
+    def calculate_chunks_size_filter(search_results):
+        """Фильтр для вычисления общего размера чанков"""
+        return calculate_chunks_total_size(search_results)
+
     # Отладочный вывод для проверки регистрации фильтров
     app.logger.info("Зарегистрированные фильтры:")
     for name in app.jinja_env.filters:
-        if name in ['nl2br', 'to_moscow_time', 'strftime', 'format_datetime', 'time_ago', 'format_page_ranges']:
+        if name in ['nl2br', 'to_moscow_time', 'strftime', 'format_datetime', 'time_ago', 'format_page_ranges',
+                    'calculate_chunks_size']:
             app.logger.info(f"  - {name}")
