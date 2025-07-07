@@ -1,7 +1,6 @@
 from flask import render_template, redirect, url_for, flash, request, jsonify, current_app
 from app.blueprints.llm_management import bp
 from app.services.fastapi_client import FastAPIClient
-import requests
 import logging
 
 logger = logging.getLogger(__name__)
@@ -12,23 +11,29 @@ def index():
     """Страница управления LLM через FastAPI"""
     try:
         client = FastAPIClient()
+
+        # Получаем список моделей
         available_models = client.get_llm_models()
 
-        # Получаем информацию о моделях
-        models_info = {}
-        # Упрощаем - просто показываем список моделей
-        for model_name in available_models:
-            models_info[model_name] = {
-                "context_length": 8192,  # Значение по умолчанию
-                "parameter_size": "Неизвестно",
-                "family": "Неизвестно"
-            }
+        # Получаем подробную информацию о моделях через FastAPI
+        models_info = client.get_llm_models_info()
+
+        # Если информация не получена, создаем базовую структуру
+        if not models_info:
+            models_info = {}
+            for model_name in available_models:
+                models_info[model_name] = {
+                    "parameter_size": "Неизвестно",
+                    "context_length": 8192,
+                    "family": "Неизвестно"
+                }
 
         return render_template('llm_management/index.html',
                                title='Управление LLM',
                                available_models=available_models,
                                models_info=models_info,
                                ollama_url=current_app.config['OLLAMA_URL'])
+
     except Exception as e:
         logger.error(f"Ошибка при получении информации о моделях: {str(e)}")
         return render_template('llm_management/index.html',
@@ -53,23 +58,20 @@ def test():
             # Тестируем модель через FastAPI
             client = FastAPIClient()
 
-            # Отправляем запрос
-            response = requests.post(f"{client.base_url}/llm/process", json={
-                "model_name": model_name,
-                "prompt": prompt,
-                "context": "",  # При тестировании нет контекста
-                "parameters": {
+            # Используем метод process_llm_query вместо прямого HTTP запроса
+            response = client.process_llm_query(
+                model_name=model_name,
+                prompt=prompt,
+                context="",  # При тестировании нет контекста
+                parameters={
                     'temperature': temperature,
                     'max_tokens': max_tokens,
                     'context_length': context_length
-                },
-                "query": None
-            })
+                }
+            )
 
-            if response.status_code == 200:
-                llm_response = response.json()["response"]
-            else:
-                raise Exception(f"FastAPI вернул ошибку: {response.text}")
+            # Извлекаем ответ
+            llm_response = response.get("response", "Нет ответа от модели")
 
             return render_template('llm_management/test.html',
                                    title='Тест LLM',
@@ -80,6 +82,7 @@ def test():
                                    context_length=context_length,
                                    response=llm_response,
                                    available_models=client.get_llm_models())
+
         except Exception as e:
             logger.error(f"Ошибка при тестировании модели: {str(e)}")
             flash(f"Ошибка при тестировании модели: {str(e)}", "error")
@@ -90,7 +93,7 @@ def test():
         available_models = client.get_llm_models()
     except Exception as e:
         logger.error(f"Ошибка при получении списка моделей: {str(e)}")
-        available_models = ['gemma3:27b', 'llama3:8b', 'mistral:7b']
+        available_models = []
 
     return render_template('llm_management/test.html',
                            title='Тест LLM',
@@ -106,33 +109,44 @@ def model_info():
         return jsonify({'error': 'Не указано имя модели'}), 400
 
     try:
-        # Получаем список моделей через FastAPI
         client = FastAPIClient()
-        models = client.get_llm_models()
 
-        if model_name in models:
-            # Возвращаем базовую информацию
-            # В будущем можно расширить, запросив детальную информацию у FastAPI
-            context_length = 8192  # Значение по умолчанию
+        # Получаем информацию о всех моделях
+        models_info = client.get_llm_models_info()
 
-            # Определяем контекст на основе имени модели
-            if "gemma3" in model_name.lower():
-                context_length = 8192
-            elif "llama3" in model_name.lower():
-                context_length = 8192
-            elif "mixtral" in model_name.lower():
-                context_length = 32768
-            elif "phi3" in model_name.lower():
-                context_length = 4096
+        if model_name in models_info:
+            model_data = models_info[model_name]
 
             return jsonify({
                 'name': model_name,
-                'context_length': context_length,
-                'parameters': context_length,  # Для обратной совместимости
-                'family': 'Неизвестно'
+                'context_length': model_data.get('context_length', 8192),
+                'parameters': model_data.get('context_length', 8192),  # Для обратной совместимости
+                'parameter_size': model_data.get('parameter_size', 'Неизвестно'),
+                'family': model_data.get('family', 'Неизвестно'),
+                'quantization': model_data.get('quantization', 'Неизвестно'),
+                'size_gb': model_data.get('size_gb')
             })
 
-        return jsonify({'error': 'Модель не найдена'}), 404
+        # Если модель не найдена, пробуем получить детальную информацию
+        model_details = client.get_model_details(model_name)
+        if model_details:
+            return jsonify({
+                'name': model_name,
+                'context_length': model_details.get('context_length', 8192),
+                'parameters': model_details.get('context_length', 8192),
+                'parameter_size': model_details.get('details', {}).get('parameter_size', 'Неизвестно'),
+                'family': model_details.get('details', {}).get('family', 'Неизвестно'),
+                'quantization': model_details.get('details', {}).get('quantization_level', 'Неизвестно')
+            })
+
+        # Если ничего не найдено, возвращаем значения по умолчанию
+        return jsonify({
+            'name': model_name,
+            'context_length': 8192,
+            'parameters': 8192,
+            'parameter_size': 'Неизвестно',
+            'family': 'Неизвестно'
+        })
 
     except Exception as e:
         logger.error(f"Ошибка при получении информации о модели: {str(e)}")

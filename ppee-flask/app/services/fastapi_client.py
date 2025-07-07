@@ -170,3 +170,49 @@ class FastAPIClient:
                 "system": {"process_count": 0, "disk_percent": 0, "active_indexing_tasks": 0,
                            "indexing_queue_size": 0}
             }
+
+    def get_llm_models_info(self) -> Dict[str, Dict[str, Any]]:
+        """Получает информацию о всех LLM моделях"""
+        try:
+            response = requests.get(f"{self.base_url}/llm/models/info")
+            response.raise_for_status()
+            data = response.json()
+
+            if data.get("status") == "success":
+                return data.get("models", {})
+
+            return {}
+
+        except Exception as e:
+            logger.error(f"Ошибка получения информации о моделях: {e}")
+            return {}
+
+    def get_model_details(self, model_name: str) -> Dict[str, Any]:
+        """Получает детальную информацию о конкретной модели"""
+        try:
+            response = requests.post(f"{self.base_url}/llm/model/show",
+                                     params={"model_name": model_name})
+            response.raise_for_status()
+            return response.json()
+
+        except Exception as e:
+            logger.error(f"Ошибка получения деталей модели {model_name}: {e}")
+            return {}
+
+    def process_llm_query(self, model_name: str, prompt: str, context: str,
+                          parameters: Dict[str, Any], query: Optional[str] = None) -> Dict[str, Any]:
+        """Обрабатывает запрос через LLM"""
+        try:
+            response = requests.post(f"{self.base_url}/llm/process", json={
+                "model_name": model_name,
+                "prompt": prompt,
+                "context": context,
+                "parameters": parameters,
+                "query": query
+            })
+            response.raise_for_status()
+            return response.json()
+
+        except Exception as e:
+            logger.error(f"Ошибка обработки LLM запроса: {e}")
+            raise
