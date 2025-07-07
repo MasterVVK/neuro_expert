@@ -54,7 +54,7 @@
                             <th>Параметр</th>
                             <th>Значение</th>
                             <th class="sources-column">Источники</th>
-                            <th>Действия</th>
+                            <th>LLM</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -156,9 +156,25 @@
                                     {% endif %}
                                 </td>
                                 <td>
+                                    {% if item.result.llm_request %}
+                                        <div style="font-size: 0.9em; margin-bottom: 5px;">
+                                            <div>{{ item.result.llm_request.model or item.parameter.llm_model }}</div>
+                                            {% if item.result.llm_request.tokens %}
+                                                <div style="color: #666;">Токены: {{ item.result.llm_request.tokens.prompt_tokens|default(0) }}</div>
+                                            {% endif %}
+                                            {% if item.result.search_results %}
+                                                {% set total_chunk_size = 0 %}
+                                                {% for chunk in item.result.search_results %}
+                                                    {% if chunk.text %}
+                                                        {% set total_chunk_size = total_chunk_size + chunk.text|length %}
+                                                    {% endif %}
+                                                {% endfor %}
+                                                <div style="color: #666;">Чанки: {{ total_chunk_size }} симв.</div>
+                                            {% endif %}
+                                        </div>
+                                    {% endif %}
                                     <button class="toggle-prompt-btn" onclick="togglePrompt('prompt-{{ item.result.id }}')">Показать запрос</button>
-                                </td>
-                            </tr>
+                                </td>                            </tr>
                             <tr class="prompt-row" id="prompt-{{ item.result.id }}" style="display: none;">
                                 <td colspan="4" class="prompt-container">
                                     {% if item.result.llm_request %}
