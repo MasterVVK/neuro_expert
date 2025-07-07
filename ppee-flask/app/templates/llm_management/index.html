@@ -2,7 +2,7 @@
 
 {% block content %}
     <div class="page-header">
-        <h1>LLM</h1>
+        <h1>Управление LLM</h1>
         <a href="{{ url_for('llm_management.test') }}" class="button">Тестировать модель</a>
     </div>
 
@@ -37,22 +37,24 @@
                                     <p class="model-error">{{ models_info[model_name]['error'] }}</p>
                                 {% else %}
                                     <div class="model-details">
-                                        <div class="info-row highlight-row">
-                                            <div class="info-label">Размер модели:</div>
-                                            <div class="info-value">{{ models_info[model_name].get('parameter_size', 'Неизвестно') }}</div>
-                                        </div>
-
-                                        <div class="info-row highlight-row">
-                                            <div class="info-label">Размер контекста:</div>
-                                            <div class="info-value">{{ "{:,}".format(models_info[model_name].get('context_length', 8192)) }} токенов</div>
-                                        </div>
-
-                                        {% if models_info[model_name].get('size_gb') %}
-                                            <div class="info-row highlight-row">
-                                                <div class="info-label">Размер файла:</div>
-                                                <div class="info-value">{{ models_info[model_name]['size_gb'] }} GB</div>
+                                        <div class="highlight-block">
+                                            <div class="info-row">
+                                                <div class="info-label">Размер модели:</div>
+                                                <div class="info-value">{{ models_info[model_name].get('parameter_size', 'Неизвестно') }}</div>
                                             </div>
-                                        {% endif %}
+
+                                            <div class="info-row">
+                                                <div class="info-label">Размер контекста:</div>
+                                                <div class="info-value">{{ "{:,}".format(models_info[model_name].get('context_length', 8192)) }} токенов</div>
+                                            </div>
+
+                                            {% if models_info[model_name].get('size_gb') %}
+                                                <div class="info-row">
+                                                    <div class="info-label">Размер файла:</div>
+                                                    <div class="info-value">{{ models_info[model_name]['size_gb'] }} GB</div>
+                                                </div>
+                                            {% endif %}
+                                        </div>
 
                                         {% if models_info[model_name].get('quantization') and models_info[model_name].get('quantization') != 'Неизвестно' %}
                                             <div class="info-row">
@@ -123,25 +125,32 @@
             font-family: 'Courier New', monospace;
         }
 
-        /* Выделение важных параметров - subtle подход */
-        .highlight-row {
+        /* Выделение важных параметров - блок */
+        .highlight-block {
             background-color: #f8f9fa;
-            margin: 0 -10px;
-            padding: 0 10px;
+            margin: 15px -10px;
+            padding: 10px;
+            border-radius: 4px;
         }
 
-        /* Группировка выделенных параметров */
-        .highlight-row + .highlight-row {
-            margin-top: -1px;
-            padding-top: 10px;
+        .highlight-block .info-row {
+            margin-bottom: 10px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #eee;
         }
 
-        .highlight-row .info-label {
+        .highlight-block .info-row:last-child {
+            margin-bottom: 0;
+            padding-bottom: 0;
+            border-bottom: none;
+        }
+
+        .highlight-block .info-label {
             color: #495057;
             font-weight: 600;
         }
 
-        .highlight-row .info-value {
+        .highlight-block .info-value {
             color: #212529;
             font-weight: 600;
         }
