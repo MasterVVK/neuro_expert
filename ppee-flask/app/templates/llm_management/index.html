@@ -2,19 +2,19 @@
 
 {% block content %}
     <div class="page-header">
-        <h1>LLM</h1>
+        <h1>Управление LLM</h1>
         <a href="{{ url_for('llm_management.test') }}" class="button">Тестировать модель</a>
     </div>
-    
+
     <div class="llm-settings">
         <div class="info-card">
             <h2>Настройки подключения</h2>
-            
+
             <div class="info-row">
                 <div class="info-label">Ollama URL:</div>
                 <div class="info-value">{{ ollama_url }}</div>
             </div>
-            
+
             {% if error %}
             <div class="alert alert-error">
                 <p><strong>Ошибка подключения:</strong> {{ error }}</p>
@@ -22,61 +22,61 @@
             </div>
             {% endif %}
         </div>
-        
+
         <div class="info-card">
             <h2>Доступные модели</h2>
-            
+
             {% if available_models %}
                 <div class="models-list">
                     {% for model_name in available_models %}
-                        <div class="model-item">
+                        <div class="model-card">
                             <h3>{{ model_name }}</h3>
-                            
+
                             {% if model_name in models_info %}
                                 {% if 'error' in models_info[model_name] %}
                                     <p class="model-error">{{ models_info[model_name]['error'] }}</p>
                                 {% else %}
                                     <div class="model-details">
-                                        <div class="model-detail">
-                                            <span class="detail-label">Размер модели:</span>
-                                            <span class="detail-value">{{ models_info[model_name].get('parameter_size', 'Неизвестно') }}</span>
+                                        <div class="info-row highlight-row">
+                                            <div class="info-label">Размер модели:</div>
+                                            <div class="info-value">{{ models_info[model_name].get('parameter_size', 'Неизвестно') }}</div>
                                         </div>
 
-                                        <div class="model-detail">
-                                            <span class="detail-label">Размер контекста:</span>
-                                            <span class="detail-value">{{ "{:,}".format(models_info[model_name].get('context_length', 8192)) }} токенов</span>
-                                        </div>
-
-                                        {% if models_info[model_name].get('quantization') and models_info[model_name].get('quantization') != 'Неизвестно' %}
-                                            <div class="model-detail">
-                                                <span class="detail-label">Квантизация:</span>
-                                                <span class="detail-value">{{ models_info[model_name]['quantization'] }}</span>
-                                            </div>
-                                        {% endif %}
-
-                                        <div class="model-detail">
-                                            <span class="detail-label">Семейство:</span>
-                                            <span class="detail-value">{{ models_info[model_name].get('family', 'Неизвестно') }}</span>
+                                        <div class="info-row highlight-row">
+                                            <div class="info-label">Размер контекста:</div>
+                                            <div class="info-value">{{ "{:,}".format(models_info[model_name].get('context_length', 8192)) }} токенов</div>
                                         </div>
 
                                         {% if models_info[model_name].get('size_gb') %}
-                                            <div class="model-detail">
-                                                <span class="detail-label">Размер файла:</span>
-                                                <span class="detail-value">{{ models_info[model_name]['size_gb'] }} GB</span>
+                                            <div class="info-row highlight-row">
+                                                <div class="info-label">Размер файла:</div>
+                                                <div class="info-value">{{ models_info[model_name]['size_gb'] }} GB</div>
                                             </div>
                                         {% endif %}
 
+                                        {% if models_info[model_name].get('quantization') and models_info[model_name].get('quantization') != 'Неизвестно' %}
+                                            <div class="info-row">
+                                                <div class="info-label">Квантизация:</div>
+                                                <div class="info-value">{{ models_info[model_name]['quantization'] }}</div>
+                                            </div>
+                                        {% endif %}
+
+                                        <div class="info-row">
+                                            <div class="info-label">Семейство:</div>
+                                            <div class="info-value">{{ models_info[model_name].get('family', 'Неизвестно') }}</div>
+                                        </div>
+
                                         {% if models_info[model_name].get('format') %}
-                                            <div class="model-detail">
-                                                <span class="detail-label">Формат:</span>
-                                                <span class="detail-value">{{ models_info[model_name]['format'].upper() }}</span>
+                                            <div class="info-row">
+                                                <div class="info-label">Формат:</div>
+                                                <div class="info-value">{{ models_info[model_name]['format'].upper() }}</div>
                                             </div>
                                         {% endif %}
 
                                         {% if models_info[model_name].get('modified_at') %}
-                                            <div class="model-detail">
-                                                <span class="detail-label">Обновлено:</span>
-                                                <span class="detail-value">{{ models_info[model_name]['modified_at'][:10] }}</span>
+                                            <div class="info-row">
+                                                <div class="info-label">Обновлено:</div>
+                                                <div class="info-value">{{ models_info[model_name]['modified_at'][:10] }}</div>
                                             </div>
                                         {% endif %}
                                     </div>
@@ -96,81 +96,57 @@
     </div>
 
     <style>
-        .llm-settings {
-            margin-top: 20px;
-        }
-
+        /* Используем существующие стили проекта */
         .models-list {
-            display: grid;
+            display: flex;
+            flex-direction: column;
             gap: 20px;
             margin-top: 20px;
         }
 
-        .model-item {
+        /* Карточка модели - аналогично feature-card */
+        .model-card {
             background-color: white;
             border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
             padding: 20px;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            transition: transform 0.3s ease;
         }
 
-        .model-item:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+        .model-card:hover {
+            transform: translateY(-5px);
         }
 
-        .model-item h3 {
-            margin: 0 0 15px 0;
+        .model-card h3 {
+            margin-bottom: 1rem;
             color: #007bff;
-            font-size: 1.2em;
             font-family: 'Courier New', monospace;
         }
 
-        .model-details {
-            margin-top: 10px;
+        /* Выделение важных параметров - subtle подход */
+        .highlight-row {
+            background-color: #f8f9fa;
+            margin: 0 -10px;
+            padding: 0 10px;
         }
 
-        .model-detail {
-            margin-bottom: 8px;
-            display: flex;
-            align-items: center;
-            padding: 4px 0;
-            border-bottom: 1px solid #f0f0f0;
+        /* Группировка выделенных параметров */
+        .highlight-row + .highlight-row {
+            margin-top: -1px;
+            padding-top: 10px;
         }
 
-        .model-detail:last-child {
-            border-bottom: none;
-        }
-
-        .detail-label {
-            font-weight: 600;
-            margin-right: 10px;
-            min-width: 150px;
+        .highlight-row .info-label {
             color: #495057;
-            font-size: 0.95em;
-        }
-
-        .detail-value {
-            color: #212529;
-            font-weight: 400;
-        }
-
-        /* Особый стиль для размера модели */
-        .model-detail:first-child .detail-value {
             font-weight: 600;
-            color: #007bff;
         }
 
-        .loading-message {
-            color: #6c757d;
-            font-style: italic;
+        .highlight-row .info-value {
+            color: #212529;
+            font-weight: 600;
         }
 
-        .model-error {
-            color: #dc3545;
-            font-style: italic;
-        }
-
+        /* Используем существующий alert стиль */
         .alert-error {
             background-color: #f8d7da;
             border: 1px solid #f5c6cb;
@@ -180,25 +156,18 @@
             margin-bottom: 20px;
         }
 
-        .alert-error p {
-            margin: 5px 0;
+        .loading-message {
+            color: #6c757d;
+            font-style: italic;
+            text-align: center;
+            padding: 20px 0;
         }
 
-        .alert-error strong {
-            font-weight: bold;
+        .model-error {
+            color: #dc3545;
+            font-style: italic;
         }
 
-        /* Адаптивность для мобильных */
-        @media (max-width: 768px) {
-            .model-detail {
-                flex-direction: column;
-                align-items: flex-start;
-            }
 
-            .detail-label {
-                min-width: auto;
-                margin-bottom: 4px;
-            }
-        }
     </style>
 {% endblock %}
