@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="form-container">
+    <h1>Редактирование пользователя: {{ user.username }}</h1>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ category }}">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    <form method="post" class="user-form">
+        <div class="form-group">
+            <label>Имя пользователя</label>
+            <input type="text"
+                   class="form-control"
+                   value="{{ user.username }}"
+                   disabled>
+            <small class="form-text">Имя пользователя изменить нельзя</small>
+        </div>
+
+        <div class="form-group">
+            <label for="email">Email <span class="required">*</span></label>
+            <input type="email"
+                   id="email"
+                   name="email"
+                   class="form-control"
+                   value="{{ user.email }}"
+                   required>
+        </div>
+
+        <div class="form-group">
+            <label for="role">Роль <span class="required">*</span></label>
+            <select id="role" name="role" class="form-control" required>
+                <option value="user" {% if user.role == 'user' %}selected{% endif %}>Пользователь</option>
+                <option value="prompt_engineer" {% if user.role == 'prompt_engineer' %}selected{% endif %}>Промпт-инженер</option>
+                <option value="admin" {% if user.role == 'admin' %}selected{% endif %}>Администратор</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="new_password">Новый пароль</label>
+            <input type="password"
+                   id="new_password"
+                   name="new_password"
+                   class="form-control">
+            <small class="form-text">Оставьте пустым, если не хотите менять пароль</small>
+        </div>
+
+        <div class="form-actions">
+            <button type="submit" class="button button-primary">Сохранить изменения</button>
+            <a href="{{ url_for('users.index') }}" class="button button-secondary">Отмена</a>
+        </div>
+    </form>
+</div>
+
+<style>
+.form-container {
+    max-width: 600px;
+    margin: 0 auto;
+    background: white;
+    padding: 30px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.user-form {
+    margin-top: 20px;
+}
+
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 5px;
+    color: #495057;
+    font-weight: 500;
+}
+
+.required {
+    color: #dc3545;
+}
+
+.form-control {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    font-size: 16px;
+    transition: border-color 0.15s ease-in-out;
+}
+
+.form-control:focus {
+    outline: none;
+    border-color: #007bff;
+    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+}
+
+.form-control:disabled {
+    background-color: #e9ecef;
+    cursor: not-allowed;
+}
+
+.form-text {
+    display: block;
+    margin-top: 5px;
+    font-size: 14px;
+    color: #6c757d;
+}
+
+.form-actions {
+    margin-top: 30px;
+    display: flex;
+    gap: 10px;
+}
+
+.alert {
+    padding: 12px 20px;
+    margin-bottom: 20px;
+    border-radius: 4px;
+}
+
+.alert-error {
+    background-color: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+</style>
+{% endblock %}

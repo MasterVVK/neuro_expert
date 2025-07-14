@@ -44,7 +44,11 @@ def init_db():
 {query}: [значение]'''
 
             # Создаем тестовый чек-лист
-            checklist = Checklist(name='Базовый чек-лист', description='Чек-лист для проверки документов ППЭЭ')
+            checklist = Checklist(
+                name='Базовый чек-лист',
+                description='Чек-лист для проверки документов ППЭЭ',
+                user_id=admin.id  # Привязываем к администратору
+            )
             db.session.add(checklist)
             db.session.commit()  # Сохраняем чек-лист для получения ID
 
@@ -95,6 +99,12 @@ def init_db():
             print("База данных инициализирована с тестовыми данными")
         else:
             print("База данных уже инициализирована")
+
+        # Обновляем роли manager на prompt_engineer если есть
+        updated_count = User.query.filter_by(role='manager').update({'role': 'prompt_engineer'})
+        if updated_count > 0:
+            db.session.commit()
+            print(f"Обновлено {updated_count} пользователей с роли manager на prompt_engineer")
 
 
 if __name__ == '__main__':

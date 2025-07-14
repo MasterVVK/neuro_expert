@@ -65,6 +65,74 @@
             background-color: rgba(255, 255, 255, 0.1);
         }
 
+        /* Стили для меню пользователя */
+        .nav-right {
+            position: absolute;
+            right: 2rem;
+            top: 50%;
+            transform: translateY(-50%);
+            display: flex;
+            align-items: center;
+        }
+
+        .user-menu {
+            position: relative;
+        }
+
+        .user-info {
+            cursor: pointer;
+            padding: 8px 16px;
+            border-radius: 4px;
+            transition: background-color 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .user-info:hover {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+
+        .user-role {
+            font-size: 0.9em;
+            color: rgba(255, 255, 255, 0.8);
+        }
+
+        .user-dropdown {
+            position: absolute;
+            top: 100%;
+            right: 0;
+            background: white;
+            min-width: 200px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            border-radius: 4px;
+            display: none;
+            z-index: 1000;
+            margin-top: 8px;
+        }
+
+        .user-menu:hover .user-dropdown {
+            display: block;
+        }
+
+        .user-dropdown a {
+            display: block;
+            padding: 10px 16px;
+            color: #333;
+            text-decoration: none;
+            transition: background-color 0.3s;
+        }
+
+        .user-dropdown a:hover {
+            background-color: #f0f0f0;
+        }
+
+        .user-dropdown hr {
+            margin: 5px 0;
+            border: none;
+            border-top: 1px solid #e0e0e0;
+        }
+
         /* Стили для барного индикатора */
         .system-bars-widget {
             display: flex;
@@ -245,16 +313,14 @@
             max-width: 1200px;
             margin: 0 auto;
             padding: 20px 20px 0;
-            position: relative;
-            z-index: 999;
         }
 
         .flash-message {
             position: relative;
             padding: 15px 40px 15px 20px;
             margin-bottom: 15px;
-            border: 1px solid transparent;
             border-radius: 4px;
+            border: 1px solid transparent;
             animation: slideIn 0.3s ease-out;
         }
 
@@ -270,40 +336,34 @@
         }
 
         .flash-success {
-            color: #155724;
             background-color: #d4edda;
             border-color: #c3e6cb;
+            color: #155724;
         }
 
         .flash-error {
-            color: #721c24;
             background-color: #f8d7da;
             border-color: #f5c6cb;
-        }
-
-        .flash-warning {
-            color: #856404;
-            background-color: #fff3cd;
-            border-color: #ffeaa7;
+            color: #721c24;
         }
 
         .flash-info {
-            color: #0c5460;
             background-color: #d1ecf1;
             border-color: #bee5eb;
+            color: #0c5460;
         }
 
-        .flash-message-text {
-            display: block;
-            max-width: 100%;
-            word-wrap: break-word;
+        .flash-warning {
+            background-color: #fff3cd;
+            border-color: #ffeaa7;
+            color: #856404;
         }
 
         .flash-close {
             position: absolute;
-            top: 0;
-            right: 0;
-            padding: 15px 20px;
+            top: 50%;
+            right: 15px;
+            transform: translateY(-50%);
             background: none;
             border: none;
             font-size: 24px;
@@ -311,34 +371,19 @@
             color: inherit;
             opacity: 0.5;
             cursor: pointer;
-            transition: opacity 0.2s;
+            padding: 0;
+            width: 24px;
+            height: 24px;
         }
 
         .flash-close:hover {
             opacity: 0.8;
         }
 
-        /* Автоматическое скрытие успешных сообщений */
-        .flash-success {
-            animation: slideIn 0.3s ease-out, fadeOut 0.5s ease-out 5s forwards;
-        }
-
-        @keyframes fadeOut {
-            to {
-                opacity: 0;
-                transform: translateY(-10px);
-            }
-        }
-
-        /* Адаптивность */
+        /* Адаптивный дизайн */
         @media (max-width: 768px) {
             header {
-                flex-direction: column;
-                padding: 0.5rem 1rem;
-            }
-
-            main {
-                padding-top: 120px; /* Увеличиваем отступ для мобильной версии */
+                padding: 1rem;
             }
 
             nav ul {
@@ -346,8 +391,18 @@
                 gap: 10px;
             }
 
+            .nav-right {
+                position: static;
+                transform: none;
+                margin-top: 1rem;
+            }
+
             .system-bars-widget {
                 transform: scale(0.85);
+            }
+
+            main {
+                padding-top: 140px; /* Больше отступа для мобильной версии */
             }
         }
     </style>
@@ -366,14 +421,23 @@
     <header>
         <nav>
             <ul>
-                <li><a href="{{ url_for('applications.index') }}">Заявки</a></li>
-                <li><a href="{{ url_for('checklists.index') }}">Чек-листы</a></li>
-                <li><a href="{{ url_for('search.index') }}">Поиск</a></li>
-                <li><a href="{{ url_for('llm_management.index') }}">LLM</a></li>
+                <li><a href="{{ url_for('main.index') }}">Главная</a></li>
+                {% if current_user.is_authenticated %}
+                    <li><a href="{{ url_for('applications.index') }}">Заявки</a></li>
+                    <li><a href="{{ url_for('checklists.index') }}">Чек-листы</a></li>
+                    <li><a href="{{ url_for('search.index') }}">Поиск</a></li>
+                    {% if current_user.is_prompt_engineer() %}
+                        <li><a href="{{ url_for('llm_management.index') }}">LLM</a></li>
+                    {% endif %}
+                    {% if current_user.is_admin() %}
+                        <li><a href="{{ url_for('users.index') }}">Пользователи</a></li>
+                    {% endif %}
+                {% endif %}
             </ul>
         </nav>
 
         <!-- Барный индикатор системных ресурсов -->
+        {% if current_user.is_authenticated %}
         <div class="system-bars-widget" id="system-bars">
             <div class="bar-wrapper">
                 <div class="bar-title">CPU</div>
@@ -429,6 +493,26 @@
                 </div>
             </div>
         </div>
+        {% endif %}
+
+        <div class="nav-right">
+            {% if current_user.is_authenticated %}
+                <div class="user-menu">
+                    <span class="user-info">
+                        {{ current_user.username }}
+                        <span class="user-role">({{ {'admin': 'Администратор', 'prompt_engineer': 'Промпт-инженер', 'user': 'Пользователь'}[current_user.role] }})</span>
+                    </span>
+                    <div class="user-dropdown">
+                        <a href="{{ url_for('users.profile') }}">Мой профиль</a>
+                        <a href="{{ url_for('users.edit_profile') }}">Настройки</a>
+                        <hr>
+                        <a href="{{ url_for('auth.logout') }}">Выйти</a>
+                    </div>
+                </div>
+            {% else %}
+                <a href="{{ url_for('auth.login') }}" class="button button-primary">Войти</a>
+            {% endif %}
+        </div>
     </header>
 
     <main>
@@ -462,6 +546,7 @@
     <script src="{{ url_for('static', filename='js/script.js') }}"></script>
 
     <!-- Скрипт для обновления системной статистики -->
+    {% if current_user.is_authenticated %}
     <script>
         // Функция для получения класса цвета
         function getColorClass(percent) {
@@ -566,5 +651,6 @@
             });
         });
     </script>
+    {% endif %}
 </body>
 </html>

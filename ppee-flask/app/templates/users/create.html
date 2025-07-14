@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="form-container">
+    <h1>Создание пользователя</h1>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ category }}">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    <form method="post" class="user-form">
+        <div class="form-group">
+            <label for="username">Имя пользователя <span class="required">*</span></label>
+            <input type="text"
+                   id="username"
+                   name="username"
+                   class="form-control"
+                   value="{{ username or '' }}"
+                   required>
+            <small class="form-text">Используйте только буквы, цифры и подчеркивания</small>
+        </div>
+
+        <div class="form-group">
+            <label for="email">Email <span class="required">*</span></label>
+            <input type="email"
+                   id="email"
+                   name="email"
+                   class="form-control"
+                   value="{{ email or '' }}"
+                   required>
+        </div>
+
+        <div class="form-group">
+            <label for="password">Пароль <span class="required">*</span></label>
+            <input type="password"
+                   id="password"
+                   name="password"
+                   class="form-control"
+                   required>
+            <small class="form-text">Минимум 6 символов</small>
+        </div>
+
+        <div class="form-group">
+            <label for="role">Роль <span class="required">*</span></label>
+            <select id="role" name="role" class="form-control" required>
+                <option value="user" {% if role == 'user' %}selected{% endif %}>Пользователь</option>
+                <option value="prompt_engineer" {% if role == 'prompt_engineer' %}selected{% endif %}>Промпт-инженер</option>
+                <option value="admin" {% if role == 'admin' %}selected{% endif %}>Администратор</option>
+            </select>
+            <small class="form-text">
+                <strong>Пользователь:</strong> создание и редактирование своих чек-листов, просмотр чужих<br>
+                <strong>Промпт-инженер:</strong> полный доступ ко всем функциям, кроме управления пользователями<br>
+                <strong>Администратор:</strong> полный доступ ко всем функциям
+            </small>
+        </div>
+
+        <div class="form-actions">
+            <button type="submit" class="button button-primary">Создать пользователя</button>
+            <a href="{{ url_for('users.index') }}" class="button button-secondary">Отмена</a>
+        </div>
+    </form>
+</div>
+
+<style>
+.form-container {
+    max-width: 600px;
+    margin: 0 auto;
+    background: white;
+    padding: 30px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.user-form {
+    margin-top: 20px;
+}
+
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 5px;
+    color: #495057;
+    font-weight: 500;
+}
+
+.required {
+    color: #dc3545;
+}
+
+.form-control {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    font-size: 16px;
+    transition: border-color 0.15s ease-in-out;
+}
+
+.form-control:focus {
+    outline: none;
+    border-color: #007bff;
+    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+}
+
+.form-text {
+    display: block;
+    margin-top: 5px;
+    font-size: 14px;
+    color: #6c757d;
+}
+
+.form-actions {
+    margin-top: 30px;
+    display: flex;
+    gap: 10px;
+}
+
+.alert {
+    padding: 12px 20px;
+    margin-bottom: 20px;
+    border-radius: 4px;
+}
+
+.alert-error {
+    background-color: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
+.alert-success {
+    background-color: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+</style>
+{% endblock %}

@@ -3,16 +3,18 @@ from datetime import datetime
 
 
 class Checklist(db.Model):
-    """Модель чек-листа для проверки документов"""
+    """Модель чек-листа для анализа документов"""
     __tablename__ = 'checklists'
 
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(255), nullable=False)
+    name = db.Column(db.String(255), nullable=False, unique=True)
     description = db.Column(db.Text)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'))  # Владелец чек-листа
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Отношения
+    user = db.relationship('User', backref=db.backref('checklists', lazy='dynamic'))
     parameters = db.relationship('ChecklistParameter', backref='checklist', lazy='dynamic',
                                  cascade='all, delete-orphan', order_by='ChecklistParameter.order_index')
 

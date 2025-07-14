@@ -4,6 +4,7 @@ from logging.handlers import RotatingFileHandler
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
+from flask_login import LoginManager
 from celery import Celery
 from config import config
 from app.utils.chunk_utils import calculate_chunks_total_size
@@ -12,6 +13,7 @@ from app.utils.chunk_utils import calculate_chunks_total_size
 db = SQLAlchemy()
 migrate = Migrate()
 celery = Celery()
+login_manager = LoginManager()
 
 
 def create_app(config_name=None):
@@ -39,6 +41,12 @@ def create_app(config_name=None):
     db.init_app(app)
     migrate.init_app(app, db)
 
+    # Настройка Flask-Login
+    login_manager.init_app(app)
+    login_manager.login_view = 'auth.login'
+    login_manager.login_message = 'Пожалуйста, войдите в систему для доступа к этой странице.'
+    login_manager.login_message_category = 'info'
+
     # Настройка Celery
     celery.conf.update(app.config['CELERY_CONFIG'])
 
@@ -57,6 +65,13 @@ def create_app(config_name=None):
 
     # ВАЖНО: Включаем расширение 'do' для Jinja2
     app.jinja_env.add_extension('jinja2.ext.do')
+
+    # Настройка загрузчика пользователей для Flask-Login
+    from app.models import User
+
+    @login_manager.user_loader
+    def load_user(user_id):
+        return User.query.get(int(user_id))
 
     return app
 
@@ -90,6 +105,7 @@ def register_blueprints(app):
     from app.blueprints.auth import bp as auth_bp
     from app.blueprints.search import bp as search_bp
     from app.blueprints.stats import bp as stats_bp
+    from app.blueprints.users import bp as users_bp
 
     app.register_blueprint(main_bp)
     app.register_blueprint(applications_bp)
@@ -98,6 +114,7 @@ def register_blueprints(app):
     app.register_blueprint(auth_bp)
     app.register_blueprint(search_bp)
     app.register_blueprint(stats_bp)
+    app.register_blueprint(users_bp)
 
 
 def register_template_filters(app):

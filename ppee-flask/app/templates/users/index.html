@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Управление пользователями</h1>
+    <div class="page-actions">
+        <a href="{{ url_for('users.create') }}" class="button button-primary">
+            Создать пользователя
+        </a>
+    </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, message in messages %}
+            <div class="alert alert-{{ category }}">
+                {{ message }}
+            </div>
+        {% endfor %}
+    {% endif %}
+{% endwith %}
+
+<div class="users-table-container">
+    {% if users %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Имя пользователя</th>
+                    <th>Email</th>
+                    <th>Роль</th>
+                    <th>Дата регистрации</th>
+                    <th>Действия</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for user in users %}
+                    <tr>
+                        <td>{{ user.id }}</td>
+                        <td>
+                            <strong>{{ user.username }}</strong>
+                            {% if user.id == current_user.id %}
+                                <span class="badge badge-info">Вы</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ user.email }}</td>
+                        <td>
+                            <span class="badge badge-{{ 'danger' if user.role == 'admin' else 'primary' if user.role == 'prompt_engineer' else 'secondary' }}">
+                                {{ {'admin': 'Администратор', 'prompt_engineer': 'Промпт-инженер', 'user': 'Пользователь'}[user.role] }}
+                            </span>
+                        </td>
+                        <td>{{ user.created_at|to_moscow_time|strftime('%d.%m.%Y %H:%M') }} МСК</td>
+                        <td>
+                            <div class="action-buttons">
+                                {% if user.id != current_user.id %}
+                                    <a href="{{ url_for('users.edit', id=user.id) }}"
+                                       class="button button-small button-primary">
+                                        Редактировать
+                                    </a>
+                                    <form method="post"
+                                          action="{{ url_for('users.delete', id=user.id) }}"
+                                          style="display: inline;"
+                                          onsubmit="return confirm('Вы уверены, что хотите удалить пользователя {{ user.username }}?');">
+                                        <button type="submit" class="button button-small button-danger">
+                                            Удалить
+                                        </button>
+                                    </form>
+                                {% else %}
+                                    <span class="text-muted">—</span>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <div class="users-summary">
+            <p>Всего пользователей: <strong>{{ users|length }}</strong></p>
+            <p>
+                Администраторов: <strong>{{ users|selectattr('role', 'equalto', 'admin')|list|length }}</strong>,
+                Промпт-инженеров: <strong>{{ users|selectattr('role', 'equalto', 'prompt_engineer')|list|length }}</strong>,
+                Обычных: <strong>{{ users|selectattr('role', 'equalto', 'user')|list|length }}</strong>
+            </p>
+        </div>
+    {% else %}
+        <div class="empty-state">
+            <p>Нет зарегистрированных пользователей</p>
+        </div>
+    {% endif %}
+</div>
+
+<style>
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+}
+
+.page-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.users-table-container {
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.data-table th,
+.data-table td {
+    padding: 12px;
+    text-align: left;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.data-table th {
+    background-color: #f8f9fa;
+    font-weight: 600;
+    color: #495057;
+}
+
+.data-table tr:hover {
+    background-color: #f8f9fa;
+}
+
+.badge {
+    display: inline-block;
+    padding: 3px 8px;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 4px;
+    text-transform: uppercase;
+}
+
+.badge-danger {
+    background-color: #dc3545;
+    color: white;
+}
+
+.badge-primary {
+    background-color: #007bff;
+    color: white;
+}
+
+.badge-secondary {
+    background-color: #6c757d;
+    color: white;
+}
+
+.badge-info {
+    background-color: #17a2b8;
+    color: white;
+}
+
+.action-buttons {
+    display: flex;
+    gap: 5px;
+}
+
+.button-small {
+    padding: 5px 10px;
+    font-size: 14px;
+}
+
+.users-summary {
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid #e0e0e0;
+    color: #666;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 40px;
+    color: #666;
+}
+
+.alert {
+    padding: 15px;
+    margin-bottom: 20px;
+    border-radius: 4px;
+}
+
+.alert-success {
+    background-color: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+
+.alert-error {
+    background-color: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
+.text-muted {
+    color: #6c757d;
+}
+</style>
+{% endblock %}
