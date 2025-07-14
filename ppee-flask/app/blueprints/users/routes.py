@@ -215,7 +215,8 @@ def edit_profile():
             for error in errors:
                 flash(error, 'error')
             return render_template('users/edit_profile.html',
-                                   title='Редактирование профиля')
+                                   title='Редактирование профиля',
+                                   user=current_user)
 
         # Обновление данных
         current_user.email = email
@@ -232,4 +233,5 @@ def edit_profile():
             flash('Ошибка при обновлении профиля', 'error')
 
     return render_template('users/edit_profile.html',
-                           title='Редактирование профиля')
+                           title='Редактирование профиля',
+                           user=current_user)

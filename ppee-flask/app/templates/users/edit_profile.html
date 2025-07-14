@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="profile-container">
-    <h1>Мой профиль</h1>
+<div class="form-container">
+    <h1>Редактирование профиля</h1>
 
     {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
@@ -14,166 +14,187 @@
         {% endif %}
     {% endwith %}
 
-    <div class="profile-card">
-        <div class="profile-section">
-            <h2>Информация о пользователе</h2>
-
-            <div class="info-group">
-                <label>Имя пользователя:</label>
-                <div class="info-value">{{ user.username }}</div>
-            </div>
-
-            <div class="info-group">
-                <label>Email:</label>
-                <div class="info-value">{{ user.email }}</div>
-            </div>
-
-            <div class="info-group">
-                <label>Роль:</label>
-                <div class="info-value">
-                    <span class="badge badge-{{ 'danger' if user.role == 'admin' else 'primary' if user.role == 'prompt_engineer' else 'secondary' }}">
-                        {{ {'admin': 'Администратор', 'prompt_engineer': 'Промпт-инженер', 'user': 'Пользователь'}[user.role] }}
-                    </span>
-                </div>
-            </div>
-
-            <div class="info-group">
-                <label>Дата регистрации:</label>
-                <div class="info-value">{{ user.created_at|to_moscow_time|strftime('%d.%m.%Y %H:%M') }} МСК</div>
-            </div>
+    <form method="post" class="profile-form">
+        <div class="form-group">
+            <label>Имя пользователя</label>
+            <input type="text"
+                   class="form-control"
+                   value="{{ current_user.username }}"
+                   disabled>
+            <small class="form-text">Имя пользователя изменить нельзя</small>
         </div>
 
-        <div class="profile-section">
-            <h2>Права доступа</h2>
-            <ul class="permissions-list">
-                {% if user.role == 'admin' %}
-                    <li>✓ Полный доступ ко всем функциям системы</li>
-                    <li>✓ Управление пользователями</li>
-                    <li>✓ Управление LLM моделями</li>
-                    <li>✓ Создание и редактирование чек-листов</li>
-                    <li>✓ Просмотр всех заявок</li>
-                {% elif user.role == 'prompt_engineer' %}
-                    <li>✓ Полный доступ ко всем функциям системы (кроме управления пользователями)</li>
-                    <li>✓ Создание и редактирование всех чек-листов</li>
-                    <li>✓ Управление LLM моделями</li>
-                    <li>✓ Создание и управление заявками</li>
-                    <li>✓ Просмотр всех заявок и статистики</li>
-                    <li>✗ Управление пользователями</li>
-                {% else %}
-                    <li>✓ Создание и редактирование своих чек-листов</li>
-                    <li>✓ Просмотр чужих чек-листов (только чтение)</li>
-                    <li>✓ Создание и управление своими заявками</li>
-                    <li>✓ Семантический поиск</li>
-                    <li>✗ Редактирование чужих чек-листов</li>
-                    <li>✗ Управление пользователями</li>
-                    <li>✗ Управление LLM моделями</li>
-                {% endif %}
-            </ul>
+        <div class="form-group">
+            <label for="email">Email <span class="required">*</span></label>
+            <input type="email"
+                   id="email"
+                   name="email"
+                   class="form-control"
+                   value="{{ current_user.email }}"
+                   required>
         </div>
 
-        <div class="profile-actions">
-            <a href="{{ url_for('users.edit_profile') }}" class="button button-primary">
-                Редактировать профиль
-            </a>
-            <a href="{{ url_for('main.index') }}" class="button button-secondary">
-                На главную
-            </a>
+        <hr class="section-divider">
+
+        <h3>Изменение пароля</h3>
+        <p class="text-muted">Оставьте поля пустыми, если не хотите менять пароль</p>
+
+        <div class="form-group">
+            <label for="current_password">Текущий пароль</label>
+            <input type="password"
+                   id="current_password"
+                   name="current_password"
+                   class="form-control">
         </div>
-    </div>
+
+        <div class="form-group">
+            <label for="new_password">Новый пароль</label>
+            <input type="password"
+                   id="new_password"
+                   name="new_password"
+                   class="form-control">
+            <small class="form-text">Минимум 6 символов</small>
+        </div>
+
+        <div class="form-group">
+            <label for="confirm_password">Подтверждение пароля</label>
+            <input type="password"
+                   id="confirm_password"
+                   name="confirm_password"
+                   class="form-control">
+        </div>
+
+        <div class="form-actions">
+            <button type="submit" class="button button-primary">Сохранить изменения</button>
+            <a href="{{ url_for('users.profile') }}" class="button button-secondary">Отмена</a>
+        </div>
+    </form>
 </div>
 
 <style>
-.profile-container {
-    max-width: 800px;
+.form-container {
+    max-width: 600px;
     margin: 0 auto;
     padding: 20px;
 }
 
-.profile-card {
+.profile-form {
     background: white;
+    padding: 30px;
     border-radius: 8px;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-    padding: 30px;
 }
 
-.profile-section {
-    margin-bottom: 30px;
-    padding-bottom: 30px;
-    border-bottom: 1px solid #e9ecef;
-}
-
-.profile-section:last-of-type {
-    border-bottom: none;
-    margin-bottom: 0;
-    padding-bottom: 0;
-}
-
-.profile-section h2 {
-    color: #495057;
-    font-size: 20px;
+.form-group {
     margin-bottom: 20px;
 }
 
-.info-group {
-    display: flex;
-    margin-bottom: 15px;
-}
-
-.info-group label {
-    flex: 0 0 200px;
-    color: #6c757d;
+.form-group label {
+    display: block;
+    margin-bottom: 5px;
+    color: #495057;
     font-weight: 500;
 }
 
-.info-value {
-    flex: 1;
-    color: #212529;
-}
-
-.badge {
-    display: inline-block;
-    padding: 5px 10px;
-    font-size: 14px;
-    font-weight: 600;
-    border-radius: 4px;
-    text-transform: uppercase;
-}
-
-.badge-danger {
-    background-color: #dc3545;
-    color: white;
-}
-
-.badge-primary {
-    background-color: #007bff;
-    color: white;
-}
-
-.badge-secondary {
-    background-color: #6c757d;
-    color: white;
-}
-
-.permissions-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-}
-
-.permissions-list li {
-    padding: 8px 0;
+.form-control {
+    width: 100%;
+    padding: 10px 12px;
+    font-size: 16px;
+    line-height: 1.5;
     color: #495057;
+    background-color: #fff;
+    background-clip: padding-box;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
 }
 
-.permissions-list li:before {
-    margin-right: 8px;
-    font-weight: bold;
+.form-control:focus {
+    color: #495057;
+    background-color: #fff;
+    border-color: #80bdff;
+    outline: 0;
+    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
 }
 
-.profile-actions {
+.form-control:disabled {
+    background-color: #e9ecef;
+    opacity: 1;
+}
+
+.form-text {
+    display: block;
+    margin-top: 5px;
+    font-size: 14px;
+    color: #6c757d;
+}
+
+.required {
+    color: #dc3545;
+}
+
+.section-divider {
+    margin: 30px 0;
+    border: 0;
+    border-top: 1px solid #e9ecef;
+}
+
+.profile-form h3 {
+    color: #495057;
+    font-size: 18px;
+    margin-bottom: 10px;
+}
+
+.text-muted {
+    color: #6c757d;
+    font-size: 14px;
+    margin-bottom: 20px;
+}
+
+.form-actions {
     margin-top: 30px;
     display: flex;
     gap: 10px;
+}
+
+.button {
+    display: inline-block;
+    padding: 10px 20px;
+    font-size: 16px;
+    font-weight: 400;
+    line-height: 1.5;
+    text-align: center;
+    text-decoration: none;
+    white-space: nowrap;
+    vertical-align: middle;
+    cursor: pointer;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    transition: all 0.15s ease-in-out;
+}
+
+.button-primary {
+    color: #fff;
+    background-color: #007bff;
+    border-color: #007bff;
+}
+
+.button-primary:hover {
+    color: #fff;
+    background-color: #0056b3;
+    border-color: #004085;
+}
+
+.button-secondary {
+    color: #6c757d;
+    background-color: #fff;
+    border-color: #6c757d;
+}
+
+.button-secondary:hover {
+    color: #fff;
+    background-color: #6c757d;
+    border-color: #6c757d;
 }
 
 .alert {
