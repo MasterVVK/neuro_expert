@@ -162,12 +162,26 @@
                                         </span>
                                     </td>
                                     <td>{{ parameter.llm_model }}</td>
-                                    <td>
-                                        <a href="{{ url_for('checklists.edit_parameter', id=parameter.id) }}" class="button button-small">Редактировать</a>
 
-                                        <form method="post" action="{{ url_for('checklists.delete_parameter', id=parameter.id) }}" class="inline-form" onsubmit="return confirm('Вы уверены, что хотите удалить этот параметр? Это действие необратимо.');">
-                                            <button type="submit" class="button button-small button-danger">Удалить</button>
-                                        </form>
+                                    <td>
+                                        {% if can_edit %}
+                                            <a href="{{ url_for('checklists.edit_parameter', id=parameter.id) }}"
+                                               class="button button-small">
+                                                Редактировать
+                                            </a>
+                                            <form method="post"
+                                                  action="{{ url_for('checklists.delete_parameter', id=parameter.id) }}"
+                                                  class="inline-form">
+                                                <button type="submit" class="button button-small button-danger">
+                                                    Удалить
+                                                </button>
+                                            </form>
+                                        {% else %}
+                                            <a href="{{ url_for('checklists.view_parameter', id=parameter.id) }}"
+                                               class="button button-small">
+                                                Просмотр
+                                            </a>
+                                        {% endif %}
                                     </td>
                                 </tr>
                             {% endfor %}

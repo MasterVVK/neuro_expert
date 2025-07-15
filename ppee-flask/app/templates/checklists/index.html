@@ -14,6 +14,7 @@
                         <th>ID</th>
                         <th>Название</th>
                         <th>Параметры</th>
+                        <th>Владелец</th>
                         <th>Используется в заявках</th>
                         <th>Дата создания</th>
                         <th>Действия</th>
@@ -25,6 +26,16 @@
                         <td>{{ checklist.id }}</td>
                         <td>{{ checklist.name }}</td>
                         <td>{{ checklist.parameters.count() }}</td>
+                        <td>
+                            {% if checklist.user %}
+                                {{ checklist.user.username }}
+                                {% if checklist.user_id == current_user.id %}
+                                    <span style="color: #007bff; font-size: 0.8em;">(Мой)</span>
+                                {% endif %}
+                            {% else %}
+                                <span style="color: #6c757d;">Системный</span>
+                            {% endif %}
+                        </td>
                         <td>
                             {% set app_count = checklist.applications.count() %}
                             {% if app_count > 0 %}
@@ -39,7 +50,7 @@
                         <td class="actions-cell">
                             <div class="action-buttons-container">
                                 <a href="{{ url_for('checklists.copy', id=checklist.id) }}" class="button button-small">Копировать</a>
-                                {% if app_count == 0 %}
+                                {% if app_count == 0 and current_user.can_edit_checklist(checklist) %}
                                     <form method="post"
                                           action="{{ url_for('checklists.delete', id=checklist.id) }}"
                                           class="inline-form"

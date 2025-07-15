@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Просмотр параметра: {{ parameter.name }}</h1>
+    <a href="{{ url_for('checklists.view', id=checklist.id) }}" class="button button-secondary">
+        Назад к чек-листу
+    </a>
+</div>
+
+<div class="form-container">
+    {% if not can_edit %}
+    <div class="alert alert-info">
+        <strong>Режим просмотра:</strong> Вы можете только просматривать этот параметр.
+        Для создания собственной версии <a href="{{ url_for('checklists.copy', id=checklist.id) }}">скопируйте чек-лист</a>.
+    </div>
+    {% endif %}
+
+    <div class="view-only-form">
+        <div class="form-group">
+            <label>Название параметра</label>
+            <div class="form-control-static">{{ parameter.name }}</div>
+        </div>
+
+        <div class="form-group">
+            <label>Описание</label>
+            <div class="form-control-static">{{ parameter.description or 'Не указано' }}</div>
+        </div>
+
+        <div class="form-group">
+            <label>Поисковый запрос</label>
+            <div class="form-control-static">{{ parameter.search_query }}</div>
+        </div>
+
+        {% if parameter.llm_query %}
+        <div class="form-group">
+            <label>Запрос для LLM</label>
+            <div class="form-control-static">{{ parameter.llm_query }}</div>
+        </div>
+        {% endif %}
+
+        <h3>Настройки поиска</h3>
+
+        <div class="form-group">
+            <label>Лимит результатов поиска</label>
+            <div class="form-control-static">{{ parameter.search_limit }}</div>
+        </div>
+
+        <div class="form-group">
+            <label>Использовать ре-ранкер</label>
+            <div class="form-control-static">{{ 'Да' if parameter.use_reranker else 'Нет' }}</div>
+        </div>
+
+        {% if parameter.use_reranker %}
+        <div class="form-group">
+            <label>Количество документов для ре-ранкинга</label>
+            <div class="form-control-static">{{ parameter.rerank_limit }}</div>
+        </div>
+        {% endif %}
+
+        <div class="form-group">
+            <label>Полный перебор при неудаче</label>
+            <div class="form-control-static">{{ 'Да' if parameter.use_full_scan else 'Нет' }}</div>
+        </div>
+
+        <h3>Настройки LLM</h3>
+
+        <div class="form-group">
+            <label>Модель</label>
+            <div class="form-control-static">{{ parameter.llm_model }}</div>
+        </div>
+
+        <div class="form-group">
+            <label>Шаблон промпта</label>
+            <div class="form-control-static">
+                <pre>{{ parameter.llm_prompt_template }}</pre>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>Temperature</label>
+            <div class="form-control-static">{{ parameter.llm_temperature }}</div>
+        </div>
+
+        <div class="form-group">
+            <label>Max Tokens</label>
+            <div class="form-control-static">{{ parameter.llm_max_tokens }}</div>
+        </div>
+
+        <div class="form-actions">
+            <a href="{{ url_for('checklists.view', id=checklist.id) }}" class="button button-secondary">
+                Вернуться к чек-листу
+            </a>
+            {% if can_edit %}
+            <a href="{{ url_for('checklists.edit_parameter', id=parameter.id) }}" class="button button-primary">
+                Редактировать
+            </a>
+            {% else %}
+            <a href="{{ url_for('checklists.copy', id=checklist.id) }}" class="button button-primary">
+                Скопировать чек-лист
+            </a>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<style>
+.form-control-static {
+    padding: 10px 12px;
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    min-height: 40px;
+}
+
+.form-control-static pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    background: none;
+    padding: 0;
+    border: none;
+}
+
+.view-only-form h3 {
+    margin-top: 30px;
+    margin-bottom: 20px;
+    color: #495057;
+    border-bottom: 1px solid #dee2e6;
+    padding-bottom: 10px;
+}
+
+.alert {
+    padding: 15px;
+    margin-bottom: 20px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+}
+
+.alert-info {
+    color: #0c5460;
+    background-color: #d1ecf1;
+    border-color: #bee5eb;
+}
+
+.alert a {
+    color: #062c33;
+    font-weight: bold;
+}
+</style>
+{% endblock %}

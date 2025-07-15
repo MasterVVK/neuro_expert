@@ -1,4 +1,5 @@
-from flask import render_template, redirect, url_for, flash, request, jsonify, current_app, session
+from flask import render_template, redirect, url_for, flash, request, jsonify, current_app, session, abort
+from flask_login import login_required, current_user
 from app import db
 from app.models import Checklist, ChecklistParameter
 from app.blueprints.checklists import bp
@@ -6,13 +7,20 @@ from app.services.fastapi_client import FastAPIClient
 
 
 @bp.route('/')
+@login_required
 def index():
     """Страница со списком чек-листов"""
+    # Все авторизованные пользователи видят все чек-листы
+    # Права на редактирование проверяются отдельно через can_edit_checklist()
     checklists = Checklist.query.order_by(Checklist.created_at.desc()).all()
-    return render_template('checklists/index.html', title='Чек-листы', checklists=checklists)
+
+    return render_template('checklists/index.html',
+                           title='Чек-листы',
+                           checklists=checklists)
 
 
 @bp.route('/create', methods=['GET', 'POST'])
+@login_required
 def create():
     """Создание нового чек-листа (с поддержкой копирования)"""
     # Проверяем, это копирование или обычное создание
@@ -23,6 +31,10 @@ def create():
     original_checklist = None
     if copy_from_id:
         original_checklist = Checklist.query.get(copy_from_id)
+        # Очищаем сессию
+        session.pop('copy_from_id', None)
+        session.pop('copy_name', None)
+        session.pop('copy_description', None)
 
     if request.method == 'POST':
         name = request.form['name']
@@ -37,26 +49,27 @@ def create():
         if existing:
             flash('Чек-лист с таким названием уже существует', 'error')
             return render_template('checklists/create.html',
-                                 title='Создание чек-листа',
-                                 prefilled_name=name,
-                                 prefilled_description=description,
-                                 original_checklist=original_checklist)
+                                   title='Создание чек-листа',
+                                   prefilled_name=name,
+                                   prefilled_description=description,
+                                   original_checklist=original_checklist)
 
         try:
-            checklist = Checklist(name=name, description=description)
+            # Создаем чек-лист с привязкой к текущему пользователю
+            checklist = Checklist(
+                name=name,
+                description=description,
+                user_id=current_user.id  # Привязываем к текущему пользователю
+            )
             db.session.add(checklist)
             db.session.flush()  # Получаем ID нового чек-листа
 
             # Если это копирование и нужно скопировать параметры
             if original_checklist_id and copy_parameters:
-                # Загружаем оригинальный чек-лист заново для получения параметров
-                source_checklist = Checklist.query.get(int(original_checklist_id))
-                if source_checklist:
-                    # Явно загружаем параметры, отсортированные по order_index
-                    params_to_copy = source_checklist.parameters.order_by(ChecklistParameter.order_index).all()
-                    current_app.logger.info(f"Копирование {len(params_to_copy)} параметров из чек-листа {source_checklist.id}")
-
-                    for param in params_to_copy:
+                original = Checklist.query.get(original_checklist_id)
+                if original:
+                    # Копируем параметры
+                    for param in original.parameters.order_by(ChecklistParameter.order_index):
                         new_param = ChecklistParameter(
                             checklist_id=checklist.id,
                             name=param.name,
@@ -67,27 +80,16 @@ def create():
                             use_reranker=param.use_reranker,
                             search_limit=param.search_limit,
                             rerank_limit=param.rerank_limit,
-                            use_full_scan=param.use_full_scan,  # НОВОЕ: копируем use_full_scan
+                            use_full_scan=param.use_full_scan,
                             llm_model=param.llm_model,
                             llm_prompt_template=param.llm_prompt_template,
                             llm_temperature=param.llm_temperature,
                             llm_max_tokens=param.llm_max_tokens
                         )
                         db.session.add(new_param)
-                        current_app.logger.info(f"Добавлен параметр: {param.name} (use_full_scan: {param.use_full_scan})")
 
             db.session.commit()
-
-            # Очищаем данные из сессии только после успешного создания
-            session.pop('copy_from_id', None)
-            session.pop('copy_name', None)
-            session.pop('copy_description', None)
-
-            if original_checklist_id:
-                flash(f'Чек-лист "{name}" успешно создан как копия', 'success')
-            else:
-                flash('Чек-лист успешно создан', 'success')
-
+            flash('Чек-лист успешно создан', 'success')
             return redirect(url_for('checklists.view', id=checklist.id))
 
         except Exception as e:
@@ -95,31 +97,43 @@ def create():
             current_app.logger.error(f"Ошибка при создании чек-листа: {str(e)}")
             flash(f'Ошибка при создании чек-листа: {str(e)}', 'error')
             return render_template('checklists/create.html',
-                                 title='Создание чек-листа',
-                                 prefilled_name=name,
-                                 prefilled_description=description,
-                                 original_checklist=original_checklist)
+                                   title='Создание чек-листа',
+                                   prefilled_name=name,
+                                   prefilled_description=description,
+                                   original_checklist=original_checklist)
 
     return render_template('checklists/create.html',
-                         title='Создание чек-листа',
-                         prefilled_name=prefilled_name,
-                         prefilled_description=prefilled_description,
-                         original_checklist=original_checklist)
+                           title='Создание чек-листа',
+                           prefilled_name=prefilled_name,
+                           prefilled_description=prefilled_description,
+                           original_checklist=original_checklist)
 
 
 @bp.route('/<int:id>')
+@login_required
 def view(id):
     """Просмотр чек-листа и его параметров"""
     checklist = Checklist.query.get_or_404(id)
+
+    # ИЗМЕНЕНО: Все авторизованные пользователи могут просматривать любые чек-листы
+    # Проверка прав только для редактирования
+
     return render_template('checklists/view.html',
                            title=f'Чек-лист {checklist.name}',
-                           checklist=checklist)
+                           checklist=checklist,
+                           can_edit=current_user.can_edit_checklist(checklist))
 
 
 @bp.route('/<int:id>/edit', methods=['POST'])
+@login_required
 def edit(id):
     """Редактирование названия и описания чек-листа (inline)"""
     checklist = Checklist.query.get_or_404(id)
+
+    # Проверяем права на редактирование
+    if not current_user.can_edit_checklist(checklist):
+        flash('У вас нет прав для редактирования этого чек-листа', 'error')
+        abort(403)
 
     name = request.form.get('name', '').strip()
     description = request.form.get('description', '').strip()
@@ -164,9 +178,13 @@ def edit(id):
 
 
 @bp.route('/<int:id>/copy')
+@login_required
 def copy(id):
     """Перенаправляет на страницу создания с предзаполненными данными"""
     original_checklist = Checklist.query.get_or_404(id)
+
+    # ИЗМЕНЕНО: Убрана проверка прав - любой авторизованный пользователь может копировать любой чек-лист
+    # Это позволяет делиться чек-листами между пользователями
 
     # Генерируем уникальное имя для копии
     suggested_name = f"{original_checklist.name} (копия)"
@@ -186,28 +204,34 @@ def copy(id):
 
 
 @bp.route('/<int:id>/parameter/create', methods=['GET', 'POST'])
+@login_required
 def create_parameter(id):
     """Создание нового параметра для чек-листа"""
     checklist = Checklist.query.get_or_404(id)
+
+    # Проверяем права на редактирование
+    if not current_user.can_edit_checklist(checklist):
+        flash('У вас нет прав для добавления параметров в этот чек-лист', 'error')
+        abort(403)
 
     if request.method == 'POST':
         name = request.form['name']
         description = request.form.get('description', '')
         search_query = request.form['search_query']
 
-        # НОВОЕ: Обработка отдельного LLM запроса
+        # Обработка отдельного LLM запроса
         use_separate_llm_query = request.form.get('use_separate_llm_query') == 'true'
         llm_query = None
         if use_separate_llm_query:
             llm_query = request.form.get('llm_query', '').strip()
             if not llm_query:
-                llm_query = None  # Если пустой, используем None
+                llm_query = None
 
         # Получаем настройки поиска
         search_limit = int(request.form.get('search_limit', 3))
         use_reranker = 'use_reranker' in request.form
         rerank_limit = int(request.form.get('rerank_limit', 10))
-        use_full_scan = 'use_full_scan' in request.form  # НОВОЕ: получаем настройку полного сканирования
+        use_full_scan = 'use_full_scan' in request.form
 
         # Получаем настройки LLM
         llm_model = request.form['llm_model']
@@ -228,7 +252,7 @@ def create_parameter(id):
             search_limit=search_limit,
             use_reranker=use_reranker,
             rerank_limit=rerank_limit,
-            use_full_scan=use_full_scan,  # НОВОЕ: сохраняем настройку полного сканирования
+            use_full_scan=use_full_scan,
             llm_model=llm_model,
             llm_prompt_template=llm_prompt_template,
             llm_temperature=llm_temperature,
@@ -283,17 +307,23 @@ def create_parameter(id):
 
 
 @bp.route('/parameters/<int:id>/edit', methods=['GET', 'POST'])
+@login_required
 def edit_parameter(id):
     """Редактирование параметра чек-листа"""
     parameter = ChecklistParameter.query.get_or_404(id)
     checklist = parameter.checklist
+
+    # Проверяем права на редактирование
+    if not current_user.can_edit_checklist(checklist):
+        flash('У вас нет прав для редактирования параметров этого чек-листа', 'error')
+        abort(403)
 
     if request.method == 'POST':
         parameter.name = request.form['name']
         parameter.description = request.form.get('description', '')
         parameter.search_query = request.form['search_query']
 
-        # НОВОЕ: Обработка отдельного LLM запроса
+        # Обработка отдельного LLM запроса
         use_separate_llm_query = request.form.get('use_separate_llm_query') == 'true'
         if use_separate_llm_query:
             llm_query = request.form.get('llm_query', '').strip()
@@ -305,7 +335,7 @@ def edit_parameter(id):
         parameter.search_limit = int(request.form.get('search_limit', 3))
         parameter.use_reranker = 'use_reranker' in request.form
         parameter.rerank_limit = int(request.form.get('rerank_limit', 10))
-        parameter.use_full_scan = 'use_full_scan' in request.form  # НОВОЕ: обновляем настройку полного сканирования
+        parameter.use_full_scan = 'use_full_scan' in request.form
 
         # Обновляем настройки LLM
         parameter.llm_model = request.form['llm_model']
@@ -322,7 +352,6 @@ def edit_parameter(id):
     client = FastAPIClient()
     available_models = client.get_llm_models()
 
-    # Если не удалось получить список моделей, используем фиксированный список
     if not available_models:
         available_models = ['gemma3:27b', 'llama3:8b', 'mistral:7b']
 
@@ -334,9 +363,15 @@ def edit_parameter(id):
 
 
 @bp.route('/<int:id>/delete', methods=['POST'])
+@login_required
 def delete(id):
     """Удаление чек-листа"""
     checklist = Checklist.query.get_or_404(id)
+
+    # Проверяем права на удаление
+    if not current_user.can_edit_checklist(checklist):
+        flash('У вас нет прав для удаления этого чек-листа', 'error')
+        abort(403)
 
     # Проверяем, используется ли чек-лист в заявках
     applications_count = checklist.applications.count()
@@ -371,10 +406,17 @@ def delete(id):
 
 
 @bp.route('/parameters/<int:id>/delete', methods=['POST'])
+@login_required
 def delete_parameter(id):
     """Удаление параметра чек-листа"""
     parameter = ChecklistParameter.query.get_or_404(id)
     checklist_id = parameter.checklist_id
+    checklist = parameter.checklist
+
+    # Проверяем права на редактирование
+    if not current_user.can_edit_checklist(checklist):
+        flash('У вас нет прав для удаления параметров этого чек-листа', 'error')
+        abort(403)
 
     try:
         # При удалении нужно обновить order_index для оставшихся параметров
@@ -399,10 +441,17 @@ def delete_parameter(id):
 
 
 @bp.route('/parameters/<int:id>/move_up', methods=['POST'])
+@login_required
 def move_parameter_up(id):
     """Перемещение параметра вверх"""
     parameter = ChecklistParameter.query.get_or_404(id)
     checklist_id = parameter.checklist_id
+    checklist = parameter.checklist
+
+    # Проверяем права на редактирование
+    if not current_user.can_edit_checklist(checklist):
+        flash('У вас нет прав для изменения порядка параметров', 'error')
+        abort(403)
 
     if parameter.order_index > 0:
         # Находим параметр выше
@@ -421,10 +470,17 @@ def move_parameter_up(id):
 
 
 @bp.route('/parameters/<int:id>/move_down', methods=['POST'])
+@login_required
 def move_parameter_down(id):
     """Перемещение параметра вниз"""
     parameter = ChecklistParameter.query.get_or_404(id)
     checklist_id = parameter.checklist_id
+    checklist = parameter.checklist
+
+    # Проверяем права на редактирование
+    if not current_user.can_edit_checklist(checklist):
+        flash('У вас нет прав для изменения порядка параметров', 'error')
+        abort(403)
 
     # Находим параметр ниже
     next_param = ChecklistParameter.query.filter_by(
@@ -442,9 +498,14 @@ def move_parameter_down(id):
 
 
 @bp.route('/<int:id>/parameters/reorder', methods=['POST'])
+@login_required
 def reorder_parameters(id):
     """AJAX endpoint для изменения порядка параметров через drag&drop"""
     checklist = Checklist.query.get_or_404(id)
+
+    # Проверяем права на редактирование
+    if not current_user.can_edit_checklist(checklist):
+        return jsonify({'status': 'error', 'message': 'Нет прав доступа'}), 403
 
     try:
         # Получаем новый порядок параметров из запроса
@@ -463,3 +524,27 @@ def reorder_parameters(id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'status': 'error', 'message': str(e)}), 500
+
+    # Добавьте новый маршрут в app/blueprints/checklists/routes.py:
+
+
+@bp.route('/parameters/<int:id>/view')
+@login_required
+def view_parameter(id):
+    """Просмотр параметра чек-листа (только для чтения)"""
+    parameter = ChecklistParameter.query.get_or_404(id)
+    checklist = parameter.checklist
+
+    # Получаем список доступных моделей для отображения
+    client = FastAPIClient()
+    available_models = client.get_llm_models()
+
+    if not available_models:
+        available_models = ['gemma3:27b', 'llama3:8b', 'mistral:7b']
+
+    return render_template('checklists/view_parameter.html',
+                           title=f'Просмотр параметра - {parameter.name}',
+                           checklist=checklist,
+                           parameter=parameter,
+                           available_models=available_models,
+                           can_edit=current_user.can_edit_checklist(checklist))
