@@ -7,51 +7,67 @@
     </div>
     
     {% if applications %}
-        <div class="applications-list">
-            <table class="data-table clickable-table">
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>Название</th>
-                        <th>Статус</th>
-                        <th>Чек-листы</th>
-                        <th>Дата создания</th>
-                        <th>Действия</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for app in applications %}
-                    <tr class="clickable-row" data-href="{{ url_for('applications.view', id=app.id) }}">
-                        <td>{{ app.id }}</td>
-                        <td>{{ app.name }}</td>
-                        <td><span class="status-badge status-{{ app.status }}">{{ app.get_status_display() }}</span></td>
-                        <td>{{ app.checklists|length }}</td>
-                        <td>{{ app.created_at|to_moscow_time|strftime('%d.%m.%Y %H:%M') }}</td>
-                        <td class="actions-cell">
-                            <div class="action-buttons-container">
-                                {% if app.status == 'analyzed' %}
-                                    <a href="{{ url_for('applications.results', id=app.id) }}" class="button button-small button-success">Результаты</a>
-                                {% else %}
-                                    <button class="button button-small button-success"
-                                            disabled
-                                            title="{% if app.status == 'analyzing' %}Анализ в процессе{% elif app.status in ['created', 'indexing', 'indexed'] %}Заявка еще не проанализирована{% else %}Результаты недоступны{% endif %}">
-                                        Результаты
-                                    </button>
-                                {% endif %}
 
-                                <form method="post"
-                                      action="{{ url_for('applications.delete', id=app.id) }}"
-                                      class="inline-form"
-                                      onsubmit="return confirm('Удалить заявку «' + {{ app.name|tojson|safe }} + '»? Это действие необратимо.');">
-                                    <button type="submit" class="button button-small button-danger">Удалить</button>
-                                </form>
-                            </div>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
+    <div class="applications-list">
+                <table class="data-table clickable-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Название</th>
+                            {% if current_user.is_admin() or current_user.is_prompt_engineer() %}
+                            <th>Владелец</th>
+                            {% endif %}
+                            <th>Статус</th>
+                            <th>Чек-листы</th>
+                            <th>Дата создания</th>
+                            <th>Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for app in applications %}
+                        <tr class="clickable-row" data-href="{{ url_for('applications.view', id=app.id) }}">
+                            <td>{{ app.id }}</td>
+                            <td>{{ app.name }}</td>
+                            {% if current_user.is_admin() or current_user.is_prompt_engineer() %}
+                            <td>
+                                {% if app.user %}
+                                    {% if app.user.id == current_user.id %}
+                                        <strong>Вы</strong>
+                                    {% else %}
+                                        {{ app.user.username }}
+                                    {% endif %}
+                                {% else %}
+                                    <span class="text-muted">—</span>
+                                {% endif %}
+                            </td>
+                            {% endif %}
+                            <td><span class="status-badge status-{{ app.status }}">{{ app.get_status_display() }}</span></td>
+                            <td>{{ app.checklists|length }}</td>
+                            <td>{{ app.created_at|to_moscow_time|strftime('%d.%m.%Y %H:%M') }}</td>
+                            <td class="actions-cell">
+                                <div class="action-buttons-container">
+                                    {% if app.status == 'analyzed' %}
+                                        <a href="{{ url_for('applications.results', id=app.id) }}" class="button button-small button-success">Результаты</a>
+                                    {% else %}
+                                        <button class="button button-small button-success"
+                                                disabled
+                                                title="{% if app.status == 'analyzing' %}Анализ в процессе{% elif app.status in ['created', 'indexing', 'indexed'] %}Заявка еще не проанализирована{% else %}Результаты недоступны{% endif %}">
+                                            Результаты
+                                        </button>
+                                    {% endif %}
+                                    <form method="post"
+                                          action="{{ url_for('applications.delete', id=app.id) }}"
+                                          class="inline-form"
+                                          onsubmit="return confirm('Удалить заявку «' + {{ app.name|tojson|safe }} + '»? Это действие необратимо.');">
+                                        <button type="submit" class="button button-small button-danger">Удалить</button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+       </div>
 
         <div class="table-hint">
             <p> Совет: Кликните по строке для просмотра заявки</p>

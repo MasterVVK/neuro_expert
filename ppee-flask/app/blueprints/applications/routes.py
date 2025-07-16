@@ -1,5 +1,6 @@
 import os
 from flask import render_template, redirect, url_for, flash, request, current_app, jsonify
+from flask_login import login_required, current_user  # ДОБАВЛЕНО
 from werkzeug.utils import secure_filename
 import uuid
 import logging
@@ -10,7 +11,7 @@ from app import db
 from app.models import Application, File, Checklist, ParameterResult
 from app.blueprints.applications import bp
 from app.tasks.indexing_tasks import index_document_task
-from qdrant_client.http import models  # Добавляем импорт для создания фильтров в Qdrant
+from qdrant_client.http import models  # Прямой импорт для создания фильтров в Qdrant
 from app.services.fastapi_client import FastAPIClient
 from app.utils.db_utils import save_analysis_results  # Импортируем из utils
 
@@ -40,15 +41,23 @@ def update_application_status(application):
 
 
 @bp.route('/')
+@login_required  # ДОБАВЛЕНО
 def index():
     """Страница со списком заявок"""
-    applications = Application.query.order_by(Application.created_at.desc()).all()
+    # ИЗМЕНЕНО: фильтрация по роли
+    if current_user.is_admin() or current_user.is_prompt_engineer():
+        applications = Application.query.order_by(Application.created_at.desc()).all()
+    else:
+        applications = Application.query.filter_by(user_id=current_user.id) \
+            .order_by(Application.created_at.desc()).all()
+
     return render_template('applications/index.html',
                            title='Заявки',
                            applications=applications)
 
 
 @bp.route('/create', methods=['GET', 'POST'])
+@login_required  # ДОБАВЛЕНО
 def create():
     """Создание новой заявки"""
     checklists = Checklist.query.all()
@@ -74,7 +83,8 @@ def create():
         application = Application(
             name=name,
             description=description,
-            status='created'
+            status='created',
+            user_id=current_user.id  # ДОБАВЛЕНО
         )
 
         # Добавляем выбранные чек-листы
@@ -100,10 +110,17 @@ def create():
 
 
 @bp.route('/<int:id>')
+@login_required  # ДОБАВЛЕНО
 def view(id):
     """Просмотр заявки"""
     try:
         application = Application.query.get_or_404(id)
+
+        # ДОБАВЛЕНО: проверка доступа
+        if not current_user.can_view_application(application):
+            flash('У вас нет доступа к этой заявке', 'error')
+            return redirect(url_for('applications.index'))
+
         return render_template('applications/view.html',
                                title=f'Заявка {application.name}',
                                application=application)
@@ -114,9 +131,15 @@ def view(id):
 
 
 @bp.route('/<int:id>/edit', methods=['POST'])
+@login_required  # ДОБАВЛЕНО
 def edit(id):
     """Редактирование названия и описания заявки (inline)"""
     application = Application.query.get_or_404(id)
+
+    # ДОБАВЛЕНО: проверка прав
+    if not current_user.can_edit_application(application):
+        flash('У вас нет прав для редактирования этой заявки', 'error')
+        return redirect(url_for('applications.view', id=application.id))
 
     name = request.form.get('name', '').strip()
     description = request.form.get('description', '').strip()
@@ -126,15 +149,16 @@ def edit(id):
         flash('Название заявки не может быть пустым', 'error')
         return redirect(url_for('applications.view', id=application.id))
 
-    # Проверяем, не занято ли имя другой заявкой
-    existing = Application.query.filter(
-        Application.name == name,
-        Application.id != application.id
-    ).first()
+    # Проверяем, не занято ли имя другой заявкой ТОЛЬКО если название изменилось
+    if name != application.name:  # ДОБАВЛЕНО: проверяем только если название изменилось
+        existing = Application.query.filter(
+            Application.name == name,
+            Application.id != application.id
+        ).first()
 
-    if existing:
-        flash('Заявка с таким названием уже существует', 'error')
-        return redirect(url_for('applications.view', id=application.id))
+        if existing:
+            flash('Заявка с таким названием уже существует', 'error')
+            return redirect(url_for('applications.view', id=application.id))
 
     # Проверяем, были ли изменения
     changes_made = False
@@ -153,14 +177,15 @@ def edit(id):
             flash('Заявка успешно обновлена', 'success')
         except Exception as e:
             db.session.rollback()
-            flash(f'Ошибка при сохранении изменений: {str(e)}', 'error')
+            flash(f'Ошибка при обновлении заявки: {str(e)}', 'error')
     else:
-        flash('Изменений не было', 'info')
+        flash('Никаких изменений не было внесено', 'info')
 
     return redirect(url_for('applications.view', id=application.id))
 
 
 @bp.route('/<int:id>/upload', methods=['GET', 'POST'])
+@login_required  # ДОБАВЛЕНО
 def upload_file(id):
     """Загрузка файла для заявки"""
     application = Application.query.get_or_404(id)
@@ -256,11 +281,18 @@ def upload_file(id):
                            title=f'Загрузка файла - {application.name}',
                            application=application)
 
+
 @bp.route('/<int:id>/file/<int:file_id>/delete', methods=['POST'])
+@login_required  # ДОБАВЛЕНО
 def delete_file(id, file_id):
     """Удаление файла из заявки"""
     application = Application.query.get_or_404(id)
     file = File.query.get_or_404(file_id)
+
+    # ДОБАВЛЕНО: проверка прав
+    if not current_user.can_edit_application(application):
+        flash('У вас нет прав для удаления файлов из этой заявки', 'error')
+        return redirect(url_for('applications.view', id=application.id))
 
     # Проверяем, что файл принадлежит этой заявке
     if file.application_id != application.id:
@@ -308,17 +340,23 @@ def delete_file(id, file_id):
 
 
 @bp.route('/<int:id>/file/<int:file_id>/reindex', methods=['POST'])
+@login_required  # ДОБАВЛЕНО
 def reindex_file(id, file_id):
     """Переиндексация отдельного файла"""
     application = Application.query.get_or_404(id)
     file = File.query.get_or_404(file_id)
+
+    # ДОБАВЛЕНО: проверка прав
+    if not current_user.can_edit_application(application):
+        flash('У вас нет прав для переиндексации файлов в этой заявке', 'error')
+        return redirect(url_for('applications.view', id=application.id))
 
     if file.application_id != application.id:
         flash('Файл не принадлежит этой заявке', 'error')
         return redirect(url_for('applications.view', id=application.id))
 
     try:
-        # СНАЧАЛА обновляем статус файла на 'indexing'
+        # ВАЖНО: обновляем статус файла на 'indexing'
         file.indexing_status = 'indexing'
         file.error_message = None
         file.chunks_count = 0
@@ -331,7 +369,7 @@ def reindex_file(id, file_id):
         application.last_operation = 'indexing'
         db.session.commit()  # Важно! Сохраняем изменения до удаления чанков
 
-        # ЗАТЕМ удаляем старые чанки
+        # ПОТОМ удаляем старые чанки
         client = FastAPIClient()
         try:
             deleted_count = client.delete_file_chunks(str(application.id), str(file_id))
@@ -365,10 +403,17 @@ def reindex_file(id, file_id):
     import time
     return redirect(url_for('applications.view', id=application.id) + '?t=' + str(int(time.time())))
 
+
 @bp.route('/<int:id>/analyze')
+@login_required  # ДОБАВЛЕНО
 def analyze(id):
     """Запуск анализа заявки"""
     application = Application.query.get_or_404(id)
+
+    # ДОБАВЛЕНО: проверка прав
+    if not current_user.can_analyze_application(application):
+        flash('У вас нет прав для запуска анализа этой заявки', 'error')
+        return redirect(url_for('applications.view', id=application.id))
 
     # Проверяем, что заявка готова к анализу
     if application.status == 'error':
@@ -386,7 +431,7 @@ def analyze(id):
         return redirect(url_for('applications.view', id=application.id))
 
     try:
-        # ДОБАВИТЬ: Очистка старых результатов перед новым анализом
+        # ВАЖНО: Чистка старых результатов перед новым анализом
         # Получаем все параметры из чек-листов заявки
         param_ids = []
         for checklist in application.checklists:
@@ -430,6 +475,7 @@ def analyze(id):
 
 
 @bp.route('/<int:id>/results')
+@login_required  # ДОБАВЛЕНО
 def results(id):
     """Просмотр результатов анализа заявки"""
     try:
@@ -475,10 +521,20 @@ def results(id):
 
 
 @bp.route('/<int:id>/delete', methods=['POST'])
+@login_required  # ДОБАВЛЕНО
 def delete(id):
     """Удаление заявки через FastAPI"""
     try:
         application = Application.query.get_or_404(id)
+
+        # ДОБАВЛЕНО: проверка прав
+        if not current_user.can_delete_application(application):
+            flash('У вас нет прав для удаления этой заявки', 'error')
+            return redirect(url_for('applications.view', id=application.id))
+
+        # ДОБАВЛЕНО: Очистка связей с чек-листами
+        application.checklists = []
+        db.session.commit()
 
         # Удаляем файлы
         for file in application.files:
@@ -495,16 +551,22 @@ def delete(id):
 
         flash('Заявка успешно удалена', 'success')
     except Exception as e:
+        db.session.rollback()
         flash(f'Ошибка при удалении заявки: {str(e)}', 'error')
 
     return redirect(url_for('applications.index'))
 
 
-
 @bp.route('/<int:id>/stop_analysis', methods=['POST'])
+@login_required  # ДОБАВЛЕНО
 def stop_analysis(id):
     """Остановка анализа заявки"""
     application = Application.query.get_or_404(id)
+
+    # ДОБАВЛЕНО: проверка прав
+    if not current_user.can_edit_application(application):
+        flash('У вас нет прав для остановки анализа этой заявки', 'error')
+        return redirect(url_for('applications.view', id=application.id))
 
     # Проверяем, что заявка в процессе анализа
     if application.status != 'analyzing':
@@ -536,7 +598,9 @@ def stop_analysis(id):
         db.session.commit()
 
         if application.analysis_completed_params > 0:
-            flash(f'Анализ остановлен. Сохранено результатов: {application.analysis_completed_params} из {application.analysis_total_params}', 'info')
+            flash(
+                f'Анализ остановлен. Обработано параметров: {application.analysis_completed_params} из {application.analysis_total_params}',
+                'info')
         else:
             flash('Анализ остановлен', 'info')
 
@@ -548,6 +612,7 @@ def stop_analysis(id):
 
 
 @bp.route('/status/<task_id>')
+@login_required
 def task_status(task_id):
     """Возвращает текущий статус задачи напрямую из Celery"""
     try:
@@ -707,6 +772,7 @@ def task_status(task_id):
 
 # ОБРАТНАЯ СОВМЕСТИМОСТЬ: Сохраняем старый маршрут, перенаправляя на новый
 @bp.route('/<int:id>/status')
+@login_required
 def status(id):
     """Возвращает текущий статус заявки по ID заявки"""
     application = Application.query.get_or_404(id)
@@ -727,6 +793,7 @@ def status(id):
 
 
 @bp.route('/<int:id>/chunks')
+@login_required
 def view_chunks(id):
     """Просмотр чанков документов заявки через FastAPI"""
     try:
@@ -757,6 +824,7 @@ def view_chunks(id):
 
 
 @bp.route('/<int:id>/add_checklist', methods=['GET', 'POST'])
+@login_required
 def add_checklist(id):
     """Добавление чек-листа к существующей заявке"""
     application = Application.query.get_or_404(id)
@@ -817,6 +885,7 @@ def add_checklist(id):
 
 
 @bp.route('/<int:id>/remove_checklist/<int:checklist_id>', methods=['POST'])
+@login_required
 def remove_checklist(id, checklist_id):
     """Удаление чек-листа из заявки"""
     application = Application.query.get_or_404(id)
@@ -846,6 +915,7 @@ def remove_checklist(id, checklist_id):
 
 
 @bp.route('/<int:id>/api/stats')
+@login_required
 def api_stats(id):
     """API endpoint для получения статистики заявки"""
     try:
@@ -881,17 +951,23 @@ def api_stats(id):
         }), 500
 
 @bp.route('/<int:id>/partial_results')
+@login_required  # ДОБАВЛЕНО
 def partial_results(id):
     """Просмотр частичных результатов анализа заявки"""
     try:
         application = Application.query.get_or_404(id)
+
+        # ДОБАВЛЕНО: проверка доступа
+        if not current_user.can_view_application(application):
+            flash('У вас нет доступа к этой заявке', 'error')
+            return redirect(url_for('applications.index'))
 
         # Проверяем, что заявка в процессе анализа или уже проанализирована
         if application.status not in ['analyzing', 'analyzed']:
             flash('Анализ еще не начат', 'info')
             return redirect(url_for('applications.view', id=application.id))
 
-        # ДОБАВЛЯЕМ: Принудительное обновление из БД
+        # ВАЖНО: Принудительное обновление из БД
         db.session.expire(application)
         db.session.commit()
 
@@ -928,7 +1004,8 @@ def partial_results(id):
 
         # Если нет результатов, но счетчик показывает что они должны быть
         if total_results == 0 and application.analysis_completed_params > 0:
-            logger.warning(f"Несоответствие: счетчик показывает {application.analysis_completed_params} результатов, но в БД найдено 0")
+            logger.warning(
+                f"Несоответствие: счетчик показывает {application.analysis_completed_params} результатов, но в БД найдено 0")
 
             # Попробуем еще раз с принудительным обновлением
             db.session.close()
@@ -974,10 +1051,16 @@ def partial_results(id):
 
 
 @bp.route('/<int:id>/results/pdf')
+@login_required  # ДОБАВЛЕНО
 def results_pdf(id):
     """Генерация и скачивание PDF отчета с результатами анализа"""
     try:
         application = Application.query.get_or_404(id)
+
+        # ДОБАВЛЕНО: проверка доступа
+        if not current_user.can_view_application(application):
+            flash('У вас нет доступа к этой заявке', 'error')
+            return redirect(url_for('applications.index'))
 
         # Проверяем, что у заявки есть результаты
         if application.status != 'analyzed':

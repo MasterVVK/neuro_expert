@@ -8,70 +8,70 @@
     
     {% if checklists %}
         <div class="checklists-list">
-            <table class="data-table clickable-table">
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>Название</th>
-                        <th>Параметры</th>
-                        <th>Владелец</th>
-                        <th>Используется в заявках</th>
-                        <th>Дата создания</th>
-                        <th>Действия</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for checklist in checklists %}
-                    <tr class="clickable-row" data-href="{{ url_for('checklists.view', id=checklist.id) }}">
-                        <td>{{ checklist.id }}</td>
-                        <td>{{ checklist.name }}</td>
-                        <td>{{ checklist.parameters.count() }}</td>
-                        <td>
-                            {% if checklist.user %}
-                                {{ checklist.user.username }}
-                                {% if checklist.user_id == current_user.id %}
-                                    <span style="color: #007bff; font-size: 0.8em;">(Мой)</span>
-                                {% endif %}
-                            {% else %}
-                                <span style="color: #6c757d;">Системный</span>
-                            {% endif %}
-                        </td>
-                        <td>
-                            {% set app_count = checklist.applications.count() %}
-                            {% if app_count > 0 %}
-                                <span class="badge badge-info" title="Чек-лист используется в заявках">
-                                    {{ app_count }}
-                                </span>
-                            {% else %}
-                                <span class="badge badge-secondary">0</span>
-                            {% endif %}
-                        </td>
-                        <td>{{ checklist.created_at|to_moscow_time|strftime('%d.%m.%Y %H:%M') }}</td>
-                        <td class="actions-cell">
-                            <div class="action-buttons-container">
-                                <a href="{{ url_for('checklists.copy', id=checklist.id) }}" class="button button-small">Копировать</a>
-                                {% if app_count == 0 and current_user.can_edit_checklist(checklist) %}
-                                    <form method="post"
-                                          action="{{ url_for('checklists.delete', id=checklist.id) }}"
-                                          class="inline-form"
-                                          onsubmit="return confirm('Удалить чек-лист «' + {{ checklist.name|tojson|safe }} + '»?');">
-                                        <button type="submit" class="button button-small button-danger">Удалить</button>
-                                    </form>
-                                {% else %}
-                                    <button class="button button-small button-danger"
-                                            disabled
-                                            title="Чек-лист используется в {{ app_count }} заявках и не может быть удален">
-                                        Удалить
-                                    </button>
-                                {% endif %}
-                            </div>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+                    <table class="data-table clickable-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Название</th>
+                                <th>Владелец</th>
+                                <th>Параметры</th>
+                                <th>Используется в заявках</th>
+                                <th>Дата создания</th>
+                                <th>Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for checklist in checklists %}
+                            <tr class="clickable-row" data-href="{{ url_for('checklists.view', id=checklist.id) }}">
+                                <td>{{ checklist.id }}</td>
+                                <td>{{ checklist.name }}</td>
+                                <td>
+                                    {% if checklist.user %}
+                                        {% if checklist.user.id == current_user.id %}
+                                            <strong>Вы</strong>
+                                        {% else %}
+                                            {{ checklist.user.username }}
+                                        {% endif %}
+                                    {% else %}
+                                        <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ checklist.parameters.count() }}</td>
+                                <td>
+                                    {% set app_count = checklist.applications.count() %}
+                                    {% if app_count > 0 %}
+                                        <span class="badge badge-info" title="Чек-лист используется в заявках">
+                                            {{ app_count }}
+                                        </span>
+                                    {% else %}
+                                        <span class="badge badge-secondary">0</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ checklist.created_at|to_moscow_time|strftime('%d.%m.%Y %H:%M') }}</td>
+                                <td class="actions-cell">
+                                    <div class="action-buttons-container">
+                                        <a href="{{ url_for('checklists.copy', id=checklist.id) }}" class="button button-small">Копировать</a>
+                                        {% if app_count == 0 and current_user.can_edit_checklist(checklist) %}
+                                            <form method="post"
+                                                  action="{{ url_for('checklists.delete', id=checklist.id) }}"
+                                                  class="inline-form"
+                                                  onsubmit="return confirm('Удалить чек-лист «' + {{ checklist.name|tojson|safe }} + '»?');">
+                                                <button type="submit" class="button button-small button-danger">Удалить</button>
+                                            </form>
+                                        {% else %}
+                                            <button class="button button-small button-danger"
+                                                    disabled
+                                                    title="Чек-лист используется в {{ app_count }} заявках и не может быть удален">
+                                                Удалить
+                                            </button>
+                                        {% endif %}
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
         </div>
-
         <div class="table-hint">
             <p> Совет: Кликните по строке для просмотра чек-листа</p>
         </div>
