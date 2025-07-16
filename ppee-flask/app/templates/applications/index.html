@@ -2,7 +2,15 @@
 
 {% block content %}
     <div class="page-header">
-        <h1>Заявки</h1>
+        <div class="header-title">
+            <h1>Заявки</h1>
+            {% if current_user.is_admin() or current_user.is_prompt_engineer() %}
+            <label class="checkbox-label">
+                <input type="checkbox" id="show-all-applications" onchange="toggleApplicationsView()">
+                <span>Показать все заявки</span>
+            </label>
+            {% endif %}
+        </div>
         <a href="{{ url_for('applications.create') }}" class="button">Создать заявку</a>
     </div>
     
@@ -25,7 +33,9 @@
                     </thead>
                     <tbody>
                         {% for app in applications %}
-                        <tr class="clickable-row" data-href="{{ url_for('applications.view', id=app.id) }}">
+                        <tr class="clickable-row application-row" 
+                            data-href="{{ url_for('applications.view', id=app.id) }}"
+                            data-owner-id="{{ app.user_id if app.user_id else '' }}">
                             <td>{{ app.id }}</td>
                             <td>{{ app.name }}</td>
                             {% if current_user.is_admin() or current_user.is_prompt_engineer() %}
@@ -77,6 +87,48 @@
     {% endif %}
 
     <style>
+        /* Стили для page-header */
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .header-title {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .header-title h1 {
+            margin: 0;
+        }
+
+        /* Стили для чекбокса */
+        .checkbox-label {
+            display: inline-flex;
+            align-items: center;
+            cursor: pointer;
+            font-weight: 500;
+            user-select: none;
+            margin: 0;
+        }
+
+        .checkbox-label input[type="checkbox"] {
+            margin-right: 8px;
+            cursor: pointer;
+        }
+
+        .checkbox-label span {
+            color: #495057;
+            white-space: nowrap;
+        }
+
+        .checkbox-label:hover span {
+            color: #007bff;
+        }
+
         /* Стили для кликабельных строк */
         .clickable-table tbody tr.clickable-row {
             cursor: pointer;
@@ -210,7 +262,37 @@
     </style>
 
     <script>
+        // Текущий ID пользователя
+        const currentUserId = {{ current_user.id }};
+        
+        // Функция переключения вида заявок
+        function toggleApplicationsView() {
+            const checkbox = document.getElementById('show-all-applications');
+            const rows = document.querySelectorAll('.application-row');
+            
+            rows.forEach(row => {
+                const ownerId = row.getAttribute('data-owner-id');
+                
+                if (checkbox.checked) {
+                    // Показать все заявки
+                    row.style.display = '';
+                } else {
+                    // Показать только свои заявки
+                    if (ownerId && parseInt(ownerId) === currentUserId) {
+                        row.style.display = '';
+                    } else {
+                        row.style.display = 'none';
+                    }
+                }
+            });
+        }
+        
         document.addEventListener('DOMContentLoaded', function() {
+            // При загрузке страницы скрыть чужие заявки для админов и промпт-инженеров
+            {% if current_user.is_admin() or current_user.is_prompt_engineer() %}
+            toggleApplicationsView();
+            {% endif %}
+            
             // Делаем строки кликабельными
             const clickableRows = document.querySelectorAll('.clickable-row');
 
