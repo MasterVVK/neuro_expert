@@ -68,7 +68,7 @@
                                     <form method="post"
                                           action="{{ url_for('applications.delete', id=app.id) }}"
                                           class="inline-form"
-                                          onsubmit="return confirm('Удалить заявку «' + {{ app.name|tojson|safe }} + '»? Это действие необратимо.');">
+                                          onsubmit="return confirm('Вы уверены, что хотите удалить эту заявку? Это действие необратимо.');">
                                         <button type="submit" class="button button-small button-danger">Удалить</button>
                                     </form>
                                 </div>
