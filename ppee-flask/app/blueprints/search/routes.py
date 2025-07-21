@@ -1,4 +1,5 @@
 from flask import render_template, redirect, url_for, flash, request, jsonify, current_app
+from flask_login import login_required, current_user  # ДОБАВЛЕНО: импорт для проверки авторизации
 from app.blueprints.search import bp
 from app.models import Application, Checklist, ChecklistParameter
 from app.tasks.search_tasks import semantic_search_task
@@ -7,10 +8,19 @@ from celery import current_app as celery_app
 
 
 @bp.route('/')
+@login_required  # ДОБАВЛЕНО: требуется авторизация
 def index():
     """Страница семантического поиска"""
-    # Получаем список доступных заявок
-    applications = Application.query.filter(Application.status.in_(['indexed', 'analyzed'])).all()
+    # ИЗМЕНЕНО: Добавлена фильтрация заявок по правам доступа
+    if current_user.is_admin() or current_user.is_prompt_engineer():
+        # Админы и промпт-инженеры видят все заявки
+        applications = Application.query.filter(Application.status.in_(['indexed', 'analyzed'])).all()
+    else:
+        # Обычные пользователи видят только свои заявки
+        applications = Application.query.filter(
+            Application.status.in_(['indexed', 'analyzed']),
+            Application.user_id == current_user.id
+        ).all()
 
     # Получаем список доступных моделей LLM через FastAPI
     try:
@@ -56,6 +66,7 @@ def index():
 
 
 @bp.route('/execute', methods=['POST'])
+@login_required  # ДОБАВЛЕНО: требуется авторизация
 def execute_search():
     """Выполняет поиск и возвращает результаты в формате JSON"""
     application_id = request.form.get('application_id')
@@ -94,6 +105,20 @@ def execute_search():
     try:
         # Получаем маппинг имен документов
         application = Application.query.get(application_id)
+
+        # ДОБАВЛЕНО: Проверка прав доступа к заявке
+        if not application:
+            return jsonify({
+                'status': 'error',
+                'message': 'Заявка не найдена'
+            })
+
+        if not current_user.can_view_application(application):
+            return jsonify({
+                'status': 'error',
+                'message': 'У вас нет доступа к этой заявке'
+            })
+
         doc_names_mapping = application.get_document_names_mapping() if application else {}
 
         # Логируем запрос
@@ -133,6 +158,7 @@ def execute_search():
 
 
 @bp.route('/status/<task_id>')
+@login_required  # ДОБАВЛЕНО: требуется авторизация
 def check_status(task_id):
     """Проверяет статус выполнения задачи поиска"""
     task = semantic_search_task.AsyncResult(task_id)
@@ -184,6 +210,7 @@ def check_status(task_id):
 
 
 @bp.route('/cancel/<task_id>', methods=['POST'])
+@login_required  # ДОБАВЛЕНО: требуется авторизация
 def cancel_search(task_id):
     """Отменяет выполнение задачи поиска"""
     try:

@@ -2,9 +2,16 @@
 
 {% block content %}
     <div class="page-header">
-        <h1>Семантический поиск</h1>
+        <div class="header-title">
+            <h1>Семантический поиск</h1>
+            {% if current_user.is_admin() or current_user.is_prompt_engineer() %}
+            <label class="checkbox-label">
+                <input type="checkbox" id="show-all-applications" onchange="toggleApplicationsView()">
+                <span>Показать все заявки</span>
+            </label>
+            {% endif %}
+        </div>
     </div>
-
     <div class="search-container">
         <form id="search-form" method="post" class="search-form">
             <div class="form-group">
@@ -12,7 +19,17 @@
                 <select id="application_id" name="application_id" required>
                     <option value="">-- Выберите заявку --</option>
                     {% for app in applications %}
-                        <option value="{{ app.id }}">{{ app.name }} (ID: {{ app.id }})</option>
+                        <option value="{{ app.id }}"
+                                class="application-option"
+                                data-owner-id="{{ app.user_id if app.user_id else '' }}"
+                                {% if app.user_id != current_user.id %}style="display: none;"{% endif %}>
+                            {{ app.name }} (ID: {{ app.id }})
+                            {% if current_user.is_admin() or current_user.is_prompt_engineer() %}
+                                {% if app.user %}
+                                    - {% if app.user.id == current_user.id %}Вы{% else %}{{ app.user.username }}{% endif %}
+                                {% endif %}
+                            {% endif %}
+                        </option>
                     {% endfor %}
                 </select>
             </div>
@@ -496,6 +513,47 @@
             useRerankerCheckbox.addEventListener('change', updateRerankSettings);
             useLlmCheckbox.addEventListener('change', updateLlmSettings);
             useSmartSearchCheckbox.addEventListener('change', updateHybridSettings);
+            // Текущий ID пользователя
+            const currentUserId = {{ current_user.id }};
+
+            // Функция переключения вида заявок
+            function toggleApplicationsView() {
+                const checkbox = document.getElementById('show-all-applications');
+                const select = document.getElementById('application_id');
+                const options = select.querySelectorAll('.application-option');
+
+                // Сохраняем текущее выбранное значение
+                const currentValue = select.value;
+                let currentValueVisible = false;
+
+                options.forEach(option => {
+                    const ownerId = option.getAttribute('data-owner-id');
+
+                    if (checkbox.checked) {
+                        // Показать все заявки
+                        option.style.display = '';
+                        if (option.value === currentValue) {
+                            currentValueVisible = true;
+                        }
+                    } else {
+                        // Показать только свои заявки
+                        if (ownerId && ownerId !== currentUserId.toString()) {
+                            option.style.display = 'none';
+                        } else {
+                            option.style.display = '';
+                            if (option.value === currentValue) {
+                                currentValueVisible = true;
+                            }
+                        }
+                    }
+                });
+
+                // Если текущее выбранное значение скрыто, сбрасываем выбор
+                if (!currentValueVisible && currentValue) {
+                    select.value = '';
+                    updateAllChunksOption(); // Обновляем опцию "Все чанки"
+                }
+            }
         });
     </script>
 
@@ -728,5 +786,48 @@
             text-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
             z-index: 1;
         }
+
+            /* Стили для page-header с чек-боксом */
+    .page-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+    }
+
+    .header-title {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+    }
+
+    .header-title h1 {
+        margin: 0;
+    }
+
+    /* Стили для чекбокса */
+    .checkbox-label {
+        display: inline-flex;
+        align-items: center;
+        cursor: pointer;
+        font-weight: 500;
+        user-select: none;
+        margin: 0;
+    }
+
+    .checkbox-label input[type="checkbox"] {
+        margin-right: 8px;
+        cursor: pointer;
+    }
+
+    .checkbox-label span {
+        color: #495057;
+        white-space: nowrap;
+    }
+
+    .checkbox-label:hover span {
+        color: #007bff;
+    }
+
     </style>
 {% endblock %}
