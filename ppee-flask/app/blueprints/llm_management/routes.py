@@ -2,11 +2,13 @@ from flask import render_template, redirect, url_for, flash, request, jsonify, c
 from app.blueprints.llm_management import bp
 from app.services.fastapi_client import FastAPIClient
 import logging
+from flask_login import login_required
 
 logger = logging.getLogger(__name__)
 
 
 @bp.route('/')
+@login_required
 def index():
     """Страница управления LLM через FastAPI"""
     try:
@@ -45,6 +47,7 @@ def index():
 
 
 @bp.route('/test', methods=['GET', 'POST'])
+@login_required
 def test():
     """Страница для тестирования LLM через FastAPI"""
     if request.method == 'POST':
@@ -101,6 +104,7 @@ def test():
 
 
 @bp.route('/model_info')
+@login_required
 def model_info():
     """API для получения информации о модели через FastAPI"""
     model_name = request.args.get('name')
