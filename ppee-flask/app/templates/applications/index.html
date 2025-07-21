@@ -269,10 +269,10 @@
         function toggleApplicationsView() {
             const checkbox = document.getElementById('show-all-applications');
             const rows = document.querySelectorAll('.application-row');
-            
+            // Сохраняем состояние чекбокса в LocalStorage
+            localStorage.setItem('showAllApplications', checkbox.checked ? '1' : '0');
             rows.forEach(row => {
                 const ownerId = row.getAttribute('data-owner-id');
-                
                 if (checkbox.checked) {
                     // Показать все заявки
                     row.style.display = '';
@@ -288,15 +288,19 @@
         }
         
         document.addEventListener('DOMContentLoaded', function() {
-            // При загрузке страницы скрыть чужие заявки для админов и промпт-инженеров
-            {% if current_user.is_admin() or current_user.is_prompt_engineer() %}
-            toggleApplicationsView();
-            {% endif %}
-            
+            // Восстанавливаем состояние чекбокса из LocalStorage
+            const checkbox = document.getElementById('show-all-applications');
+            const saved = localStorage.getItem('showAllApplications');
+            if (checkbox && saved !== null) {
+                checkbox.checked = saved === '1';
+            }
+            // При загрузке страницы применяем фильтрацию только если чекбокс есть (для админов и промпт-инженеров)
+            if (checkbox) {
+                toggleApplicationsView();
+            }
             // Делаем строки кликабельными
             const clickableRows = document.querySelectorAll('.clickable-row');
-
-            clickableRows.forEach(row => {
+            clickableRows.forEach(function(row) {
                 row.addEventListener('click', function(e) {
                     // Проверяем, что клик был не по кнопке или ссылке
                     if (e.target.tagName === 'A' ||
@@ -305,7 +309,6 @@
                         e.target.closest('form')) {
                         return;
                     }
-
                     // Переходим по ссылке из data-href
                     const href = this.dataset.href;
                     if (href) {
