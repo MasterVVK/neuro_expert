@@ -52,9 +52,10 @@ class User(UserMixin, db.Model):
 
     def can_delete_application(self, application):
         """Проверяет, может ли пользователь удалять заявку"""
-        if self.is_admin():
+        # Админы и промпт-инженеры могут удалять любые заявки
+        if self.is_admin() or self.is_prompt_engineer():
             return True
-        # Промпт-инженеры и обычные пользователи могут удалять только свои заявки
+        # Обычные пользователи могут удалять только свои заявки
         return application.user_id == self.id
 
     def can_analyze_application(self, application):
