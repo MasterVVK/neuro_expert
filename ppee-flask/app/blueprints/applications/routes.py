@@ -8,12 +8,13 @@ from datetime import datetime
 
 from app.utils.pdf_generator import generate_pdf_report, create_pdf_response
 from app import db
-from app.models import Application, File, Checklist, ParameterResult
+from app.models import Application, File, Checklist, ParameterResult, User
 from app.blueprints.applications import bp
 from app.tasks.indexing_tasks import index_document_task
 from qdrant_client.http import models  # Прямой импорт для создания фильтров в Qdrant
 from app.services.fastapi_client import FastAPIClient
 from app.utils.db_utils import save_analysis_results  # Импортируем из utils
+from app.decorators import admin_required, prompt_engineer_required
 
 logger = logging.getLogger(__name__)
 
@@ -109,26 +110,32 @@ def create():
                            empty_message='Нет доступных чек-листов. Создайте чек-лист в разделе "Чек-листы".')
 
 
+
 @bp.route('/<int:id>')
-@login_required  # ДОБАВЛЕНО
+@login_required
 def view(id):
     """Просмотр заявки"""
     try:
         application = Application.query.get_or_404(id)
 
-        # ДОБАВЛЕНО: проверка доступа
+        # Проверка доступа
         if not current_user.can_view_application(application):
             flash('У вас нет доступа к этой заявке', 'error')
             return redirect(url_for('applications.index'))
 
+        # Получаем список пользователей для формы смены владельца (для админов и промпт-инженеров)
+        users = []
+        if current_user.is_admin() or current_user.is_prompt_engineer():
+            users = User.query.order_by(User.username).all()
+
         return render_template('applications/view.html',
                                title=f'Заявка {application.name}',
-                               application=application)
+                               application=application,
+                               users=users)  # Добавляем список пользователей
     except Exception as e:
         current_app.logger.error(f"Ошибка при просмотре заявки {id}: {str(e)}")
         flash(f"Ошибка при просмотре заявки: {str(e)}", "error")
         return redirect(url_for('applications.index'))
-
 
 @bp.route('/<int:id>/edit', methods=['POST'])
 @login_required  # ДОБАВЛЕНО
@@ -1105,3 +1112,76 @@ def results_pdf(id):
         current_app.logger.error(f"Ошибка при генерации PDF для заявки {id}: {str(e)}")
         flash(f"Ошибка при генерации PDF: {str(e)}", "error")
         return redirect(url_for('applications.results', id=id))
+
+
+# Добавить этот маршрут в файл app/blueprints/applications/routes.py
+
+@bp.route('/<int:id>/change-owner', methods=['POST'])
+@login_required
+@prompt_engineer_required  # Администраторы и промпт-инженеры могут менять владельца
+def change_owner(id):
+    """Изменение владельца заявки (для администраторов и промпт-инженеров)"""
+    application = Application.query.get_or_404(id)
+
+    # Получаем нового владельца из формы
+    new_owner_id = request.form.get('new_owner_id')
+
+    if not new_owner_id:
+        if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({'status': 'error', 'message': 'Не указан новый владелец'}), 400
+        flash('Не указан новый владелец', 'error')
+        return redirect(url_for('applications.view', id=application.id))
+
+    # Проверяем существование пользователя
+    new_owner = User.query.get(int(new_owner_id))
+    if not new_owner:
+        if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({'status': 'error', 'message': 'Пользователь не найден'}), 404
+        flash('Пользователь не найден', 'error')
+        return redirect(url_for('applications.view', id=application.id))
+
+    # Сохраняем информацию о старом владельце для логирования
+    old_owner = application.user
+    if old_owner:
+        old_owner_name = old_owner.username
+        old_owner_info = f"{old_owner_name} (ID: {old_owner.id})"
+    else:
+        old_owner_name = "не указан"
+        old_owner_info = "не указан"
+
+    # Меняем владельца
+    application.user_id = new_owner.id
+
+    try:
+        db.session.commit()
+
+        # Логируем изменение с более подробной информацией
+        current_app.logger.info(
+            f"Владелец заявки {application.id} ({application.name}) изменен "
+            f"с {old_owner_info} на {new_owner.username} (ID: {new_owner.id}) "
+            f"пользователем {current_user.username} (роль: {current_user.role})"
+        )
+
+        if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({
+                'status': 'success',
+                'message': f'Владелец успешно изменен на {new_owner.username}',
+                'new_owner': {
+                    'id': new_owner.id,
+                    'username': new_owner.username,
+                    'is_current_user': new_owner.id == current_user.id
+                }
+            })
+
+        flash(f'Владелец заявки изменен на {new_owner.username}', 'success')
+        return redirect(url_for('applications.view', id=application.id))
+
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Ошибка при смене владельца заявки {id}: {str(e)}")
+
+        if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({'status': 'error', 'message': 'Ошибка при изменении владельца'}), 500
+
+        flash('Ошибка при изменении владельца', 'error')
+        return redirect(url_for('applications.view', id=application.id))

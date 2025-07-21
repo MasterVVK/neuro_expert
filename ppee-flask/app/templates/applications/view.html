@@ -85,6 +85,51 @@
                 </div>
             </div>
 
+            <!-- Добавляем блок с владельцем -->
+            <div class="info-row">
+                <div class="info-label">Владелец:</div>
+                <div class="info-value" id="owner-info">
+                    {% if application.user %}
+                        {% if application.user.id == current_user.id %}
+                            <strong>Вы</strong>
+                        {% else %}
+                            {{ application.user.username }}
+                        {% endif %}
+                    {% else %}
+                        <span class="text-muted">Не указан</span>
+                    {% endif %}
+
+                    {% if current_user.is_admin() or current_user.is_prompt_engineer() %}
+                        <button id="change-owner-btn" class="button button-small button-secondary" style="margin-left: 10px;">
+                            Изменить владельца
+                        </button>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Форма смены владельца (скрыта по умолчанию) -->
+            {% if current_user.is_admin() or current_user.is_prompt_engineer() %}
+            <div id="change-owner-form" class="change-owner-form" style="display: none;">
+                <form id="owner-change-form" method="post" action="{{ url_for('applications.change_owner', id=application.id) }}">
+                    <div class="form-group">
+                        <label for="new_owner_id">Новый владелец:</label>
+                        <select name="new_owner_id" id="new_owner_id" class="form-control" required>
+                            <option value="">-- Выберите пользователя --</option>
+                            {% for user in users %}
+                                <option value="{{ user.id }}" {% if user.id == application.user_id %}selected{% endif %}>
+                                    {{ user.username }} ({{ user.get_role_display() }})
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="button button-primary">Сохранить</button>
+                        <button type="button" class="button button-secondary" onclick="cancelChangeOwner()">Отмена</button>
+                    </div>
+                </form>
+            </div>
+            {% endif %}
+
             <div class="info-row">
                 <div class="info-label">Создана:</div>
                 <div class="info-value">{{ application.created_at|to_moscow_time|strftime('%d.%m.%Y %H:%M') }} МСК</div>
@@ -97,7 +142,7 @@
         </div>
     </div>
 
-    <!-- Блок индикации прогресса индексации (БЕЗ СТАДИЙ) -->
+    <!-- Блок индикации прогресса индексации (AJAX) -->
     {% if application.status == 'indexing' or (application.status == 'indexed' and application.files.filter_by(indexing_status='indexing').count() > 0) %}
     <div class="indexing-progress-container" id="indexing-progress-container">
         <h3>Индексация документа</h3>
@@ -169,7 +214,7 @@
     </script>
     {% endif %}
 
-    <!-- Блок индикации прогресса анализа (БЕЗ СТАДИЙ) -->
+    <!-- Блок индикации прогресса анализа (AJAX) -->
     {% if application.status == 'analyzing' %}
     <div class="analyzing-progress-container" id="analyzing-progress-container">
         <h3>Анализ документа</h3>
@@ -297,7 +342,7 @@
                             if (partialResultsBtn.style.display === 'none') {
                                 setTimeout(function() {
                                     partialResultsBtn.style.display = 'inline-block';
-                                }, 2000); // Задержка 2 секунды для сохранения в БД
+                                }, 2000); // Задержка в секунды для сохранения в БД
                             }
                         } else {
                             partialResultsBtn.style.display = 'none';
@@ -410,11 +455,11 @@
                                 {% if file.indexing_status == 'completed' %}
                                     <span class="status-badge status-success">✓ Проиндексирован</span>
                                 {% elif file.indexing_status == 'indexing' %}
-                                    <span class="status-badge status-indexing">⏳ Индексация...</span>
+                                    <span class="status-badge status-indexing">⟳ Индексация...</span>
                                 {% elif file.indexing_status == 'error' %}
                                     <span class="status-badge status-error" title="{{ file.error_message }}">✗ Ошибка</span>
                                 {% else %}
-                                    <span class="status-badge status-pending">⏸ Ожидание</span>
+                                    <span class="status-badge status-pending">⌛ Ожидание</span>
                                 {% endif %}
                             </td>
                             <td>{{ file.chunks_count or '-' }}</td>
@@ -422,9 +467,9 @@
                                 {% if file.file_size < 1024 %}
                                     {{ file.file_size }} байт
                                 {% elif file.file_size < 1024 * 1024 %}
-                                    {{ (file.file_size / 1024) | round(1) }} Кб
+                                    {{ (file.file_size / 1024) | round(1) }} КБ
                                 {% else %}
-                                    {{ (file.file_size / (1024 * 1024)) | round(1) }} Мб
+                                    {{ (file.file_size / (1024 * 1024)) | round(1) }} МБ
                                 {% endif %}
                             </td>
                             <td>
@@ -567,6 +612,38 @@
     </div>
 
     <style>
+        /* Стили для формы смены владельца */
+        .change-owner-form {
+            margin-top: 15px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            border: 1px solid #dee2e6;
+        }
+
+        .change-owner-form .form-group {
+            margin-bottom: 15px;
+        }
+
+        .change-owner-form label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        .change-owner-form select {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .change-owner-form .form-actions {
+            display: flex;
+            gap: 10px;
+        }
+
         /* Стили для inline редактирования */
         .edit-btn {
             background: none;
@@ -931,6 +1008,124 @@
             descriptionHidden.value = descriptionInput.value;
         });
 
+        // Функции для смены владельца
+        {% if current_user.is_admin() or current_user.is_prompt_engineer() %}
+        const changeOwnerBtn = document.getElementById('change-owner-btn');
+        const changeOwnerForm = document.getElementById('change-owner-form');
+        const ownerInfo = document.getElementById('owner-info');
+        const ownerChangeForm = document.getElementById('owner-change-form');
+
+        // Показать форму смены владельца
+        changeOwnerBtn.addEventListener('click', function() {
+            changeOwnerForm.style.display = 'block';
+            changeOwnerBtn.style.display = 'none';
+        });
+
+        // Отмена смены владельца
+        window.cancelChangeOwner = function() {
+            changeOwnerForm.style.display = 'none';
+            changeOwnerBtn.style.display = 'inline-block';
+        };
+
+        // AJAX отправка формы
+        ownerChangeForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+
+            const formData = new FormData(this);
+            const newOwnerId = formData.get('new_owner_id');
+
+            if (!newOwnerId) {
+                alert('Пожалуйста, выберите нового владельца');
+                return;
+            }
+
+            // Отправка AJAX запроса
+            fetch(this.action, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: new URLSearchParams(formData)
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.status === 'success') {
+                    // Обновляем отображение владельца
+                    const ownerDisplay = data.new_owner.is_current_user
+                        ? '<strong>Вы</strong>'
+                        : data.new_owner.username;
+
+                    // Обновляем содержимое блока с владельцем
+                    const ownerInfoHtml = `
+                        ${ownerDisplay}
+                        <button id="change-owner-btn" class="button button-small button-secondary" style="margin-left: 10px;">
+                            Изменить владельца
+                        </button>
+                    `;
+
+                    ownerInfo.innerHTML = ownerInfoHtml;
+
+                    // Скрываем форму
+                    cancelChangeOwner();
+
+                    // Показываем сообщение об успехе
+                    showFlashMessage(data.message, 'success');
+
+                    // Переназначаем обработчик для новой кнопки
+                    document.getElementById('change-owner-btn').addEventListener('click', function() {
+                        changeOwnerForm.style.display = 'block';
+                        this.style.display = 'none';
+                    });
+                } else {
+                    showFlashMessage(data.message || 'Ошибка при изменении владельца', 'error');
+                }
+            })
+            .catch(error => {
+                console.error('Ошибка:', error);
+                // Попробуем перезагрузить страницу, если AJAX не работает
+                location.reload();
+            });
+        });
+        {% endif %}
+
+        // Функция для показа flash-сообщений
+        function showFlashMessage(message, category) {
+            const flashContainer = document.querySelector('.flash-messages') || createFlashContainer();
+
+            const alert = document.createElement('div');
+            alert.className = `alert alert-${category}`;
+            alert.textContent = message;
+
+            // Добавляем inline-стили для гарантии отображения
+            if (category === 'success') {
+                alert.style.cssText = 'padding: 15px; margin-bottom: 20px; border-radius: 4px; color: #155724; background-color: #d4edda; border: 1px solid #c3e6cb;';
+            } else if (category === 'error') {
+                alert.style.cssText = 'padding: 15px; margin-bottom: 20px; border-radius: 4px; color: #721c24; background-color: #f8d7da; border: 1px solid #f5c6cb;';
+            }
+
+            flashContainer.appendChild(alert);
+
+            // Автоматическое удаление через 5 секунд
+            setTimeout(() => {
+                alert.remove();
+            }, 5000);
+        }
+
+        // Создание контейнера для flash-сообщений, если его нет
+        function createFlashContainer() {
+            const container = document.createElement('div');
+            container.className = 'flash-messages';
+            document.querySelector('.container').insertBefore(container, document.querySelector('.container').firstChild);
+            return container;
+        }
+
         // Обработка нажатия Escape для отмены редактирования
         document.addEventListener('keydown', function(event) {
             if (event.key === 'Escape') {
@@ -940,6 +1135,11 @@
                 if (editDescriptionForm.style.display === 'block') {
                     cancelEditDescription();
                 }
+                {% if current_user.is_admin() or current_user.is_prompt_engineer() %}
+                if (changeOwnerForm && changeOwnerForm.style.display === 'block') {
+                    cancelChangeOwner();
+                }
+                {% endif %}
             }
         });
 
