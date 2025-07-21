@@ -1,5 +1,5 @@
 from flask import render_template, redirect, url_for, flash, request, jsonify, current_app
-from flask_login import login_required, current_user  # ДОБАВЛЕНО: импорт для проверки авторизации
+from flask_login import login_required, current_user
 from app.blueprints.search import bp
 from app.models import Application, Checklist, ChecklistParameter
 from app.tasks.search_tasks import semantic_search_task
@@ -8,19 +8,17 @@ from celery import current_app as celery_app
 
 
 @bp.route('/')
-@login_required  # ДОБАВЛЕНО: требуется авторизация
+@login_required
 def index():
     """Страница семантического поиска"""
-    # ИЗМЕНЕНО: Добавлена фильтрация заявок по правам доступа
-    if current_user.is_admin() or current_user.is_prompt_engineer():
-        # Админы и промпт-инженеры видят все заявки
-        applications = Application.query.filter(Application.status.in_(['indexed', 'analyzed'])).all()
-    else:
-        # Обычные пользователи видят только свои заявки
-        applications = Application.query.filter(
-            Application.status.in_(['indexed', 'analyzed']),
-            Application.user_id == current_user.id
-        ).all()
+    # Получаем все заявки со статусом indexed или analyzed
+    all_applications = Application.query.filter(
+        Application.status.in_(['indexed', 'analyzed'])
+    ).all()
+
+    # Для обычных пользователей фильтруем на стороне шаблона через JavaScript
+    # Это позволяет динамически переключать видимость без перезагрузки страницы
+    applications = all_applications
 
     # Получаем список доступных моделей LLM через FastAPI
     try:

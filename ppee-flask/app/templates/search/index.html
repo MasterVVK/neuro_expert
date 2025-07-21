@@ -535,17 +535,14 @@
                         if (option.value === currentValue) {
                             currentValueVisible = true;
                         }
-                    } else {
-                        // Показать только свои заявки
-                        if (ownerId && ownerId !== currentUserId.toString()) {
-                            option.style.display = 'none';
                         } else {
-                            option.style.display = '';
-                            if (option.value === currentValue) {
-                                currentValueVisible = true;
+                            // Показать только свои заявки
+                            if (ownerId && parseInt(ownerId) === currentUserId) {
+                                option.style.display = '';
+                            } else {
+                                option.style.display = 'none';
                             }
                         }
-                    }
                 });
 
                 // Если текущее выбранное значение скрыто, сбрасываем выбор
@@ -554,6 +551,12 @@
                     updateAllChunksOption(); // Обновляем опцию "Все чанки"
                 }
             }
+            window.toggleApplicationsView = toggleApplicationsView;
+
+            // При загрузке страницы скрываем чужие заявки для админов и промпт-инженеров
+            {% if current_user.is_admin() or current_user.is_prompt_engineer() %}
+            toggleApplicationsView();
+            {% endif %}
         });
     </script>
 
