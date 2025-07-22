@@ -10,6 +10,16 @@
                 <span>Показать все заявки</span>
             </label>
             {% endif %}
+            {% if checklists %}
+            <div class="filter-dropdown">
+                <select id="checklist-filter" onchange="filterByChecklist()">
+                    <option value="all">Все чек-листы</option>
+                    {% for checklist in checklists %}
+                        <option value="{{ checklist.id }}">{{ checklist.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
         </div>
         <a href="{{ url_for('applications.create') }}" class="button">Создать заявку</a>
     </div>
@@ -35,7 +45,8 @@
                         {% for app in applications %}
                         <tr class="clickable-row application-row" 
                             data-href="{{ url_for('applications.view', id=app.id) }}"
-                            data-owner-id="{{ app.user_id if app.user_id else '' }}">
+                            data-owner-id="{{ app.user_id if app.user_id else '' }}"
+                            data-checklist-ids="{% for checklist in app.checklists %}{{ checklist.id }}{% if not loop.last %},{% endif %}{% endfor %}">
                             <td>{{ app.id }}</td>
                             <td>{{ app.name }}</td>
                             {% if current_user.is_admin() or current_user.is_prompt_engineer() %}
@@ -127,6 +138,33 @@
 
         .checkbox-label:hover span {
             color: #007bff;
+        }
+
+        /* Стили для выпадающего списка фильтрации */
+        .filter-dropdown {
+            display: inline-flex;
+            align-items: center;
+        }
+
+        .filter-dropdown select {
+            padding: 6px 12px;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+            font-size: 14px;
+            color: #495057;
+            background-color: white;
+            cursor: pointer;
+            transition: border-color 0.15s ease-in-out;
+        }
+
+        .filter-dropdown select:hover {
+            border-color: #80bdff;
+        }
+
+        .filter-dropdown select:focus {
+            outline: none;
+            border-color: #007bff;
+            box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
         }
 
         /* Стили для кликабельных строк */
@@ -249,6 +287,19 @@
 
         /* Отзывчивость */
         @media (max-width: 768px) {
+            .header-title {
+                flex-wrap: wrap;
+            }
+
+            .filter-dropdown {
+                width: 100%;
+                margin-top: 10px;
+            }
+
+            .filter-dropdown select {
+                width: 100%;
+            }
+
             .action-buttons-container {
                 flex-direction: column;
                 align-items: flex-end;
@@ -265,26 +316,56 @@
         // Текущий ID пользователя
         const currentUserId = {{ current_user.id }};
         
-        // Функция переключения вида заявок
-        function toggleApplicationsView() {
-            const checkbox = document.getElementById('show-all-applications');
+        // Функция применения всех фильтров
+        function applyFilters() {
+            const showAllCheckbox = document.getElementById('show-all-applications');
+            const checklistFilter = document.getElementById('checklist-filter');
             const rows = document.querySelectorAll('.application-row');
-            // Сохраняем состояние чекбокса в LocalStorage
-            localStorage.setItem('showAllApplications', checkbox.checked ? '1' : '0');
+            
+            // Для обычных пользователей чекбокса нет, поэтому showAll = false (показываем только свои)
+            // Для админов и промпт-инженеров используем состояние чекбокса
+            const showAll = showAllCheckbox ? showAllCheckbox.checked : false;
+            const selectedChecklistId = checklistFilter ? checklistFilter.value : 'all';
+            
             rows.forEach(row => {
                 const ownerId = row.getAttribute('data-owner-id');
-                if (checkbox.checked) {
-                    // Показать все заявки
-                    row.style.display = '';
-                } else {
-                    // Показать только свои заявки
-                    if (ownerId && parseInt(ownerId) === currentUserId) {
-                        row.style.display = '';
-                    } else {
-                        row.style.display = 'none';
-                    }
+                const checklistIdsAttr = row.getAttribute('data-checklist-ids') || '';
+                const checklistIds = checklistIdsAttr.split(',').filter(id => id);
+                
+                let showByOwner = true;
+                let showByChecklist = true;
+                
+                // Фильтр по владельцу
+                // Если showAll = false (обычный пользователь или админ со снятым чекбоксом),
+                // показываем только свои заявки
+                if (!showAll && ownerId && parseInt(ownerId) !== currentUserId) {
+                    showByOwner = false;
                 }
+                
+                // Фильтр по чек-листу
+                if (selectedChecklistId !== 'all' && !checklistIds.includes(selectedChecklistId)) {
+                    showByChecklist = false;
+                }
+                
+                // Показываем строку только если она проходит оба фильтра
+                row.style.display = (showByOwner && showByChecklist) ? '' : 'none';
             });
+        }
+        
+        // Функция переключения вида заявок (обновленная)
+        function toggleApplicationsView() {
+            const checkbox = document.getElementById('show-all-applications');
+            // Сохраняем состояние чекбокса в LocalStorage
+            localStorage.setItem('showAllApplications', checkbox.checked ? '1' : '0');
+            applyFilters();
+        }
+        
+        // Функция фильтрации по чек-листу
+        function filterByChecklist() {
+            const checklistFilter = document.getElementById('checklist-filter');
+            // Сохраняем выбранный чек-лист в LocalStorage
+            localStorage.setItem('selectedChecklistId', checklistFilter.value);
+            applyFilters();
         }
         
         document.addEventListener('DOMContentLoaded', function() {
@@ -294,10 +375,22 @@
             if (checkbox && saved !== null) {
                 checkbox.checked = saved === '1';
             }
-            // При загрузке страницы применяем фильтрацию только если чекбокс есть (для админов и промпт-инженеров)
-            if (checkbox) {
-                toggleApplicationsView();
+            
+            // Восстанавливаем выбранный чек-лист из LocalStorage
+            const checklistFilter = document.getElementById('checklist-filter');
+            const savedChecklistId = localStorage.getItem('selectedChecklistId');
+            if (checklistFilter && savedChecklistId) {
+                checklistFilter.value = savedChecklistId;
+                // Проверяем, что такой option существует
+                if (!checklistFilter.querySelector(`option[value="${savedChecklistId}"]`)) {
+                    checklistFilter.value = 'all';
+                    localStorage.removeItem('selectedChecklistId');
+                }
             }
+            
+            // Применяем все фильтры
+            applyFilters();
+            
             // Делаем строки кликабельными
             const clickableRows = document.querySelectorAll('.clickable-row');
             clickableRows.forEach(function(row) {

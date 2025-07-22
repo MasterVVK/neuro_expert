@@ -52,9 +52,19 @@ def index():
         applications = Application.query.filter_by(user_id=current_user.id) \
             .order_by(Application.created_at.desc()).all()
 
+    # Получаем все уникальные чек-листы из заявок
+    all_checklists = set()
+    for app in applications:
+        for checklist in app.checklists:
+            all_checklists.add(checklist)
+    
+    # Сортируем чек-листы по имени
+    checklists = sorted(list(all_checklists), key=lambda x: x.name)
+
     return render_template('applications/index.html',
                            title='Заявки',
-                           applications=applications)
+                           applications=applications,
+                           checklists=checklists)
 
 
 @bp.route('/create', methods=['GET', 'POST'])
