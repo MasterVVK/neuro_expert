@@ -359,7 +359,7 @@ def process_parameters_task(self, application_id):
                         "use_smart_search": True,
                         "vector_weight": 0.5,
                         "text_weight": 0.5,
-                        "hybrid_threshold": 10
+                        "hybrid_threshold": app.config.get('DEFAULT_HYBRID_THRESHOLD', 10)
                     })
 
                     if search_response.status_code == 200:
