@@ -14,6 +14,7 @@
                                 <th>ID</th>
                                 <th>Название</th>
                                 <th>Владелец</th>
+                                <th>Доступ</th>
                                 <th>Параметры</th>
                                 <th>Используется в заявках</th>
                                 <th>Дата создания</th>
@@ -34,6 +35,13 @@
                                         {% endif %}
                                     {% else %}
                                         <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if checklist.is_public %}
+                                        <span class="badge badge-success" title="Доступен всем пользователям">Общий</span>
+                                    {% else %}
+                                        <span class="badge badge-secondary" title="Доступен только владельцу">Личный</span>
                                     {% endif %}
                                 </td>
                                 <td>{{ checklist.parameters.count() }}</td>

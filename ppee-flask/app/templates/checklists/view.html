@@ -18,6 +18,7 @@
         <form method="post" action="{{ url_for('checklists.edit', id=checklist.id) }}" class="inline-edit-form">
             <input type="text" name="name" id="name-input" value="{{ checklist.name }}" required>
             <input type="hidden" name="description" id="description-hidden" value="{{ checklist.description or '' }}">
+            <input type="hidden" name="is_public" id="is_public_hidden" value="{{ 'on' if checklist.is_public else '' }}">
             <button type="submit" class="button button-small">Сохранить</button>
             <button type="button" class="button button-small button-secondary" onclick="cancelEditName()">Отмена</button>
         </form>
@@ -59,6 +60,7 @@
                         <form method="post" action="{{ url_for('checklists.edit', id=checklist.id) }}">
                             <input type="hidden" name="name" value="{{ checklist.name }}">
                             <textarea name="description" id="description-input" rows="3">{{ checklist.description or '' }}</textarea>
+                            <input type="hidden" name="is_public" id="is_public_hidden2" value="{{ 'on' if checklist.is_public else '' }}">
                             <div class="form-actions">
                                 <button type="submit" class="button button-small">Сохранить</button>
                                 <button type="button" class="button button-small button-secondary" onclick="cancelEditDescription()">Отмена</button>
@@ -67,6 +69,62 @@
                     </div>
                 </div>
             </div>
+
+            {% if current_user.is_admin() or current_user.is_prompt_engineer() or checklist.user_id == current_user.id %}
+            <div class="info-row">
+                <div class="info-label">
+                    Общий доступ:
+                    {% if current_user.is_admin() or current_user.is_prompt_engineer() or checklist.user_id == current_user.id %}
+                    <button id="edit-public-btn" class="edit-btn" title="Изменить общий доступ">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                            <path d="M12.146.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1 0 .708l-10 10a.5.5 0 0 1-.168.11l-5 2a.5.5 0 0 1-.65-.65l2-5a.5.5 0 0 1 .11-.168l10-10zM11.207 2.5L13.5 4.793 14.793 3.5 12.5 1.207 11.207 2.5zm1.586 3L10.5 3.207 4 9.707V10h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.293l6.5-6.5zm-9.761 5.175l-.106.106-1.528 3.821 3.821-1.528.106-.106A.5.5 0 0 1 5 12.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.468-.325z"/>
+                        </svg>
+                    </button>
+                    {% endif %}
+                </div>
+                <div class="info-value">
+                    <div id="public-display">
+                        {% if checklist.is_public %}
+                            <span class="public-badge">Да (доступен всем пользователям)</span>
+                        {% else %}
+                            <span class="private-badge">Нет (только владелец)</span>
+                        {% endif %}
+                    </div>
+                    {% if current_user.is_admin() or current_user.is_prompt_engineer() or checklist.user_id == current_user.id %}
+                    <div id="edit-public-form" class="edit-form" style="display: none;">
+                        <form method="post" action="{{ url_for('checklists.edit', id=checklist.id) }}">
+                            <input type="hidden" name="name" value="{{ checklist.name }}">
+                            <input type="hidden" name="description" value="{{ checklist.description or '' }}">
+                            <div class="checkbox-item">
+                                <input type="checkbox" 
+                                       name="is_public" 
+                                       id="is_public_input" 
+                                       {% if checklist.is_public %}checked{% endif %}>
+                                <label for="is_public_input">
+                                    Общий доступ (другие пользователи смогут просматривать и копировать этот чек-лист)
+                                </label>
+                            </div>
+                            <div class="form-actions">
+                                <button type="submit" class="button button-small">Сохранить</button>
+                                <button type="button" class="button button-small button-secondary" onclick="cancelEditPublic()">Отмена</button>
+                            </div>
+                        </form>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% else %}
+            <div class="info-row">
+                <div class="info-label">Общий доступ:</div>
+                <div class="info-value">
+                    {% if checklist.is_public %}
+                        <span class="public-badge">Да (доступен всем пользователям)</span>
+                    {% else %}
+                        <span class="private-badge">Нет (только владелец)</span>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
 
             <div class="info-row">
                 <div class="info-label">Используется в заявках:</div>
@@ -227,6 +285,34 @@
         .badge-warning {
             color: #212529;
             background-color: #ffc107;
+        }
+        
+        /* Стили для бейджей публичности */
+        .public-badge {
+            color: #28a745;
+            font-weight: bold;
+        }
+        .private-badge {
+            color: #6c757d;
+        }
+        
+        /* Стили для чекбокса */
+        .checkbox-item {
+            display: flex;
+            align-items: flex-start;
+            margin-bottom: 10px;
+        }
+        
+        .checkbox-item input[type="checkbox"] {
+            width: auto;
+            margin-right: 10px;
+            margin-top: 3px;
+        }
+        
+        .checkbox-item label {
+            flex: 1;
+            margin: 0;
+            cursor: pointer;
         }
 
         .small {
@@ -676,5 +762,56 @@
                 window.location.reload();
             });
         }
+
+        // Редактирование публичности
+        const editPublicBtn = document.getElementById('edit-public-btn');
+        const publicDisplay = document.getElementById('public-display');
+        const editPublicForm = document.getElementById('edit-public-form');
+        const publicInput = document.getElementById('is_public_input');
+        const publicHidden = document.getElementById('is_public_hidden');
+        const publicHidden2 = document.getElementById('is_public_hidden2');
+        
+        if (editPublicBtn && publicDisplay && editPublicForm) {
+            editPublicBtn.addEventListener('click', function() {
+                publicDisplay.style.display = 'none';
+                editPublicBtn.style.display = 'none';
+                editPublicForm.style.display = 'block';
+                publicInput.focus();
+            });
+        }
+        
+        function cancelEditPublic() {
+            if (publicDisplay && editPublicBtn && editPublicForm) {
+                publicDisplay.style.display = 'block';
+                editPublicBtn.style.display = 'inline';
+                editPublicForm.style.display = 'none';
+                // Восстанавливаем исходное значение
+                publicInput.checked = {{ 'true' if checklist.is_public else 'false' }};
+            }
+        }
+
+        // Синхронизация публичности между формами
+        if (publicInput && publicHidden && publicHidden2) {
+            publicInput.addEventListener('change', function() {
+                const value = this.checked ? 'on' : '';
+                publicHidden.value = value;
+                publicHidden2.value = value;
+            });
+        }
+
+        // Добавляем обработку Escape для публичности
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
+                if (editNameForm.style.display === 'block') {
+                    cancelEditName();
+                }
+                if (editDescriptionForm && editDescriptionForm.style.display === 'block') {
+                    cancelEditDescription();
+                }
+                if (editPublicForm && editPublicForm.style.display === 'block') {
+                    cancelEditPublic();
+                }
+            }
+        });
     </script>
 {% endblock %}

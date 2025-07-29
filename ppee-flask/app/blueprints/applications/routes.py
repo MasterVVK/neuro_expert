@@ -71,7 +71,19 @@ def index():
 @login_required  # ДОБАВЛЕНО
 def create():
     """Создание новой заявки"""
-    checklists = Checklist.query.all()
+    # Фильтруем чек-листы в зависимости от роли пользователя
+    if current_user.is_admin() or current_user.is_prompt_engineer():
+        # Админы и промпт-инженеры видят все чек-листы
+        checklists = Checklist.query.all()
+    else:
+        # Обычные пользователи видят свои чек-листы И публичные чек-листы
+        from sqlalchemy import or_
+        checklists = Checklist.query.filter(
+            or_(
+                Checklist.user_id == current_user.id,
+                Checklist.is_public == True
+            )
+        ).all()
 
     if request.method == 'POST':
         name = request.form['name']
@@ -849,10 +861,35 @@ def add_checklist(id):
     # Получаем ID уже назначенных чек-листов
     assigned_checklist_ids = [c.id for c in application.checklists]
 
-    # Получаем доступные для добавления чек-листы (которые еще не назначены)
-    available_checklists = Checklist.query.filter(
-        ~Checklist.id.in_(assigned_checklist_ids)
-    ).all() if assigned_checklist_ids else Checklist.query.all()
+    # Фильтруем чек-листы в зависимости от роли пользователя
+    from sqlalchemy import or_, and_
+    if current_user.is_admin() or current_user.is_prompt_engineer():
+        # Админы и промпт-инженеры видят все чек-листы (исключая уже назначенные)
+        if assigned_checklist_ids:
+            available_checklists = Checklist.query.filter(
+                ~Checklist.id.in_(assigned_checklist_ids)
+            ).all()
+        else:
+            available_checklists = Checklist.query.all()
+    else:
+        # Обычные пользователи видят свои чек-листы И публичные чек-листы (исключая уже назначенные)
+        if assigned_checklist_ids:
+            available_checklists = Checklist.query.filter(
+                and_(
+                    ~Checklist.id.in_(assigned_checklist_ids),
+                    or_(
+                        Checklist.user_id == current_user.id,
+                        Checklist.is_public == True
+                    )
+                )
+            ).all()
+        else:
+            available_checklists = Checklist.query.filter(
+                or_(
+                    Checklist.user_id == current_user.id,
+                    Checklist.is_public == True
+                )
+            ).all()
 
     if request.method == 'POST':
         checklist_ids = request.form.getlist('checklists')

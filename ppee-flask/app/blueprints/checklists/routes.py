@@ -10,9 +10,19 @@ from app.services.fastapi_client import FastAPIClient
 @login_required
 def index():
     """Страница со списком чек-листов"""
-    # Все авторизованные пользователи видят все чек-листы
-    # Права на редактирование проверяются отдельно через can_edit_checklist()
-    checklists = Checklist.query.order_by(Checklist.created_at.desc()).all()
+    # Фильтруем чек-листы в зависимости от роли пользователя
+    if current_user.is_admin() or current_user.is_prompt_engineer():
+        # Админы и промпт-инженеры видят все чек-листы
+        checklists = Checklist.query.order_by(Checklist.created_at.desc()).all()
+    else:
+        # Обычные пользователи видят свои чек-листы И публичные чек-листы
+        from sqlalchemy import or_
+        checklists = Checklist.query.filter(
+            or_(
+                Checklist.user_id == current_user.id,
+                Checklist.is_public == True
+            )
+        ).order_by(Checklist.created_at.desc()).all()
 
     return render_template('checklists/index.html',
                            title='Чек-листы',
@@ -55,11 +65,17 @@ def create():
                                    original_checklist=original_checklist)
 
         try:
+            # Получаем настройку публичности (только для владельцев или админов/промпт-инженеров)
+            is_public = False
+            if current_user.is_admin() or current_user.is_prompt_engineer():
+                is_public = request.form.get('is_public') == 'on'
+
             # Создаем чек-лист с привязкой к текущему пользователю
             checklist = Checklist(
                 name=name,
                 description=description,
-                user_id=current_user.id  # Привязываем к текущему пользователю
+                user_id=current_user.id,  # Привязываем к текущему пользователю
+                is_public=is_public
             )
             db.session.add(checklist)
             db.session.flush()  # Получаем ID нового чек-листа
@@ -115,8 +131,12 @@ def view(id):
     """Просмотр чек-листа и его параметров"""
     checklist = Checklist.query.get_or_404(id)
 
-    # ИЗМЕНЕНО: Все авторизованные пользователи могут просматривать любые чек-листы
-    # Проверка прав только для редактирования
+    # Проверяем права на просмотр чек-листа
+    if not (current_user.is_admin() or current_user.is_prompt_engineer()):
+        # Обычные пользователи могут просматривать свои чек-листы И публичные чек-листы
+        if checklist.user_id != current_user.id and not checklist.is_public:
+            flash('У вас нет прав для просмотра этого чек-листа', 'error')
+            abort(403)
 
     return render_template('checklists/view.html',
                            title=f'Чек-лист {checklist.name}',
@@ -137,6 +157,14 @@ def edit(id):
 
     name = request.form.get('name', '').strip()
     description = request.form.get('description', '').strip()
+    
+    # Получаем настройку публичности (только для владельцев или админов/промпт-инженеров)
+    is_public_new = False
+    if current_user.is_admin() or current_user.is_prompt_engineer():
+        is_public_new = request.form.get('is_public') == 'on'
+    elif checklist.user_id == current_user.id:
+        # Владелец может изменять публичность своего чек-листа
+        is_public_new = request.form.get('is_public') == 'on'
 
     # Валидация
     if not name:
@@ -164,6 +192,10 @@ def edit(id):
         checklist.description = description if description else None
         changes_made = True
 
+    if checklist.is_public != is_public_new:
+        checklist.is_public = is_public_new
+        changes_made = True
+
     if changes_made:
         try:
             db.session.commit()
@@ -183,8 +215,12 @@ def copy(id):
     """Перенаправляет на страницу создания с предзаполненными данными"""
     original_checklist = Checklist.query.get_or_404(id)
 
-    # ИЗМЕНЕНО: Убрана проверка прав - любой авторизованный пользователь может копировать любой чек-лист
-    # Это позволяет делиться чек-листами между пользователями
+    # Проверяем права на копирование
+    if not (current_user.is_admin() or current_user.is_prompt_engineer()):
+        # Обычные пользователи могут копировать свои чек-листы И публичные чек-листы
+        if original_checklist.user_id != current_user.id and not original_checklist.is_public:
+            flash('У вас нет прав для копирования этого чек-листа', 'error')
+            abort(403)
 
     # Генерируем уникальное имя для копии
     suggested_name = f"{original_checklist.name} (копия)"

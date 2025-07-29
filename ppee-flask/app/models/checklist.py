@@ -10,6 +10,7 @@ class Checklist(db.Model):
     name = db.Column(db.String(255), nullable=False, unique=True)
     description = db.Column(db.Text)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'))  # Владелец чек-листа
+    is_public = db.Column(db.Boolean, nullable=False, default=False)  # Общий доступ
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

@@ -42,6 +42,20 @@
                           name="description" 
                           rows="4">{{ prefilled_description or '' }}</textarea>
             </div>
+
+            {% if current_user.is_admin() or current_user.is_prompt_engineer() or (original_checklist and original_checklist.user_id == current_user.id) %}
+            <div class="form-group">
+                <div class="checkbox-item">
+                    <input type="checkbox" 
+                           id="is_public" 
+                           name="is_public"
+                           {% if original_checklist and original_checklist.is_public %}checked{% endif %}>
+                    <label for="is_public">
+                        Общий доступ (другие пользователи смогут просматривать и копировать этот чек-лист)
+                    </label>
+                </div>
+            </div>
+            {% endif %}
             
             {% if original_checklist and original_checklist.parameters.count() > 0 %}
                 <div class="form-group">
