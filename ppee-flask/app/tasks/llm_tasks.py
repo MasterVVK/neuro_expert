@@ -69,13 +69,23 @@ def get_all_chunks_for_application(application_id, batch_size=100):
             if not chunks:
                 break
 
-            all_chunks.extend(chunks)
+            # Фильтруем чанки с нулевой длиной контента
+            valid_chunks = []
+            for chunk in chunks:
+                content_length = chunk.get('metadata', {}).get('content_length', 0)
+                if content_length > 0:
+                    valid_chunks.append(chunk)
+                else:
+                    logger.debug(f"Пропущен чанк с нулевой длиной при загрузке: {chunk.get('metadata', {}).get('chunk_id', 'unknown')}")
+            
+            all_chunks.extend(valid_chunks)
             offset += batch_size
 
             # Если получили меньше чем batch_size, значит это последняя партия
             if len(chunks) < batch_size:
                 break
 
+        logger.info(f"Загружено {len(all_chunks)} чанков с контентом для заявки {application_id}")
         return all_chunks
     except Exception as e:
         logger.error(f"Ошибка при получении всех чанков: {e}")
@@ -151,10 +161,15 @@ def group_chunks_by_size(chunks, max_size=14000):
     for chunk in chunks:
         # Получаем размер контента из метаданных
         metadata = chunk.get('metadata', {})
-        content_length = metadata.get('content_length')
+        content_length = metadata.get('content_length', 0)
 
-        # Если нет content_length, обрабатываем чанк отдельно
-        if content_length is None:
+        # Пропускаем чанки с нулевой длиной контента
+        if content_length == 0:
+            logger.debug(f"Пропущен чанк с нулевой длиной контента: {metadata.get('chunk_id', 'unknown')}")
+            continue
+
+        # Если нет content_length или он отрицательный, обрабатываем чанк отдельно
+        if content_length is None or content_length < 0:
             # Если есть накопленный пакет, добавляем его
             if current_batch:
                 batches.append(current_batch)
