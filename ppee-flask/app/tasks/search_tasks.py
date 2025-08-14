@@ -84,10 +84,13 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
             # Проверяем отмену перед вызовом FastAPI
             check_if_cancelled()
 
+            # Приводим поисковый запрос к нижнему регистру для улучшения поиска
+            query_text_lower = query_text.lower() if query_text else query_text
+            
             # Вызываем FastAPI для поиска
             response = requests.post(f"{FASTAPI_URL}/search", json={
                 "application_id": str(application_id),
-                "query": query_text,
+                "query": query_text_lower,
                 "limit": limit,
                 "use_reranker": use_reranker,
                 "rerank_limit": rerank_limit,

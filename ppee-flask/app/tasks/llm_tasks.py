@@ -365,9 +365,12 @@ def process_parameters_task(self, application_id):
 
                 # Выполняем поиск используя search_query
                 try:
+                    # Приводим поисковый запрос к нижнему регистру для улучшения поиска
+                    search_query_lower = param.search_query.lower() if param.search_query else param.search_query
+                    
                     search_response = requests.post(f"{FASTAPI_URL}/search", json={
                         "application_id": str(application_id),
-                        "query": param.search_query,  # Всегда используем search_query для поиска
+                        "query": search_query_lower,  # Используем нижний регистр для поиска
                         "limit": param.search_limit,
                         "use_reranker": param.use_reranker,
                         "rerank_limit": param.rerank_limit if param.use_reranker else None,

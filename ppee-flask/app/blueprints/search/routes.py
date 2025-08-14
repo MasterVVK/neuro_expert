@@ -69,6 +69,9 @@ def execute_search():
     """Выполняет поиск и возвращает результаты в формате JSON"""
     application_id = request.form.get('application_id')
     query = request.form.get('query')
+    # Приводим поисковый запрос к нижнему регистру для улучшения поиска
+    if query:
+        query = query.lower()
     search_limit = int(request.form.get('search_limit', 5))
     use_reranker = request.form.get('use_reranker') == 'true'
     rerank_limit = int(request.form.get('rerank_limit', 10)) if use_reranker else None
