@@ -10,6 +10,9 @@
                 <span>Показать все заявки</span>
             </label>
             {% endif %}
+            <div class="search-box">
+                <input type="text" id="application-search" placeholder="Поиск по названию..." onkeyup="searchApplications()">
+            </div>
             {% if checklists %}
             <div class="filter-dropdown">
                 <select id="checklist-filter" onchange="filterByChecklist()">
@@ -48,7 +51,7 @@
                             data-owner-id="{{ app.user_id if app.user_id else '' }}"
                             data-checklist-ids="{% for checklist in app.checklists %}{{ checklist.id }}{% if not loop.last %},{% endif %}{% endfor %}">
                             <td>{{ app.id }}</td>
-                            <td>{{ app.name }}</td>
+                            <td class="application-name">{{ app.name }}</td>
                             {% if current_user.is_admin() or current_user.is_prompt_engineer() %}
                             <td>
                                 {% if app.user %}
@@ -138,6 +141,37 @@
 
         .checkbox-label:hover span {
             color: #007bff;
+        }
+
+        /* Стили для поля поиска */
+        .search-box {
+            display: inline-flex;
+            align-items: center;
+        }
+
+        .search-box input[type="text"] {
+            padding: 6px 12px;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+            font-size: 14px;
+            color: #495057;
+            background-color: white;
+            width: 250px;
+            transition: border-color 0.15s ease-in-out;
+        }
+
+        .search-box input[type="text"]:hover {
+            border-color: #80bdff;
+        }
+
+        .search-box input[type="text"]:focus {
+            outline: none;
+            border-color: #007bff;
+            box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+        }
+
+        .search-box input[type="text"]::placeholder {
+            color: #999;
         }
 
         /* Стили для выпадающего списка фильтрации */
@@ -291,6 +325,15 @@
                 flex-wrap: wrap;
             }
 
+            .search-box {
+                width: 100%;
+                margin-top: 10px;
+            }
+
+            .search-box input[type="text"] {
+                width: 100%;
+            }
+
             .filter-dropdown {
                 width: 100%;
                 margin-top: 10px;
@@ -320,20 +363,24 @@
         function applyFilters() {
             const showAllCheckbox = document.getElementById('show-all-applications');
             const checklistFilter = document.getElementById('checklist-filter');
+            const searchInput = document.getElementById('application-search');
             const rows = document.querySelectorAll('.application-row');
             
             // Для обычных пользователей чекбокса нет, поэтому showAll = false (показываем только свои)
             // Для админов и промпт-инженеров используем состояние чекбокса
             const showAll = showAllCheckbox ? showAllCheckbox.checked : false;
             const selectedChecklistId = checklistFilter ? checklistFilter.value : 'all';
+            const searchTerm = searchInput ? searchInput.value.toLowerCase().trim() : '';
             
             rows.forEach(row => {
                 const ownerId = row.getAttribute('data-owner-id');
                 const checklistIdsAttr = row.getAttribute('data-checklist-ids') || '';
                 const checklistIds = checklistIdsAttr.split(',').filter(id => id);
+                const applicationName = row.querySelector('.application-name').textContent.toLowerCase();
                 
                 let showByOwner = true;
                 let showByChecklist = true;
+                let showBySearch = true;
                 
                 // Фильтр по владельцу
                 // Если showAll = false (обычный пользователь или админ со снятым чекбоксом),
@@ -347,8 +394,13 @@
                     showByChecklist = false;
                 }
                 
-                // Показываем строку только если она проходит оба фильтра
-                row.style.display = (showByOwner && showByChecklist) ? '' : 'none';
+                // Фильтр по поиску
+                if (searchTerm && !applicationName.includes(searchTerm)) {
+                    showBySearch = false;
+                }
+                
+                // Показываем строку только если она проходит все фильтры
+                row.style.display = (showByOwner && showByChecklist && showBySearch) ? '' : 'none';
             });
         }
         
@@ -365,6 +417,14 @@
             const checklistFilter = document.getElementById('checklist-filter');
             // Сохраняем выбранный чек-лист в LocalStorage
             localStorage.setItem('selectedChecklistId', checklistFilter.value);
+            applyFilters();
+        }
+        
+        // Функция поиска заявок
+        function searchApplications() {
+            const searchInput = document.getElementById('application-search');
+            // Сохраняем поисковый запрос в LocalStorage
+            localStorage.setItem('applicationSearchTerm', searchInput.value);
             applyFilters();
         }
         
@@ -386,6 +446,13 @@
                     checklistFilter.value = 'all';
                     localStorage.removeItem('selectedChecklistId');
                 }
+            }
+            
+            // Восстанавливаем поисковый запрос из LocalStorage
+            const searchInput = document.getElementById('application-search');
+            const savedSearchTerm = localStorage.getItem('applicationSearchTerm');
+            if (searchInput && savedSearchTerm) {
+                searchInput.value = savedSearchTerm;
             }
             
             // Применяем все фильтры
