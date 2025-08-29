@@ -1,0 +1,24 @@
+[Unit]
+Description=Celery Worker Service
+After=network.target redis.service
+
+[Service]
+Type=simple
+User=user
+Group=user
+
+# === ЕДИНСТВЕННАЯ СТРОКА, КОТОРУЮ НУЖНО МЕНЯТЬ ДЛЯ ДРУГОГО ПРОЕКТА ===
+WorkingDirectory=/home/user/neuro_expert/ppee-flask
+
+Environment="TORCH_CUDA_ARCH_LIST=8.6"
+
+# Запускаем через скрипт, который читает celeryconfig.py
+ExecStart=/home/user/neuro_expert/ppee-flask/start-celery.sh
+
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
