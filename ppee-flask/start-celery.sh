@@ -4,7 +4,7 @@
 # Определяем пути на основе текущей директории
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-VENV_PATH="${PROJECT_DIR}/.venv"
+VENV_PATH="${PROJECT_DIR}/venv"
 
 # Проверяем наличие venv
 if [ ! -d "$VENV_PATH" ]; then
