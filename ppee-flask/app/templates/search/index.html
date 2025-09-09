@@ -646,6 +646,9 @@
                 
                 multiSelectMode = checkbox.checked;
                 
+                // Сохраняем состояние в localStorage с префиксом для страницы поиска
+                localStorage.setItem('searchPage_multiSelectMode', multiSelectMode);
+                
                 if (multiSelectMode) {
                     // Переключаемся на множественный выбор
                     singleSelect.style.display = 'none';
@@ -719,6 +722,9 @@
                 const select = document.getElementById('application_id');
                 const options = select.querySelectorAll('.application-option');
 
+                // Сохраняем состояние в localStorage с префиксом для страницы поиска
+                localStorage.setItem('searchPage_showAllApplications', checkbox.checked);
+
                 // Сохраняем текущее выбранное значение
                 const currentValue = select.value;
                 let currentValueVisible = false;
@@ -755,9 +761,26 @@
             }
             window.toggleApplicationsView = toggleApplicationsView;
 
-            // При загрузке страницы скрываем чужие заявки для админов и промпт-инженеров
+            // Восстанавливаем состояние чекбоксов из localStorage при загрузке страницы
             {% if current_user.is_admin() or current_user.is_prompt_engineer() %}
-            toggleApplicationsView();
+            // Восстанавливаем состояние "Показать все заявки"
+            const savedShowAll = localStorage.getItem('searchPage_showAllApplications');
+            if (savedShowAll !== null) {
+                const showAllCheckbox = document.getElementById('show-all-applications');
+                showAllCheckbox.checked = savedShowAll === 'true';
+                toggleApplicationsView();
+            } else {
+                // По умолчанию скрываем чужие заявки
+                toggleApplicationsView();
+            }
+            
+            // Восстанавливаем состояние "Поиск по выбранным заявкам"
+            const savedMultiSelect = localStorage.getItem('searchPage_multiSelectMode');
+            if (savedMultiSelect !== null) {
+                const multiSelectCheckbox = document.getElementById('search-selected-applications');
+                multiSelectCheckbox.checked = savedMultiSelect === 'true';
+                toggleMultiSelectMode();
+            }
             {% endif %}
         });
     </script>
