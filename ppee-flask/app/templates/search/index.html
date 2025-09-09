@@ -402,10 +402,25 @@
                         if (multiSelectMode && result.application_id && result.application_id !== currentAppId) {
                             currentAppId = result.application_id;
                             
+                            // Находим название заявки из списка
+                            const appOption = document.querySelector(`.application-checkbox[value="${currentAppId}"]`);
+                            let appName = `Заявка ID: ${currentAppId}`;
+                            if (appOption) {
+                                const label = appOption.closest('label');
+                                if (label) {
+                                    const spanText = label.querySelector('span').textContent;
+                                    // Извлекаем название заявки до "(ID:"
+                                    const nameMatch = spanText.match(/^(.+?)\s*\(ID:/);
+                                    if (nameMatch) {
+                                        appName = nameMatch[1].trim();
+                                    }
+                                }
+                            }
+                            
                             // Создаем заголовок для группы заявки
                             const appHeader = document.createElement('div');
                             appHeader.className = 'application-group-header';
-                            appHeader.innerHTML = `<h3>Заявка ID: ${currentAppId}</h3>`;
+                            appHeader.innerHTML = `<h3>${appName} <span style="font-size: 0.9em; opacity: 0.8;">(ID: ${currentAppId})</span></h3>`;
                             searchResults.appendChild(appHeader);
                             
                             // Создаем контейнер для результатов этой заявки
@@ -780,22 +795,37 @@
         .llm-result {
             margin-bottom: 20px;
         }
+        
+        .info-card {
+            background-color: white;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
 
         .llm-value {
-            font-size: 1.2rem;
+            font-size: 1.1rem;
             padding: 15px;
             background-color: #f8f9fa;
             border-radius: 4px;
-            border-left: 4px solid #007bff;
-            margin-bottom: 10px;
+            border-left: 4px solid #28a745;
+            margin-bottom: 15px;
+            color: #212529;
         }
 
         .result-item {
-            background-color: #f8f9fa;
-            border-left: 4px solid #007bff;
+            background-color: white;
+            border: 1px solid #dee2e6;
+            border-left: 3px solid #007bff;
             padding: 15px;
             margin-bottom: 15px;
-            border-radius: 0 4px 4px 0;
+            border-radius: 4px;
+            transition: box-shadow 0.2s ease;
+        }
+        
+        .result-item:hover {
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
         }
 
         .result-header {
@@ -804,17 +834,17 @@
         }
 
         .result-position {
-            font-size: 1.2rem;
+            font-size: 1rem;
             font-weight: bold;
             margin-right: 15px;
-            background-color: #007bff;
+            background-color: #343a40;
             color: white;
-            width: 30px;
-            height: 30px;
+            width: 28px;
+            height: 28px;
             display: flex;
             align-items: center;
             justify-content: center;
-            border-radius: 50%;
+            border-radius: 4px;
         }
 
         .result-meta {
@@ -930,27 +960,51 @@
             to { background-position: 0 0 }
         }
 
-        /* Стили для результатов поиска */
-            margin-bottom: 10px;
-            padding: 10px;
+        /* Стили для результатов поиска и статистики */
+        .results-stats {
             background-color: #f8f9fa;
+            border-left: 3px solid #28a745;
+            padding: 15px;
+            margin-bottom: 20px;
             border-radius: 4px;
+        }
+        
+        .results-stats p {
+            margin: 5px 0;
+            color: #495057;
+        }
+        
+        .results-stats strong {
+            color: #212529;
         }
 
         .no-results {
-            padding: 20px;
+            padding: 30px;
             text-align: center;
             background-color: #f8f9fa;
             border-radius: 4px;
+            color: #6c757d;
+            border: 1px solid #dee2e6;
         }
 
         /* Стиль для отображения уверенности */
+        .confidence-container {
+            margin-top: 10px;
+        }
+        
+        .confidence-container p {
+            margin: 0 0 8px 0;
+            color: #6c757d;
+            font-size: 0.9rem;
+        }
+        
         .confidence-bar {
             position: relative;
-            height: 20px;
+            height: 22px;
             background-color: #e9ecef;
             border-radius: 4px;
             overflow: hidden;
+            border: 1px solid #dee2e6;
         }
 
         .confidence-value {
@@ -968,10 +1022,10 @@
             left: 0;
             right: 0;
             text-align: center;
-            line-height: 20px;
-            color: white;
-            font-weight: bold;
-            text-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
+            line-height: 22px;
+            color: #212529;
+            font-weight: 600;
+            font-size: 0.9rem;
             z-index: 1;
         }
 
@@ -1096,13 +1150,14 @@
     
     /* Стили для группировки результатов по заявкам */
     .application-group-header {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background-color: #343a40;
         color: white;
         padding: 12px 20px;
         margin-top: 20px;
         margin-bottom: 0;
         border-radius: 8px 8px 0 0;
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        border-left: 4px solid #007bff;
     }
     
     .application-group-header:first-child {
@@ -1111,23 +1166,32 @@
     
     .application-group-header h3 {
         margin: 0;
-        font-size: 1.2rem;
+        font-size: 1.1rem;
         font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 10px;
     }
     
     .application-group-results {
-        border: 2px solid #e9ecef;
+        border: 1px solid #dee2e6;
         border-top: none;
         border-radius: 0 0 8px 8px;
         padding: 15px;
-        background-color: #fafbfc;
+        background-color: #f8f9fa;
         margin-bottom: 20px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
     
     .application-group-results .result-item {
         background-color: white;
-        border: 1px solid #dee2e6;
+        border: 1px solid #e9ecef;
         margin-bottom: 12px;
+        transition: box-shadow 0.2s ease;
+    }
+    
+    .application-group-results .result-item:hover {
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
     }
     
     .application-group-results .result-item:last-child {
