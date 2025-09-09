@@ -398,29 +398,31 @@
                     let appGroupDiv = null;
                     
                     data.results.forEach(result => {
-                        // Проверяем, нужно ли создать новую группу для заявки
+                        // Проверяем, нужно ли создать новую группу для заявки (только в режиме множественного выбора)
                         if (multiSelectMode && result.application_id && result.application_id !== currentAppId) {
                             currentAppId = result.application_id;
                             
                             // Находим название заявки из списка
                             const appOption = document.querySelector(`.application-checkbox[value="${currentAppId}"]`);
-                            let appName = `Заявка ID: ${currentAppId}`;
+                            let appFullName = '';
+                            
                             if (appOption) {
                                 const label = appOption.closest('label');
                                 if (label) {
-                                    const spanText = label.querySelector('span').textContent;
-                                    // Извлекаем название заявки до "(ID:"
-                                    const nameMatch = spanText.match(/^(.+?)\s*\(ID:/);
-                                    if (nameMatch) {
-                                        appName = nameMatch[1].trim();
-                                    }
+                                    const spanText = label.querySelector('span').textContent.trim();
+                                    appFullName = spanText;
                                 }
+                            }
+                            
+                            // Если не нашли название, используем стандартный формат
+                            if (!appFullName) {
+                                appFullName = `Заявка ID: ${currentAppId}`;
                             }
                             
                             // Создаем заголовок для группы заявки
                             const appHeader = document.createElement('div');
                             appHeader.className = 'application-group-header';
-                            appHeader.innerHTML = `<h3>${appName} <span style="font-size: 0.9em; opacity: 0.8;">(ID: ${currentAppId})</span></h3>`;
+                            appHeader.innerHTML = `<h3>${appFullName}</h3>`;
                             searchResults.appendChild(appHeader);
                             
                             // Создаем контейнер для результатов этой заявки
