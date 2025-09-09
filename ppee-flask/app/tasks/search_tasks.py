@@ -10,10 +10,11 @@ FASTAPI_URL = "http://localhost:8001"
 
 
 @celery.task(bind=True)
-def semantic_search_task(self, application_id, query_text, limit=5, use_reranker=False,
-                         rerank_limit=None, use_llm=False, llm_params=None,
-                         use_smart_search=False, vector_weight=0.5, text_weight=0.5,
-                         hybrid_threshold=10, doc_names_mapping=None):
+def semantic_search_task(self, application_id=None, application_ids=None, query_text=None, 
+                         limit=5, use_reranker=False, rerank_limit=None, use_llm=False, 
+                         llm_params=None, use_smart_search=False, vector_weight=0.5, 
+                         text_weight=0.5, hybrid_threshold=10, doc_names_mapping=None,
+                         multi_search=False):
     """Асинхронная задача для семантического поиска через FastAPI с поддержкой отмены"""
     # Создаем контекст приложения для работы с БД
     app = create_app()
@@ -32,24 +33,33 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
 
             # Проверяем отмену перед началом
             check_if_cancelled()
+            
+            # Определяем ID заявок для поиска
+            if multi_search and application_ids:
+                search_app_ids = application_ids
+                logger.info(f"Множественный поиск по заявкам: {search_app_ids}")
+            else:
+                search_app_ids = [application_id] if application_id else []
+                logger.info(f"Одиночный поиск по заявке: {application_id}")
 
             if use_reranker and rerank_limit == 9999:
-                # Получаем статистику заявки через FastAPI
-                try:
-                    logger.info(f"Получение количества чанков для заявки {application_id}")
-                    response = requests.get(f"{FASTAPI_URL}/applications/{application_id}/stats")
-                    if response.status_code == 200:
-                        stats = response.json()["stats"]
-                        total_chunks = stats.get("total_points", 100)  # fallback на 100
-                        rerank_limit = total_chunks
-                        logger.info(f"Использование всех {total_chunks} чанков для ререйтинга в заявке {application_id}")
-                    else:
-                        # Если не удалось получить статистику, используем большое значение
-                        rerank_limit = 1000
-                        logger.warning(f"Не удалось получить количество чанков для заявки {application_id}, используем {rerank_limit}")
-                except Exception as e:
-                    logger.error(f"Ошибка при получении статистики заявки: {e}")
-                    rerank_limit = 1000  # fallback
+                # Для множественного поиска суммируем чанки всех заявок
+                total_chunks = 0
+                for app_id in search_app_ids:
+                    try:
+                        logger.info(f"Получение количества чанков для заявки {app_id}")
+                        response = requests.get(f"{FASTAPI_URL}/applications/{app_id}/stats")
+                        if response.status_code == 200:
+                            stats = response.json()["stats"]
+                            app_chunks = stats.get("total_points", 100)  # fallback на 100
+                            total_chunks += app_chunks
+                            logger.info(f"Заявка {app_id}: {app_chunks} чанков")
+                    except Exception as e:
+                        logger.error(f"Ошибка при получении статистики заявки {app_id}: {e}")
+                        total_chunks += 100  # fallback для этой заявки
+                
+                rerank_limit = total_chunks if total_chunks > 0 else 1000
+                logger.info(f"Использование всех {rerank_limit} чанков для ререйтинга")
 
 
             # Обновляем статус - начало
@@ -87,23 +97,65 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
             # Приводим поисковый запрос к нижнему регистру для улучшения поиска
             query_text_lower = query_text.lower() if query_text else query_text
             
-            # Вызываем FastAPI для поиска
-            response = requests.post(f"{FASTAPI_URL}/search", json={
-                "application_id": str(application_id),
-                "query": query_text_lower,
-                "limit": limit,
-                "use_reranker": use_reranker,
-                "rerank_limit": rerank_limit,
-                "use_smart_search": use_smart_search,
-                "vector_weight": vector_weight,
-                "text_weight": text_weight,
-                "hybrid_threshold": hybrid_threshold
-            })
+            # Выполняем поиск для каждой заявки или для всех сразу
+            all_search_results = []
+            
+            if multi_search and len(search_app_ids) > 1:
+                # Множественный поиск - сохраняем результаты по каждой заявке отдельно
+                search_results_by_app = []
+                
+                for app_id in search_app_ids:
+                    try:
+                        response = requests.post(f"{FASTAPI_URL}/search", json={
+                            "application_id": str(app_id),
+                            "query": query_text_lower,
+                            "limit": limit,  # Каждая заявка получает полный лимит результатов
+                            "use_reranker": use_reranker,
+                            "rerank_limit": rerank_limit // len(search_app_ids) if rerank_limit else None,
+                            "use_smart_search": use_smart_search,
+                            "vector_weight": vector_weight,
+                            "text_weight": text_weight,
+                            "hybrid_threshold": hybrid_threshold
+                        })
+                        
+                        if response.status_code == 200:
+                            results = response.json()["results"]
+                            # Добавляем информацию о заявке в метаданные
+                            for result in results:
+                                result['application_id'] = app_id
+                            # Сохраняем результаты с информацией о заявке
+                            if results:
+                                search_results_by_app.append({
+                                    'application_id': app_id,
+                                    'results': results
+                                })
+                        else:
+                            logger.error(f"Ошибка поиска в заявке {app_id}: {response.text}")
+                    except Exception as e:
+                        logger.error(f"Ошибка при поиске в заявке {app_id}: {e}")
+                
+                # Собираем все результаты последовательно по заявкам
+                search_results = []
+                for app_data in search_results_by_app:
+                    search_results.extend(app_data['results'])
+            else:
+                # Одиночный поиск
+                response = requests.post(f"{FASTAPI_URL}/search", json={
+                    "application_id": str(search_app_ids[0]),
+                    "query": query_text_lower,
+                    "limit": limit,
+                    "use_reranker": use_reranker,
+                    "rerank_limit": rerank_limit,
+                    "use_smart_search": use_smart_search,
+                    "vector_weight": vector_weight,
+                    "text_weight": text_weight,
+                    "hybrid_threshold": hybrid_threshold
+                })
 
-            if response.status_code != 200:
-                raise Exception(f"FastAPI search error: {response.text}")
+                if response.status_code != 200:
+                    raise Exception(f"FastAPI search error: {response.text}")
 
-            search_results = response.json()["results"]
+                search_results = response.json()["results"]
 
             # Проверяем отмену после получения результатов
             check_if_cancelled()
@@ -165,28 +217,60 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
 
             # Форматируем результаты
             formatted_results = []
-            for i, result in enumerate(search_results):
-                doc_id = result.get('metadata', {}).get('document_id', '')
-                formatted_result = {
-                    'position': i + 1,
-                    'text': result.get('text', ''),
-                    'document_id': doc_id,
-                    'document_name': doc_names_mapping.get(doc_id, 'Неизвестный документ'),
-                    'page_number': result.get('metadata', {}).get('page_number', 'Не указана'),
-                    'score': round(float(result.get('score', 0.0)), 4),
-                    'search_type': result.get('search_type', 'vector'),
-                    # Сохраняем section и content_type для возможной отладки
-                    'metadata': {
-                        'section': result.get('metadata', {}).get('section'),
-                        'content_type': result.get('metadata', {}).get('content_type')
+            
+            # Для множественного поиска группируем по заявкам
+            if multi_search and len(search_app_ids) > 1:
+                current_app_id = None
+                app_position = 0
+                
+                for i, result in enumerate(search_results):
+                    # Проверяем, началась ли новая заявка
+                    if result.get('application_id') != current_app_id:
+                        current_app_id = result.get('application_id')
+                        app_position = 1  # Сбрасываем позицию для новой заявки
+                    else:
+                        app_position += 1
+                    
+                    doc_id = result.get('metadata', {}).get('document_id', '')
+                    formatted_result = {
+                        'position': app_position,  # Позиция внутри заявки
+                        'global_position': i + 1,  # Глобальная позиция
+                        'application_id': result.get('application_id'),  # ID заявки
+                        'text': result.get('text', ''),
+                        'document_id': doc_id,
+                        'document_name': doc_names_mapping.get(doc_id, 'Неизвестный документ'),
+                        'page_number': result.get('metadata', {}).get('page_number', 'Не указана'),
+                        'score': round(float(result.get('score', 0.0)), 4),
+                        'search_type': result.get('search_type', 'vector'),
+                        'metadata': {
+                            'section': result.get('metadata', {}).get('section'),
+                            'content_type': result.get('metadata', {}).get('content_type')
+                        }
                     }
-                }
+                    formatted_results.append(formatted_result)
+            else:
+                # Одиночный поиск - стандартное форматирование
+                for i, result in enumerate(search_results):
+                    doc_id = result.get('metadata', {}).get('document_id', '')
+                    formatted_result = {
+                        'position': i + 1,
+                        'text': result.get('text', ''),
+                        'document_id': doc_id,
+                        'document_name': doc_names_mapping.get(doc_id, 'Неизвестный документ'),
+                        'page_number': result.get('metadata', {}).get('page_number', 'Не указана'),
+                        'score': round(float(result.get('score', 0.0)), 4),
+                        'search_type': result.get('search_type', 'vector'),
+                        'metadata': {
+                            'section': result.get('metadata', {}).get('section'),
+                            'content_type': result.get('metadata', {}).get('content_type')
+                        }
+                    }
 
-                # Добавляем rerank_score если есть
-                if 'rerank_score' in result:
-                    formatted_result['rerank_score'] = round(float(result.get('rerank_score', 0.0)), 4)
+                    # Добавляем rerank_score если есть
+                    if 'rerank_score' in result:
+                        formatted_result['rerank_score'] = round(float(result.get('rerank_score', 0.0)), 4)
 
-                formatted_results.append(formatted_result)
+                    formatted_results.append(formatted_result)
 
             # Финальное обновление статуса
             self.update_state(state='PROGRESS', meta={
@@ -214,6 +298,11 @@ def semantic_search_task(self, application_id, query_text, limit=5, use_reranker
                 'stage': 'complete',
                 'message': 'Поиск завершен'
             }
+            
+            # Добавляем информацию о множественном поиске
+            if multi_search and application_ids:
+                result['application_ids'] = application_ids
+                result['multi_search'] = True
 
             # Важно! Устанавливаем финальный статус
             self.update_state(state='SUCCESS', meta=result)

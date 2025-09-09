@@ -67,7 +67,24 @@ def index():
 @login_required  # ДОБАВЛЕНО: требуется авторизация
 def execute_search():
     """Выполняет поиск и возвращает результаты в формате JSON"""
-    application_id = request.form.get('application_id')
+    # Проверяем режим поиска - множественный или одиночный
+    multi_search = request.form.get('multi_search') == 'true'
+    
+    if multi_search:
+        # Режим множественного выбора
+        application_ids_str = request.form.get('application_ids', '')
+        if not application_ids_str:
+            return jsonify({
+                'status': 'error',
+                'message': 'Не выбраны заявки для поиска'
+            })
+        application_ids = [int(id.strip()) for id in application_ids_str.split(',') if id.strip()]
+        application_id = None  # Для совместимости с существующим кодом
+    else:
+        # Режим одиночного выбора
+        application_id = request.form.get('application_id')
+        application_ids = [int(application_id)] if application_id else []
+    
     query = request.form.get('query')
     # Приводим поисковый запрос к нижнему регистру для улучшения поиска
     if query:
@@ -97,39 +114,51 @@ def execute_search():
             'max_tokens': int(request.form.get('llm_max_tokens', 1000))
         }
 
-    if not application_id or not query:
+    if not application_ids or not query:
         return jsonify({
             'status': 'error',
             'message': 'Не указана заявка или поисковый запрос'
         })
 
     try:
-        # Получаем маппинг имен документов
-        application = Application.query.get(application_id)
-
-        # ДОБАВЛЕНО: Проверка прав доступа к заявке
-        if not application:
-            return jsonify({
-                'status': 'error',
-                'message': 'Заявка не найдена'
-            })
-
-        if not current_user.can_view_application(application):
-            return jsonify({
-                'status': 'error',
-                'message': 'У вас нет доступа к этой заявке'
-            })
-
-        doc_names_mapping = application.get_document_names_mapping() if application else {}
+        # Проверяем права доступа для всех выбранных заявок
+        applications = []
+        doc_names_mapping = {}
+        
+        for app_id in application_ids:
+            application = Application.query.get(app_id)
+            
+            if not application:
+                return jsonify({
+                    'status': 'error',
+                    'message': f'Заявка {app_id} не найдена'
+                })
+            
+            if not current_user.can_view_application(application):
+                return jsonify({
+                    'status': 'error',
+                    'message': f'У вас нет доступа к заявке {app_id}'
+                })
+            
+            applications.append(application)
+            # Объединяем маппинги документов от всех заявок
+            app_mapping = application.get_document_names_mapping()
+            doc_names_mapping.update(app_mapping)
 
         # Логируем запрос
-        current_app.logger.info(
-            f"Поиск: '{query}', Заявка: {application_id}, "
-            f"Ререйтинг: {use_reranker}, Умный поиск: {use_smart_search}, LLM: {use_llm}")
+        if multi_search:
+            current_app.logger.info(
+                f"Множественный поиск: '{query}', Заявки: {application_ids}, "
+                f"Ререйтинг: {use_reranker}, Умный поиск: {use_smart_search}, LLM: {use_llm}")
+        else:
+            current_app.logger.info(
+                f"Поиск: '{query}', Заявка: {application_ids[0]}, "
+                f"Ререйтинг: {use_reranker}, Умный поиск: {use_smart_search}, LLM: {use_llm}")
 
         # Вызываем асинхронную задачу Celery для выполнения поиска
         task = semantic_search_task.delay(
-            application_id=application_id,
+            application_id=application_ids[0] if len(application_ids) == 1 else None,
+            application_ids=application_ids if multi_search else None,
             query_text=query,
             limit=search_limit,
             use_reranker=use_reranker,
@@ -140,7 +169,8 @@ def execute_search():
             vector_weight=vector_weight,
             text_weight=text_weight,
             hybrid_threshold=hybrid_threshold,
-            doc_names_mapping=doc_names_mapping  # Передаем маппинг
+            doc_names_mapping=doc_names_mapping,  # Передаем маппинг
+            multi_search=multi_search
         )
 
         # Возвращаем ID задачи для последующего отслеживания
