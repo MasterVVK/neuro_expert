@@ -14,6 +14,9 @@
                 <span>Поиск по выбранным заявкам</span>
             </label>
             {% endif %}
+            <div class="search-box">
+                <input type="text" id="application-search" placeholder="Поиск заявки по названию..." onkeyup="searchApplications()">
+            </div>
         </div>
     </div>
     <div class="search-container">
@@ -710,49 +713,71 @@
                 countElement.textContent = `Выбрано: ${checkedBoxes.length}`;
             }
             
+            // Функция поиска заявок по названию
+            function searchApplications() {
+                const searchInput = document.getElementById('application-search');
+                const searchTerm = searchInput.value.toLowerCase();
+                
+                // Сохраняем поисковый запрос в localStorage
+                localStorage.setItem('searchPage_applicationSearchTerm', searchTerm);
+                
+                // Фильтруем опции в обычном селекте
+                const select = document.getElementById('application_id');
+                const options = select.querySelectorAll('.application-option');
+                const showAll = document.getElementById('show-all-applications');
+                
+                options.forEach(option => {
+                    if (!option.value) return; // Пропускаем пустую опцию
+                    
+                    const optionText = option.textContent.toLowerCase();
+                    const matchesSearch = optionText.includes(searchTerm);
+                    const ownerId = option.getAttribute('data-owner-id');
+                    const isOwn = ownerId && parseInt(ownerId) === currentUserId;
+                    const shouldShowByOwnership = showAll && showAll.checked ? true : isOwn;
+                    
+                    // Показываем только если соответствует поиску И видимости по владельцу
+                    if (matchesSearch && shouldShowByOwnership) {
+                        option.style.display = '';
+                    } else {
+                        option.style.display = 'none';
+                    }
+                });
+                
+                // Фильтруем опции в множественном выборе
+                if (multiSelectMode) {
+                    const multiOptions = document.querySelectorAll('.multiselect-option');
+                    multiOptions.forEach(option => {
+                        const optionText = option.querySelector('span').textContent.toLowerCase();
+                        const matchesSearch = optionText.includes(searchTerm);
+                        const ownerId = option.getAttribute('data-owner-id');
+                        const isOwn = ownerId && parseInt(ownerId) === currentUserId;
+                        const shouldShowByOwnership = showAll && showAll.checked ? true : isOwn;
+                        
+                        if (matchesSearch && shouldShowByOwnership) {
+                            option.style.display = '';
+                        } else {
+                            option.style.display = 'none';
+                        }
+                    });
+                }
+            }
+            
             // Добавляем эти функции в глобальную область видимости
             window.toggleMultiSelectMode = toggleMultiSelectMode;
             window.selectAllApplications = selectAllApplications;
             window.deselectAllApplications = deselectAllApplications;
             window.updateSelectedCount = updateSelectedCount;
+            window.searchApplications = searchApplications;
 
             // Функция переключения вида заявок
             function toggleApplicationsView() {
                 const checkbox = document.getElementById('show-all-applications');
-                const select = document.getElementById('application_id');
-                const options = select.querySelectorAll('.application-option');
-
+                
                 // Сохраняем состояние в localStorage с префиксом для страницы поиска
                 localStorage.setItem('searchPage_showAllApplications', checkbox.checked);
-
-                // Сохраняем текущее выбранное значение
-                const currentValue = select.value;
-                let currentValueVisible = false;
-
-                options.forEach(option => {
-                    const ownerId = option.getAttribute('data-owner-id');
-
-                    if (checkbox.checked) {
-                        // Показать все заявки
-                        option.style.display = '';
-                        if (option.value === currentValue) {
-                            currentValueVisible = true;
-                        }
-                        } else {
-                            // Показать только свои заявки
-                            if (ownerId && parseInt(ownerId) === currentUserId) {
-                                option.style.display = '';
-                            } else {
-                                option.style.display = 'none';
-                            }
-                        }
-                });
-
-                // Если текущее выбранное значение скрыто, сбрасываем выбор
-                if (!currentValueVisible && currentValue) {
-                    select.value = '';
-                    updateAllChunksOption(); // Обновляем опцию "Все чанки"
-                }
+                
+                // Применяем фильтры с учетом поиска
+                searchApplications();
                 
                 // Обновляем видимость в множественном выборе
                 if (multiSelectMode) {
@@ -761,8 +786,15 @@
             }
             window.toggleApplicationsView = toggleApplicationsView;
 
-            // Восстанавливаем состояние чекбоксов из localStorage при загрузке страницы
+            // Восстанавливаем состояние чекбоксов и поиска из localStorage при загрузке страницы
             {% if current_user.is_admin() or current_user.is_prompt_engineer() %}
+            // Восстанавливаем поисковый запрос
+            const savedSearchTerm = localStorage.getItem('searchPage_applicationSearchTerm');
+            if (savedSearchTerm) {
+                const searchInput = document.getElementById('application-search');
+                searchInput.value = savedSearchTerm;
+            }
+            
             // Восстанавливаем состояние "Показать все заявки"
             const savedShowAll = localStorage.getItem('searchPage_showAllApplications');
             if (savedShowAll !== null) {
@@ -780,6 +812,14 @@
                 const multiSelectCheckbox = document.getElementById('search-selected-applications');
                 multiSelectCheckbox.checked = savedMultiSelect === 'true';
                 toggleMultiSelectMode();
+            }
+            {% else %}
+            // Для обычных пользователей тоже восстанавливаем поиск
+            const savedSearchTerm = localStorage.getItem('searchPage_applicationSearchTerm');
+            if (savedSearchTerm) {
+                const searchInput = document.getElementById('application-search');
+                searchInput.value = savedSearchTerm;
+                searchApplications();
             }
             {% endif %}
         });
@@ -1099,6 +1139,35 @@
 
     .checkbox-label:hover span {
         color: #007bff;
+    }
+    
+    /* Стили для поля поиска */
+    .search-box {
+        display: inline-block;
+        margin-left: 20px;
+    }
+    
+    .search-box input[type="text"] {
+        padding: 6px 12px;
+        border: 1px solid #ced4da;
+        border-radius: 4px;
+        font-size: 14px;
+        width: 250px;
+        transition: border-color 0.15s ease-in-out;
+    }
+    
+    .search-box input[type="text"]:hover {
+        border-color: #80bdff;
+    }
+    
+    .search-box input[type="text"]:focus {
+        outline: none;
+        border-color: #007bff;
+        box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+    }
+    
+    .search-box input[type="text"]::placeholder {
+        color: #999;
     }
     
     /* Стили для множественного выбора заявок */
