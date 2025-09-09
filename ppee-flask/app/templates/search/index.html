@@ -9,14 +9,16 @@
                 <input type="checkbox" id="show-all-applications" onchange="toggleApplicationsView()">
                 <span>Показать все заявки</span>
             </label>
+            {% endif %}
+            <div class="search-box">
+                <input type="text" id="application-search" placeholder="Поиск заявки по названию..." onkeyup="searchApplications()">
+            </div>
+            {% if current_user.is_admin() or current_user.is_prompt_engineer() %}
             <label class="checkbox-label">
                 <input type="checkbox" id="search-selected-applications" onchange="toggleMultiSelectMode()">
                 <span>Поиск по выбранным заявкам</span>
             </label>
             {% endif %}
-            <div class="search-box">
-                <input type="text" id="application-search" placeholder="Поиск заявки по названию..." onkeyup="searchApplications()">
-            </div>
         </div>
     </div>
     <div class="search-container">
