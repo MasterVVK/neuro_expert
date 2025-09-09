@@ -107,16 +107,26 @@
             justify-content: space-between;
             align-items: center;
             margin-bottom: 20px;
+            flex-wrap: nowrap;
         }
 
         .header-title {
             display: flex;
             align-items: center;
-            gap: 20px;
+            gap: 15px;
+            flex-wrap: nowrap;
+            flex: 1 1 auto;
         }
 
         .header-title h1 {
             margin: 0;
+            white-space: nowrap;
+        }
+        
+        .page-header > .button {
+            white-space: nowrap;
+            flex-shrink: 0;
+            margin-left: 20px;
         }
 
         /* Стили для чекбокса */
