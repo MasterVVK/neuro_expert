@@ -211,6 +211,14 @@
             <h2>Результаты поиска</h2>
             <div id="results-stats" class="results-stats"></div>
 
+            <!-- Режим точного отображения -->
+            <div class="view-options">
+                <label class="display-mode-toggle">
+                    <input type="checkbox" id="displayModeToggle" onchange="toggleDisplayMode()" checked>
+                    <span class="toggle-label">Режим точного отображения</span>
+                </label>
+            </div>
+
             <!-- Блок для отображения результата LLM -->
             <div id="llm-result" class="llm-result" style="display: none;">
                 <h3>Извлеченное значение (LLM)</h3>
@@ -242,6 +250,9 @@
             // Элементы для гибридного поиска
             const useSmartSearchCheckbox = document.getElementById('use_smart_search');
             const hybridSettings = document.getElementById('hybrid-settings');
+
+            // Элемент для режима точного отображения
+            const displayModeToggle = document.getElementById('displayModeToggle');
 
             // Элементы формы и результатов
             const searchForm = document.getElementById('search-form');
@@ -468,7 +479,9 @@
                                     ${scoreHtml}
                                 </div>
                             </div>
-                            <div class="result-content">${result.text}</div>
+                            <div class="text-scroll-container">
+                                <div class="search-result-content text-container">${result.text}</div>
+                            </div>
                         `;
 
                         // Добавляем в соответствующий контейнер
@@ -480,6 +493,14 @@
                     });
                 } else {
                     searchResults.innerHTML = '<p class="no-results">По вашему запросу ничего не найдено</p>';
+                }
+
+                // Применяем режим точного отображения к новым элементам
+                if (displayModeToggle && displayModeToggle.checked) {
+                    const textContainers = searchResults.querySelectorAll('.text-container');
+                    textContainers.forEach(container => {
+                        container.classList.add('exact-mode');
+                    });
                 }
             }
 
@@ -625,6 +646,26 @@
                     });
                 });
             });
+
+            // Функция для переключения режима отображения
+            function toggleDisplayMode() {
+                const isExactMode = displayModeToggle && displayModeToggle.checked;
+                const textContainers = document.querySelectorAll('.text-container');
+
+                textContainers.forEach(container => {
+                    if (isExactMode) {
+                        container.classList.add('exact-mode');
+                    } else {
+                        container.classList.remove('exact-mode');
+                    }
+                });
+
+                // Сохраняем состояние в localStorage
+                localStorage.setItem('searchPage_displayMode', isExactMode ? 'exact' : 'normal');
+            }
+
+            // Делаем функцию доступной глобально
+            window.toggleDisplayMode = toggleDisplayMode;
 
             // Обновляем при смене заявки
             applicationSelect.addEventListener('change', updateAllChunksOption);
@@ -824,6 +865,15 @@
                 searchApplications();
             }
             {% endif %}
+
+            // Восстанавливаем режим отображения
+            const savedDisplayMode = localStorage.getItem('searchPage_displayMode');
+            if (savedDisplayMode && displayModeToggle) {
+                displayModeToggle.checked = savedDisplayMode === 'exact';
+            } else if (displayModeToggle) {
+                // По умолчанию включаем режим точного отображения
+                displayModeToggle.checked = true;
+            }
         });
     </script>
 
@@ -889,6 +939,7 @@
             margin-bottom: 15px;
             border-radius: 4px;
             transition: box-shadow 0.2s ease;
+            overflow: hidden; /* Предотвращаем выход содержимого за границы */
         }
         
         .result-item:hover {
@@ -953,15 +1004,8 @@
             color: #cc0000;
         }
 
-        .result-content {
-            white-space: pre-line;
-            font-family: monospace;
-            background-color: white;
-            padding: 10px;
-            border-radius: 4px;
-            border: 1px solid #dee2e6;
-            max-height: 300px;
-            overflow-y: auto;
+        .search-result-content {
+            background-color: #f5f5f5;
         }
 
         /* Стили для контейнера ошибок */
@@ -1309,6 +1353,94 @@
     
     .application-group-results .result-item:last-child {
         margin-bottom: 0;
+    }
+
+    /* Стили для режима точного отображения */
+    .view-options {
+        margin: 15px 0;
+        padding: 10px;
+        background-color: #f8f9fa;
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+        gap: 15px;
+    }
+
+    .display-mode-toggle {
+        display: inline-flex;
+        align-items: center;
+        cursor: pointer;
+        user-select: none;
+        font-weight: 500;
+        font-size: 14px;
+    }
+
+    .display-mode-toggle input[type="checkbox"] {
+        margin-right: 8px;
+        cursor: pointer;
+        width: 16px;
+        height: 16px;
+    }
+
+    .display-mode-toggle .toggle-label {
+        color: #495057;
+    }
+
+    .display-mode-toggle:hover .toggle-label {
+        color: #007bff;
+    }
+
+    /* Контейнер для прокрутки текста */
+    .text-scroll-container {
+        width: 100%;
+        max-width: 100%;
+        overflow-x: auto; /* Горизонтальная прокрутка */
+        overflow-y: auto; /* Вертикальная прокрутка */
+        border: 1px solid #e0e0e0;
+        border-radius: 4px;
+        margin-top: 10px;
+        max-height: 400px;
+        position: relative; /* Для правильного позиционирования */
+    }
+
+    /* Базовые стили для текстового контейнера */
+    .text-container {
+        padding: 10px;
+        font-family: monospace;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        box-sizing: border-box;
+        min-width: 100%;
+        width: 100%;
+        background-color: #f8f9fa;
+    }
+
+    /* Режим точного отображения */
+    .exact-mode {
+        white-space: pre !important;
+        word-wrap: normal !important;
+        width: max-content !important;
+        min-width: 100% !important;
+    }
+
+    /* Скроллбар для контейнера */
+    .text-scroll-container::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+
+    .text-scroll-container::-webkit-scrollbar-track {
+        background: #f1f1f1;
+        border-radius: 4px;
+    }
+
+    .text-scroll-container::-webkit-scrollbar-thumb {
+        background: #888;
+        border-radius: 4px;
+    }
+
+    .text-scroll-container::-webkit-scrollbar-thumb:hover {
+        background: #555;
     }
 
     </style>
