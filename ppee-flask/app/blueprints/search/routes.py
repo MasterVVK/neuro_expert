@@ -55,12 +55,16 @@ def index():
 Ответь одной строкой в указанном формате:
 {query}: [значение]"""
 
+    # Получаем DEFAULT_HYBRID_THRESHOLD из конфигурации
+    default_hybrid_threshold = current_app.config.get('DEFAULT_HYBRID_THRESHOLD', 20)
+
     return render_template('search/index.html',
                            title='Семантический поиск',
                            applications=applications,
                            available_models=available_models,
                            default_llm_model=default_llm_model,
-                           default_prompt=default_prompt)
+                           default_prompt=default_prompt,
+                           default_hybrid_threshold=default_hybrid_threshold)
 
 
 @bp.route('/execute', methods=['POST'])
@@ -97,7 +101,9 @@ def execute_search():
     use_smart_search = request.form.get('use_smart_search') == 'true'
     vector_weight = float(request.form.get('vector_weight', 0.5))
     text_weight = float(request.form.get('text_weight', 0.5))
-    hybrid_threshold = int(request.form.get('hybrid_threshold', 10))
+    # Используем DEFAULT_HYBRID_THRESHOLD из конфигурации как fallback
+    default_threshold = current_app.config.get('DEFAULT_HYBRID_THRESHOLD', 20)
+    hybrid_threshold = int(request.form.get('hybrid_threshold', default_threshold))
 
     # Параметры LLM
     use_llm = request.form.get('use_llm') == 'true'
