@@ -1,5 +1,6 @@
 from app import celery, db, create_app
 from app.models import Application, ParameterResult
+from app.utils.llm_parser import LLMResponseParser
 from datetime import datetime
 import logging
 import requests
@@ -198,67 +199,122 @@ def group_chunks_by_size(chunks, max_size=14000):
 
 
 def format_single_chunk_for_context(chunk):
-    """Форматирует один чанк для контекста"""
+    """Форматирует один чанк для контекста с полными метаданными"""
     text = chunk.get('text', '')
     metadata = chunk.get('metadata', {})
 
-    doc_text = "Документ:\n"
-    if metadata.get('section'):
-        doc_text += f"Раздел: {metadata['section']}\n"
-    if metadata.get('content_type'):
-        doc_text += f"Тип: {metadata['content_type']}\n"
+    # Формируем структурированный контекст с метаданными
+    doc_text = f"[Источник: "
+
+    # Добавляем название документа
+    if metadata.get('document_name'):
+        doc_text += f"Документ: {metadata['document_name']}"
+    elif metadata.get('document_id'):
+        doc_text += f"Документ ID: {metadata['document_id']}"
+
+    # Добавляем страницу
     if metadata.get('page_number'):
-        doc_text += f"Страница: {metadata['page_number']}\n"
-    doc_text += f"Текст:\n{text}"
-    doc_text = f"{text}\n"
+        doc_text += f", Страница: {metadata['page_number']}"
+    elif metadata.get('page_numbers'):
+        pages = metadata['page_numbers']
+        if isinstance(pages, list) and pages:
+            doc_text += f", Страницы: {', '.join(map(str, pages))}"
+
+    # Добавляем номер чанка
+    if metadata.get('chunk_index') is not None:
+        doc_text += f", Чанк: {metadata['chunk_index']}"
+    elif metadata.get('chunk_id'):
+        doc_text += f", Чанк: {metadata['chunk_id']}"
+
+    # Добавляем раздел, если есть
+    if metadata.get('section'):
+        doc_text += f", Раздел: {metadata['section']}"
+
+    doc_text += "]\n"
+    doc_text += f"{text}\n"
 
     return doc_text
 
 
 def format_documents_for_context(search_results):
-    """Форматирует найденные документы для контекста LLM"""
+    """Форматирует найденные документы для контекста LLM с метаданными"""
     context_parts = []
     for i, doc in enumerate(search_results, 1):
         metadata = doc.get('metadata', {})
-        doc_text = f"Документ {i}:\n"
+
+        # Формируем заголовок с метаданными
+        doc_text = f"===== Результат {i} =====\n"
+        doc_text += f"[Источник: "
+
+        # Добавляем название документа
+        if metadata.get('document_name'):
+            doc_text += f"Документ: {metadata['document_name']}"
+        elif metadata.get('document_id'):
+            doc_text += f"Документ ID: {metadata['document_id']}"
+
+        # Добавляем страницу
+        if metadata.get('page_number'):
+            doc_text += f", Страница: {metadata['page_number']}"
+        elif metadata.get('page_numbers'):
+            pages = metadata['page_numbers']
+            if isinstance(pages, list) and pages:
+                doc_text += f", Страницы: {', '.join(map(str, pages))}"
+
+        # Добавляем номер чанка
+        if metadata.get('chunk_index') is not None:
+            doc_text += f", Чанк: {metadata['chunk_index']}"
+        elif metadata.get('chunk_id'):
+            doc_text += f", Чанк: {metadata['chunk_id']}"
+
+        # Добавляем раздел
+        if metadata.get('section') and metadata['section'] != "Не определено":
+            doc_text += f", Раздел: {metadata['section']}"
+
+        doc_text += "]\n\n"
+
+        # Добавляем текст
         doc_text += f"{doc['text']}\n"
+        doc_text += "=" * 30 + "\n"
+
         context_parts.append(doc_text)
+
     return "\n".join(context_parts)
 
 
 def extract_value_from_response(response, query):
-    """Извлекает значение из ответа LLM"""
-    response = response.strip()
-    
-    # Проверяем на отсутствие информации
-    if "информация не найдена" in response.lower():
-        return "Информация не найдена"
-    
-    # Пытаемся найти формат "параметр: значение"
-    pattern = f"{re.escape(query)}\\s*:\\s*(.+)"
-    match = re.search(pattern, response, re.IGNORECASE)
-    if match:
-        return match.group(1).strip()
-    
-    # Если не нашли в таком формате, возвращаем весь ответ
-    return response
+    """Извлекает значение из ответа LLM с поддержкой различных форматов"""
+    parser = LLMResponseParser()
+    result = parser.parse_response(response, query)
+
+    # Логируем результат парсинга для отладки
+    logger.debug(f"Парсинг ответа LLM: формат={result.get('format')}, уверенность={result.get('confidence')}")
+    if 'formats_tried' in result:
+        logger.debug(f"Попробованные форматы: {result['formats_tried']}")
+
+    return result['value']
+
+
+def parse_llm_response_full(response, query):
+    """Парсит полный ответ LLM и возвращает все данные включая источник"""
+    parser = LLMResponseParser()
+    result = parser.parse_response(response, query)
+
+    # Возвращаем полный результат с информацией об источнике
+    return {
+        'value': result.get('value'),
+        'confidence': result.get('confidence'),
+        'source': result.get('source'),
+        'document': result.get('document'),
+        'page': result.get('page'),
+        'chunk': result.get('chunk'),
+        'format': result.get('format')
+    }
 
 
 def calculate_confidence(response):
     """Рассчитывает уверенность в ответе"""
-    uncertainty_phrases = [
-        "возможно", "вероятно", "может быть", "предположительно",
-        "не ясно", "не уверен", "не определено", "информация не найдена"
-    ]
-
-    confidence = 0.8
-    response_lower = response.lower()
-
-    for phrase in uncertainty_phrases:
-        if phrase in response_lower:
-            confidence -= 0.1
-
-    return max(0.1, min(confidence, 1.0))
+    parser = LLMResponseParser()
+    return parser._calculate_confidence(response)
 
 
 def check_if_cancelled(celery_task):
@@ -483,9 +539,10 @@ def process_parameters_task(self, application_id):
                             # ДОБАВЛЕНО: Извлечение информации о токенах
                             tokens_info = llm_response_data.get("tokens", {})
 
-                            # Извлекаем значение и рассчитываем уверенность
-                            value = extract_value_from_response(llm_text, data['llm_query'])
-                            confidence = calculate_confidence(llm_text)
+                            # Извлекаем полный результат парсинга
+                            parsed_result = parse_llm_response_full(llm_text, data['llm_query'])
+                            value = parsed_result['value']
+                            confidence = parsed_result.get('confidence') or calculate_confidence(llm_text)
 
                             # Проверяем, найдена ли информация
                             if "информация не найдена" in value.lower() and data.get('use_full_scan', False):
@@ -513,7 +570,12 @@ def process_parameters_task(self, application_id):
                                         'response': llm_text,
                                         'search_query': data['search_query'],
                                         'llm_query': data['llm_query'],
-                                        'tokens': tokens_info  # ДОБАВЛЕНО: сохраняем токены
+                                        'tokens': tokens_info,  # ДОБАВЛЕНО: сохраняем токены
+                                        # Сохраняем информацию об источнике, если LLM вернул её
+                                        'source_document': parsed_result.get('document'),
+                                        'source_page': parsed_result.get('page'),
+                                        'source_chunk': parsed_result.get('chunk'),
+                                        'response_format': parsed_result.get('format')
                                     }
                                 }
 

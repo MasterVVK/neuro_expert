@@ -1,4 +1,5 @@
 from app import celery, create_app
+from app.utils.llm_parser import LLMResponseParser
 import logging
 import requests
 import time
@@ -336,56 +337,65 @@ def semantic_search_task(self, application_id=None, application_ids=None, query_
 
 
 def format_documents_for_context(documents, max_docs=8):
-    """Форматирует документы для контекста"""
+    """Форматирует документы для контекста с полными метаданными"""
     formatted = []
     for i, doc in enumerate(documents[:max_docs]):
         text = doc.get('text', '')
         metadata = doc.get('metadata', {})
 
-        doc_text = f"Документ {i + 1}:\n"
-        if metadata.get('section'):
-            doc_text += f"Раздел: {metadata['section']}\n"
-        if metadata.get('content_type'):
-            doc_text += f"Тип: {metadata['content_type']}\n"
-        doc_text += f"Текст:\n{text}\n" + "-" * 40
+        # Формируем заголовок с метаданными
+        doc_text = f"===== Результат {i + 1} =====\n"
+        doc_text += f"[Источник: "
+
+        # Добавляем название документа
+        if metadata.get('document_name'):
+            doc_text += f"Документ: {metadata['document_name']}"
+        elif metadata.get('document_id'):
+            doc_text += f"Документ ID: {metadata['document_id']}"
+
+        # Добавляем страницу
+        if metadata.get('page_number'):
+            doc_text += f", Страница: {metadata['page_number']}"
+        elif metadata.get('page_numbers'):
+            pages = metadata['page_numbers']
+            if isinstance(pages, list) and pages:
+                doc_text += f", Страницы: {', '.join(map(str, pages))}"
+
+        # Добавляем номер чанка
+        if metadata.get('chunk_index') is not None:
+            doc_text += f", Чанк: {metadata['chunk_index']}"
+        elif metadata.get('chunk_id'):
+            doc_text += f", Чанк: {metadata['chunk_id']}"
+
+        # Добавляем раздел
+        if metadata.get('section') and metadata['section'] != "Не определено":
+            doc_text += f", Раздел: {metadata['section']}"
+
+        doc_text += "]\n\n"
+
+        # Добавляем текст
+        doc_text += f"{text}\n"
+        doc_text += "=" * 30 + "\n"
 
         formatted.append(doc_text)
 
-    return "\n\n".join(formatted)
+    return "\n".join(formatted)
 
 
 def extract_value_from_response(response, query):
-    """Извлекает значение из ответа LLM"""
-    lines = [line.strip() for line in response.split('\n') if line.strip()]
+    """Извлекает значение из ответа LLM с поддержкой различных форматов"""
+    parser = LLMResponseParser()
+    result = parser.parse_response(response, query)
 
-    # Ищем строку с результатом
-    for line in lines:
-        if line.startswith("РЕЗУЛЬТАТ:"):
-            return line.replace("РЕЗУЛЬТАТ:", "").strip()
+    # Логируем результат парсинга для отладки
+    logger.debug(f"Парсинг ответа LLM: формат={result.get('format')}, уверенность={result.get('confidence')}")
+    if 'formats_tried' in result:
+        logger.debug(f"Попробованные форматы: {result['formats_tried']}")
 
-    # Ищем строку с двоеточием
-    for line in lines:
-        if ":" in line:
-            parts = line.split(":", 1)
-            if len(parts) == 2 and parts[1].strip():
-                return parts[1].strip()
-
-    # Возвращаем последнюю строку
-    return lines[-1] if lines else "Информация не найдена"
+    return result['value']
 
 
 def calculate_confidence(response):
     """Рассчитывает уверенность в ответе"""
-    uncertainty_phrases = [
-        "возможно", "вероятно", "может быть", "предположительно",
-        "не ясно", "не уверен", "не определено", "информация не найдена"
-    ]
-
-    confidence = 0.8
-    response_lower = response.lower()
-
-    for phrase in uncertainty_phrases:
-        if phrase in response_lower:
-            confidence -= 0.1
-
-    return max(0.1, min(confidence, 1.0))
+    parser = LLMResponseParser()
+    return parser._calculate_confidence(response)
