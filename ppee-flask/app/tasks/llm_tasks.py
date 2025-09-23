@@ -98,11 +98,11 @@ def process_chunks_batch_through_llm(chunks_batch, param_data, model_name):
     try:
         # Форматируем контекст из пакета чанков
         context_parts = []
-        for i, chunk in enumerate(chunks_batch):
+        for chunk in chunks_batch:
             chunk_text = format_single_chunk_for_context(chunk)
-            context_parts.append(f"Чанк {i + 1}:\n{chunk_text}")
+            context_parts.append(chunk_text)
 
-        context = "\n\n".join(context_parts)
+        context = "\n".join(context_parts)
 
         # Подготавливаем промпт
         prompt = param_data['prompt_template'].format(
@@ -226,9 +226,7 @@ def format_single_chunk_for_context(chunk):
     elif metadata.get('chunk_id'):
         doc_text += f", Чанк: {metadata['chunk_id']}"
 
-    # Добавляем раздел, если есть
-    if metadata.get('section'):
-        doc_text += f", Раздел: {metadata['section']}"
+    # Раздел убран из вывода для упрощения контекста
 
     doc_text += "]\n"
     doc_text += f"{text}\n"
@@ -266,9 +264,7 @@ def format_documents_for_context(search_results):
         elif metadata.get('chunk_id'):
             doc_text += f", Чанк: {metadata['chunk_id']}"
 
-        # Добавляем раздел
-        if metadata.get('section') and metadata['section'] != "Не определено":
-            doc_text += f", Раздел: {metadata['section']}"
+        # Раздел убран из вывода для упрощения контекста
 
         doc_text += "]\n\n"
 

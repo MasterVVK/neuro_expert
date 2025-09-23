@@ -367,9 +367,7 @@ def format_documents_for_context(documents, max_docs=8):
         elif metadata.get('chunk_id'):
             doc_text += f", Чанк: {metadata['chunk_id']}"
 
-        # Добавляем раздел
-        if metadata.get('section') and metadata['section'] != "Не определено":
-            doc_text += f", Раздел: {metadata['section']}"
+        # Раздел убран из вывода для упрощения контекста
 
         doc_text += "]\n\n"
 
